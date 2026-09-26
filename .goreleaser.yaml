@@ -1,0 +1,37 @@
+version: 2
+pro: true
+project_name: nsl
+metadata:
+  description: NSpawn Subsystem for Linux — development machines on atomic hosts
+  homepage: https://github.com/frostyard/nsl
+  license: MIT
+builds:
+  - id: nsl
+    binary: nsl
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+archives:
+  - formats:
+      - tar.gz
+    files:
+      - README.md
+      - LICENSE
+checksum:
+  name_template: checksums.txt
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^test:'
+      - '^chore:'

@@ -1,0 +1,9 @@
+/nsl
+*.test
+/build/
+/dist/
+/coverage.out
+/coverage.html
+/.worktrees/
+/.mcp.json
+/.env
