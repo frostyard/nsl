@@ -25,7 +25,7 @@ A first build descriptor is implemented at `/usr/lib/nsl/image.json`: schema, bu
 
 ## Planned distribution contract
 
-The delivery mechanism in [ADR-0012](../adr/0012-signed-image-distribution.md) is a target contract; registry downloads and signature verification are not implemented yet.
+The development CLI implements registry downloads and signature verification under [ADR-0012](../adr/0012-signed-image-distribution.md) and [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md). Public image publication is pending.
 
 - Published bases MUST use immutable artifact digests. A signed catalogue MAY map friendly distro/release/channel names to those digests, with architecture, protocol compatibility and validation status.
 - The initial OCI artifact MUST contain a compressed raw disk, image descriptor, package inventory and build provenance, with compressed/uncompressed sizes and digests. The disk remains a VM payload.

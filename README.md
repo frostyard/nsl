@@ -25,9 +25,9 @@ build/nsl doctor
 # Build once inside a disposable VM; dependencies stay inside that VM.
 scripts/build-image.sh --distribution debian
 # Ubuntu alternative: scripts/build-image.sh --distribution ubuntu --release noble
-image_sha=$(sha256sum build/image/share/nsl-debian-trixie-x86-64-v6.raw)
+image_sha=$(sha256sum build/image/share/nsl-debian-trixie-x86-64-v7.raw)
 build/nsl create dev \
-  --image "$PWD/build/image/share/nsl-debian-trixie-x86-64-v6.raw" \
+  --image "$PWD/build/image/share/nsl-debian-trixie-x86-64-v7.raw" \
   --digest "sha256:${image_sha%% *}" \
   --project "$PWD" --desktop --cpus 2 --memory 2 --disk 16
 build/nsl shell dev

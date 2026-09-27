@@ -40,4 +40,5 @@ Initial publication uses an explicitly labeled KVM-capable builder with the docu
 ## References
 
 - [ADR-0012](../adr/0012-signed-image-distribution.md), [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md).
+- [Publication workflow](../design/image-publication.md).
 - [Image delivery plan](../plans/image-distribution.md), [guest contract](guest-images.md), [CLI](cli.md), [lifecycle](../design/lifecycle.md).

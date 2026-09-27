@@ -15,29 +15,29 @@ scripts/build-image.sh --distribution opensuse --release tumbleweed
 scripts/build-image.sh --distribution arch --release rolling
 ```
 
-The default is Debian trixie. The combinations below have passed the full VM suite; `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
+The default is Debian trixie. The prior revisions of these combinations passed the full VM suite; the revisions below prepare the publication build with the updated integration-input checksum and require new acceptance runs. `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
 
 | Profile | Release | Root filesystem | Output under `build/image/share/` |
 | --- | --- | --- | --- |
-| Debian | 13 / trixie | btrfs | `nsl-debian-trixie-x86-64-v6.raw` |
-| Ubuntu | 24.04 LTS / noble | ext4 | `nsl-ubuntu-noble-x86-64-v6.raw` |
-| Fedora | 44 | btrfs | `nsl-fedora-44-x86-64-v4.raw` |
-| CentOS Stream | 10 | ext4 | `nsl-centos-10-x86-64-v3.raw` |
-| openSUSE Leap | 16.0 | btrfs | `nsl-opensuse-16.0-x86-64-v5.raw` |
-| openSUSE Tumbleweed | 20260923 | btrfs | `nsl-opensuse-tumbleweed-x86-64-v5.raw` |
-| Arch | rolling, initial snapshot 2026/09/25 | btrfs | `nsl-arch-rolling-x86-64-v2.raw` |
+| Debian | 13 / trixie | btrfs | `nsl-debian-trixie-x86-64-v7.raw` |
+| Ubuntu | 24.04 LTS / noble | ext4 | `nsl-ubuntu-noble-x86-64-v7.raw` |
+| Fedora | 44 | btrfs | `nsl-fedora-44-x86-64-v5.raw` |
+| CentOS Stream | 10 | ext4 | `nsl-centos-10-x86-64-v4.raw` |
+| openSUSE Leap | 16.0 | btrfs | `nsl-opensuse-16.0-x86-64-v6.raw` |
+| openSUSE Tumbleweed | 20260923 | btrfs | `nsl-opensuse-tumbleweed-x86-64-v6.raw` |
+| Arch | rolling, initial snapshot 2026/09/25 | btrfs | `nsl-arch-rolling-x86-64-v3.raw` |
 
 [Fedora/CentOS evidence](../docs/plans/rpm-guests.md) includes SELinux enforcing, kernel maintenance and rootless containers. [SUSE/Arch evidence](../docs/plans/suse-and-arch.md) covers both openSUSE profiles and Arch. Arch passed an actual kernel-version upgrade; the other six profiles passed kernel reinstallation and regenerated-image reboots.
 
 The script requires Lima 2.2.0, Python 3, Git, `flock` and the host VM prerequisites. Build packages stay inside an owned Debian builder with 4 CPUs, 4 GiB RAM and a 64 GiB sparse disk. It shares only `build/image/share`, serializes builds with a lock, removes successful guest build workspaces, and stops on exit. Failed workspaces remain for diagnosis.
 
-Images are published without replacing existing files. Each raw disk has a sibling `.manifest` with package versions and `.json` with nsl build identity, selected profile, protocol range, source pins and an integration source checksum. The raw SHA256 is written to `build/image/evidence/OUTPUT.sha256`. Move retained outputs before rebuilding. Live package repositories mean builds are not bit-for-bit reproducible; checksums and manifests do not authenticate publishers. Signed catalogue delivery is future work.
+Images are published without replacing existing files. Each raw disk has a sibling `.manifest` with package versions and `.json` with nsl build identity, selected profile, protocol range, source pins and an integration source checksum. The raw SHA256 is written to `build/image/evidence/OUTPUT.sha256`. Move retained outputs before rebuilding. Live package repositories mean builds are not bit-for-bit reproducible; checksums and manifests do not authenticate publishers. The client implements signed catalogue delivery; public publication is pending.
 
 ## Planned prebuilt image delivery
 
 The [image delivery plan](../docs/plans/image-distribution.md) selects public GHCR OCI artifacts containing a compressed raw disk, image metadata, package inventory and provenance. A signed catalogue will map distro selections to tested immutable digests. nsl will verify the publishing workflow identity and content, resume interrupted downloads, cache verified bases and create independent writable VMs. Ordinary users will not need Lima or mkosi for this path.
 
-Publication, catalogue selection and client signature verification are planned. Current sibling manifests describe local builds and do not authenticate them. New bases will affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [guest contract](../docs/specs/guest-images.md).
+Catalogue selection and client signature verification are implemented. The [publication workflow](../docs/design/image-publication.md) builds/tests the full matrix before signing and promoting it; its first public run is pending. Current sibling manifests describe local builds and do not authenticate them. New bases will affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [guest contract](../docs/specs/guest-images.md).
 
 ## Integration layers
 

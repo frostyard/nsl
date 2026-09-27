@@ -41,6 +41,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Design
 
+- [Image publication](design/image-publication.md) — KVM workflow, public artifact boundary and signing.
+
 - [Lifecycle and mounts](design/lifecycle.md)
 
 ### Specs
