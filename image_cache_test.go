@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -393,5 +395,59 @@ func TestImageCommandValidation(t *testing.T) {
 		if err := c.app.create(fmt.Sprintf("bad%d", i), args); err == nil {
 			t.Fatal("accepted invalid arguments")
 		}
+	}
+}
+
+// A subprocess isolates the kernel write limit from the test runner and its
+// coverage output. This exercises cleanup after a real mid-stream disk write
+// failure, followed by a retry once storage can accept the image.
+func TestImageCacheWriteFailure(t *testing.T) {
+	if os.Getenv("NSL_TEST_FILE_LIMIT") != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestImageCacheWriteFailure$")
+		cmd.Env = append(os.Environ(), "NSL_TEST_FILE_LIMIT=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("write failure subprocess: %v\n%s", err, output)
+		}
+		return
+	}
+	f, c := newDeliveryFixture(t)
+	f.raw = bytes.Repeat([]byte("image bytes"), 200000)
+	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compressed := encoder.EncodeAll(f.raw, nil)
+	encoder.Close()
+	f.artifact.Raw = refBytes(f.raw)
+	f.artifact.Compressed = refBytes(compressed)
+	f.publishImage(compressed)
+	var original syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &original); err != nil {
+		t.Fatal(err)
+	}
+	limited := original
+	limited.Cur = 512 << 10
+	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &limited); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Setrlimit(syscall.RLIMIT_FSIZE, &original)
+	err = c.app.create("write-failure", []string{"--distro", "debian:13"})
+	if err == nil || !strings.Contains(err.Error(), "decompress image") {
+		t.Fatalf("expected disk write error, got %v", err)
+	}
+	if _, err := os.Lstat(c.app.dir("write-failure")); !os.IsNotExist(err) {
+		t.Fatal("failed write published environment")
+	}
+	paths, err := os.ReadDir(filepath.Join(c.app.home, "images"))
+	if err != nil || len(paths) != 0 {
+		t.Fatalf("failed write left raw/staging image: %v %v", paths, err)
+	}
+	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &original); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.pull("debian:13", false); err != nil {
+		t.Fatalf("storage recovery retry: %v", err)
 	}
 }

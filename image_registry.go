@@ -267,7 +267,8 @@ func (r *imageRegistry) download(ref blobRef, file *os.File, progress io.Writer)
 			return err
 		}
 		fmt.Fprintf(progress, "Downloading image: %d / %d bytes\n", offset, ref.Size)
-		n, copyErr := io.Copy(file, io.LimitReader(response.Body, ref.Size-offset+1))
+		meter := &downloadProgress{out: progress, current: offset, total: ref.Size, last: time.Now()}
+		n, copyErr := io.Copy(io.MultiWriter(file, meter), io.LimitReader(response.Body, ref.Size-offset+1))
 		syncErr := file.Sync()
 		if n > ref.Size-offset {
 			_ = file.Truncate(0)
@@ -296,6 +297,22 @@ func (r *imageRegistry) download(ref blobRef, file *os.File, progress io.Writer)
 	}
 	_, err = file.Seek(0, io.SeekStart)
 	return err
+}
+
+type downloadProgress struct {
+	out            io.Writer
+	current, total int64
+	last           time.Time
+}
+
+func (p *downloadProgress) Write(b []byte) (int, error) {
+	p.current += int64(len(b))
+	now := time.Now()
+	if now.Sub(p.last) >= 2*time.Second || p.current == p.total {
+		fmt.Fprintf(p.out, "Downloading image: %d / %d bytes\n", p.current, p.total)
+		p.last = now
+	}
+	return len(b), nil
 }
 
 func encodeJSON(v any) []byte {

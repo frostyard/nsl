@@ -15,6 +15,7 @@ fmt:
 verify:
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go mod tidy -diff
+	python3 scripts/license-notices.py --check
 	go vet ./...
 	test -z "$$(gofmt -l *.go)"
 	go test ./...
