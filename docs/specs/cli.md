@@ -7,7 +7,7 @@ Contract for the binary and tests. Rationale: [ADR-0005](../adr/0005-vmspawn-and
 | Command | Behavior |
 | --- | --- |
 | `create NAME --image FILE --digest sha256:HEX [--project DIR] [--desktop] [--cpus N] [--memory GiB] [--disk GiB]` | Verify a local raw image and prepare an independent persistent VM. |
-| `images [--offline]` | List authenticated catalogue selections; public publication pending. |
+| `images [--offline]` | List authenticated public catalogue selections. |
 | `pull DISTRO:RELEASE [--offline]` | Verify and cache a selected base without creating a VM. |
 | `create NAME --distro DISTRO:RELEASE [--offline] [resource/project flags]` | Prepare a VM from a verified catalogue selection. |
 | `list` | List owned environments and runtime state. |

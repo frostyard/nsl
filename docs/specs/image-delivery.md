@@ -1,6 +1,6 @@
 # Spec: Signed image delivery
 
-Contract for the v0.3.0 implementation under [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md). The client is implemented in the development branch; public publication is pending.
+Contract for the v0.3.0 implementation under [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md). All seven x86-64 images are public on GHCR. See the [publication results](../plans/public-image-delivery.md) for exact digests and acceptance evidence.
 
 ## Interface
 
@@ -15,7 +15,7 @@ The registry is `ghcr.io/frostyard/nsl-images`; `catalogue-v1` is the discovery 
 
 The issuer MUST be `https://token.actions.githubusercontent.com`. The signing certificate identity MUST be `https://github.com/frostyard/nsl/.github/workflows/images.yml@refs/heads/main`. Verification requires Sigstore certificate transparency, Rekor inclusion and an observer timestamp against the embedded public-good trusted root. No environment variable or CLI switch disables these checks.
 
-The catalogue OCI artifact contains `catalogue.json` and `catalogue.sigstore.json`. Catalogue schema 1 contains `sequence`, `created`, `expires`, `images` and `revoked`. Each image has `selectors`, `architecture`, `manifest` and its `build_id`. Selectors are unique per architecture. Sequence is the publishing workflow run number; a retry uses a new run for promotion. Validity is at most 30 days. Reject expired metadata, creation more than five minutes in the future, duplicate entries, unsupported schemas, rollback, equal-sequence equivocation and sequences below the CLI's compiled minimum.
+The catalogue OCI artifact contains `catalogue.json` and `catalogue.sigstore.json`. Catalogue schema 1 contains `sequence`, `created`, `expires`, `images` and `revoked`. Each image has `selectors`, `architecture`, `manifest` and its `build_id`. Selectors are unique per architecture. Sequence is the publishing workflow run number; a retry uses a new run for promotion. Validity is at most 30 days. Reject expired metadata, creation more than five minutes in the future, duplicate entries, unsupported schemas, rollback, equal-sequence equivocation and sequences below the CLI's compiled minimum (3, the first promoted public catalogue).
 
 The image OCI artifact contains `descriptor.json`, `descriptor.sigstore.json`, `disk.raw.zst`, `packages.json`, `provenance.json` and `acceptance.json`. Descriptor schema 1 embeds the guest `image` descriptor and records `raw` and `compressed` SHA256 digests/sizes plus digests/sizes for the three evidence files. The catalogue authenticates the OCI manifest; the descriptor signature independently authorizes its payload. All layer hashes, sizes and expected names MUST match before use. Unknown, duplicate or missing layers MUST fail.
 

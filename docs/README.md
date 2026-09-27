@@ -11,7 +11,7 @@
 
 The main Go CLI launches full distro VMs using systemd-vmspawn/QEMU and nspawn-derived bootable images. Lima is the image builder and historical runtime baseline. Read the [user guide](../README.md), [measured vmspawn results](plans/vmspawn-implementation.md) and [prioritized roadmap](plans/wsl2-equivalent.md).
 
-The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md) implement the next part of [broad distribution support](plans/distribution-support.md). Seven x86-64 profiles now pass the common suite; [SUSE and Arch results](plans/suse-and-arch.md) complete the distribution milestone. Signed GHCR delivery is next. The contracts describe implemented behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
+The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md) implement the next part of [broad distribution support](plans/distribution-support.md). Seven x86-64 profiles now pass the common suite; [SUSE and Arch results](plans/suse-and-arch.md) complete the distribution milestone. All seven signed images are public on GHCR; see [publication results](plans/public-image-delivery.md). The contracts describe implemented behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
 
 ## Index
 
@@ -47,7 +47,7 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Specs
 
-- [Signed image delivery](specs/image-delivery.md) — implementation in progress.
+- [Signed image delivery](specs/image-delivery.md) — authenticated selection, downloads and cache policy.
 
 - [Creation-time provisioning](specs/provisioning.md) — planned cloud-init interface and lifecycle.
 
@@ -65,7 +65,9 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 - [v0.2.0 and v0.3.0 release gates](plans/v0.2-v0.3-release.md).
 
-- [Signed prebuilt image delivery](plans/image-distribution.md) — implemented client and publication workflow; public acceptance pending.
+- [Signed prebuilt image delivery](plans/image-distribution.md) — implemented client and publication workflow.
+
+- [Public image delivery results](plans/public-image-delivery.md) — exact artifacts and release acceptance.
 
 - [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md)
 

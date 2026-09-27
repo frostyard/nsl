@@ -81,7 +81,7 @@ A failed host bind is reported by `ports`, retried on subsequent polls and never
 
 ## Release gates
 
-The tested target is Snow Linux, x86_64, systemd 261. Another atomic distribution, host reboot/suspend, newer-kernel upgrades beyond Arch, signed image delivery and broader desktop integration remain release gates; backup round trips, kernel reinstallation and rootless Podman passed across seven profiles, and Arch passed a kernel-version upgrade. Results are recorded in the [distribution matrix](../plans/distribution-support.md) and its linked acceptance reports. See the [implementation report](../plans/vmspawn-implementation.md) for exact validation and remaining work.
+The tested target is Snow Linux, x86_64, systemd 261. Another atomic distribution, host reboot/suspend, newer-kernel upgrades beyond Arch and broader desktop integration remain release gates; backup round trips, kernel reinstallation and rootless Podman passed across seven profiles, and Arch passed a kernel-version upgrade. Results are recorded in the [distribution matrix](../plans/distribution-support.md) and its linked acceptance reports. See the [implementation report](../plans/vmspawn-implementation.md) for exact validation and remaining work.
 
 ## Planned provisioning lifecycle
 
@@ -107,4 +107,4 @@ A final check of locally authenticated catalogue state rejects an expired or
 concurrently withdrawn selection before a pull returns. A catalogue refresh that
 occurs after this decision applies to later selections. Explicit offline use
 requires fresh metadata, a signed receipt, evidence files and a rehashed raw image.
-Public image publication is pending; the local-image path remains usable.
+All seven x86-64 images are public on GHCR. The local-image path remains available. See [publication results](../plans/public-image-delivery.md).

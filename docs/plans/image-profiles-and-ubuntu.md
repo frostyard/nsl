@@ -1,5 +1,7 @@
 # Plan: Image profiles and the first additional distribution
 
+Historical milestone report. Current image revisions, signed artifacts and acceptance are recorded in [public image delivery results](public-image-delivery.md).
+
 **Status: implemented and validated, 2026-09-26.**
 
 Implement the first part of [broad distribution support](distribution-support.md): reusable image layers, a portable vsock transport, and Ubuntu 24.04 LTS alongside Debian 13. Decisions: [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md), [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md).

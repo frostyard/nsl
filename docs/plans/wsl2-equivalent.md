@@ -2,7 +2,7 @@
 
 Deliver persistent Linux VMs that open from a terminal or application launcher, use the user's projects and desktop, and require little routine VM administration.
 
-**Status: seven validated x86-64 distribution profiles, 2026-09-27.** The Go CLI manages one full distro VM per environment through systemd-vmspawn/QEMU/KVM. Images use pinned nspawn mkosi disk recipes. Lima supplies the disposable image builder and remains a historical runtime baseline. No nspawn container runs inside the development VM. Decisions: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md); current behavior: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md).
+**Status: seven validated x86-64 distribution profiles and public signed images, 2026-09-27.** The Go CLI manages one full distro VM per environment through systemd-vmspawn/QEMU/KVM. Images use pinned nspawn mkosi disk recipes. Lima supplies the disposable image builder and remains a historical runtime baseline. No nspawn container runs inside the development VM. Decisions: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md); current behavior: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md).
 
 ## Current evidence and next work
 
@@ -18,7 +18,7 @@ Priority order:
 2. **Support distro choice early:** common guest contract and separate image adapters; Debian, Ubuntu, Fedora, CentOS Stream, openSUSE Leap/Tumbleweed and Arch pass common acceptance. Research SUSE Enterprise separately. [Plan and matrix](distribution-support.md).
 3. **Prove daily reliability:** kernel reinstallation and rootless Podman passed across seven profiles; Arch also passed a version upgrade. Next test newer-kernel upgrades on the other profiles, host reboot/suspend, network changes, disk-full behavior and another atomic host.
 4. **Reduce routine commands:** default environment, host cwd mapping, editor setup and selected command exports.
-5. **Make installation practical:** signed prebuilt VM disks on GHCR, a signed catalogue, verified resumable downloads and a digest-addressed cache; versioned dependencies, protocol/update policy, Snow plus Fedora Atomic validation. [Image delivery plan](image-distribution.md).
+5. **Make installation practical:** signed prebuilt VM disks, catalogue verification, resumable downloads and a digest-addressed cache are implemented. Next: versioned dependencies, guest integration updates and Fedora Atomic host validation. [Image delivery plan](image-distribution.md).
 6. **Complete desktop workflows:** application launchers, visual/input checks, clipboard, audio, portals and measured GPU support.
 
 No release date is inferred from the prototype's development speed. Re-estimate each milestone after its acceptance checks. The user permits a complete rewrite, but the current Go implementation now has useful measured behavior; change language or runtime when it resolves a demonstrated problem. Unused historical guests were deleted with user authorization; backups and evidence remain available. Passing acceptance guests are removed automatically.
@@ -145,9 +145,9 @@ Image capability negotiation is the prerequisite. Start with Debian and Ubuntu, 
 
 ### Image delivery
 
-Planned delivery uses public GHCR OCI artifacts carrying compressed raw VM disks, image metadata, package inventory and build provenance. A signed catalogue resolves distro/release/architecture selections to tested immutable digests. The client verifies the designated Frostyard publishing workflow identity, issuer, digests and protocol compatibility before caching a base and creating an independent writable VM. Users should not need local image-building tools or a registry login for public images.
+Implemented delivery uses public GHCR OCI artifacts carrying compressed raw VM disks, image metadata, package inventory and build provenance. A signed catalogue resolves distro/release/architecture selections to tested immutable digests. The client verifies the designated Frostyard publishing workflow identity, issuer, digests and protocol compatibility before caching a base and creating an independent writable VM. Users should not need local image-building tools or a registry login for public images.
 
-Build, test, publish/sign and catalogue promotion are separate gates; image releases have their own cadence. New bases affect new VMs, while existing guests retain distro-managed package updates and require a separate nsl integration-update mechanism. Start with whole compressed disks and resumable downloads; evaluate deltas and mirrors from measured demand. [ADR-0012](../adr/0012-signed-image-distribution.md) records the decision; the [delivery plan](image-distribution.md) defines phases, trust-policy questions and acceptance checks. These commands and downloads are not implemented yet.
+Build, test, publish/sign and catalogue promotion are separate gates; image releases have their own cadence. New bases affect new VMs, while existing guests retain distro-managed package updates and require a separate nsl integration-update mechanism. Start with whole compressed disks and resumable downloads; evaluate deltas and mirrors from measured demand. [ADR-0012](../adr/0012-signed-image-distribution.md) records the decision; the [delivery plan](image-distribution.md) defines phases, trust-policy questions and acceptance checks. The commands and downloads are implemented; all seven images are public. See [publication results](public-image-delivery.md).
 
 ### Lifecycle, storage and updates
 
@@ -205,12 +205,12 @@ Each VM provides a separate kernel boundary, but shared files, clipboard, graphi
 | --- | --- | --- |
 | Runtime and image choice | Complete for the prototype: Go, vmspawn/QEMU, nspawn disk recipes; ADR-0005. | Revisit only for measured limitations. |
 | Persistent VM CLI | Implemented: owned state, independent disks/keys, boot setup, growth at creation, lifecycle, readiness, recovery, port reporting, verified backup/restore, safe removal and resumable offline growth. | Broader failure tests and filesystem/distro coverage. |
-| Distribution choice | Debian trixie, Ubuntu noble, Fedora 44, CentOS Stream 10, openSUSE Leap 16/Tumbleweed and Arch pass the shared acceptance suite. | Negotiated image capabilities and signed catalogue delivery. |
+| Distribution choice | Debian trixie, Ubuntu noble, Fedora 44, CentOS Stream 10, openSUSE Leap 16/Tumbleweed and Arch pass the shared acceptance suite. | Optional image capabilities and additional release/host coverage. |
 | Daily development | Shared and guest-owned files, SSH editor access, localhost, two VMs, polling live reload, kernel reinstall and rootless Podman verified. | Newer-kernel upgrades, defaults/cwd/export conveniences, network transitions. |
-| Atomic-host delivery | Local build and Snow launch proven. | Signed image distribution, integration updates, clean installation on a second host and minimum dependency versions. |
+| Atomic-host delivery | Local builds, signed public GHCR images and Snow launch proven. | Integration updates, clean installation on a second host and minimum dependency versions. |
 | Integrated desktop | Software Waypipe transport and one application protocol check proven. | Launcher exports; visual/input, clipboard, audio, session recovery, GPU and portal matrix. |
 
-The [backup and reliability milestone](backup-and-reliability.md) records the completed increment and remaining acceptance checks. Host reboot/suspend and another-host testing need a suitable test session or machine; they remain explicit release gates.
+The [backup and reliability milestone](backup-and-reliability.md) records the completed increment and remaining acceptance checks. Host reboot/suspend and another-host testing need a suitable test session or machine; they remain explicit reliability gates for broader host support.
 
 ## Release acceptance and validation
 

@@ -1,5 +1,7 @@
 # Plan: Fedora and CentOS Stream guests
 
+Historical milestone report. Current image revisions, signed artifacts and acceptance are recorded in [public image delivery results](public-image-delivery.md).
+
 **Status: Fedora 44 and CentOS Stream 10 passed the common acceptance suite on Snow Linux x86-64, 2026-09-27.**
 
 Add Fedora 44 and CentOS Stream 10 through the image adapter boundary in [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md). This is part of the [v0.2.0 release gate](v0.2-v0.3-release.md).

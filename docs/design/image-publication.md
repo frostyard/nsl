@@ -7,7 +7,7 @@ Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalo
 The manually dispatched `.github/workflows/images.yml` workflow builds all seven
 x86-64 profiles, runs the common KVM acceptance suite, then signs and publishes
 tested generic images. The signed catalogue is promoted only after every profile
-passes. Initial public publication is pending.
+passes. The [first public publication](../plans/public-image-delivery.md) completed on 2026-09-27 with catalogue sequence 3.
 
 ## Design
 

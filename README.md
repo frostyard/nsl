@@ -8,12 +8,27 @@ This is a development prototype. The tested host is **Snow Linux 13, x86_64, sys
 
 - systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` and util-linux `unshare`.
 - Existing membership in `kvm`, with access to `/dev/kvm` and `/dev/vhost-vsock`; unprivileged user namespaces must work.
-- Go 1.25.8+ to build the CLI. Waypipe and a Wayland session for GUI applications.
+- Waypipe and a Wayland session for GUI applications. Go 1.25.8+ is needed only when building the CLI.
 - Lima 2.2.0, Git and Python 3 to build the guest image locally. Lima is used only by the image builder.
 
 nsl does not install host packages or change device permissions, groups or sudoers. `doctor` checks the local prerequisites. arm64 cross-compiles; creating arm64 guests is not implemented.
 
-## Build and create
+## Install and create
+
+Download the Linux amd64 archive and checksums from the [releases page](https://github.com/frostyard/nsl/releases). Verify the archive against `checksums.txt`, extract it and put `nsl` in a directory on your `PATH`. Releases include GitHub build provenance; `gh attestation verify ARCHIVE --repo frostyard/nsl` verifies it. Image delivery requires v0.3.0 or newer.
+
+```sh
+nsl doctor
+nsl images
+nsl create dev --distro debian:trixie --project "$PWD" --desktop
+nsl shell dev
+```
+
+`create --distro` downloads a verified image as needed. Public downloads need no registry login, Lima or mkosi. Available guests are Debian 13, Ubuntu 24.04 LTS, Fedora 44, CentOS Stream 10, openSUSE Leap 16.0/Tumbleweed and Arch. Use the selectors printed by `images`.
+
+The examples below use `build/nsl` from a source checkout; installed users can use `nsl`.
+
+## Build from source or build a local image
 
 ```sh
 make build
@@ -37,11 +52,9 @@ The image builder refuses to overwrite an existing output. See [image build deta
 
 The guest user is `nsl`, with your numeric UID/primary GID, persistent `/home/nsl`, and guest sudo. The selected host project is at `/work`. It is fixed at creation; no host home, agent, D-Bus or GPU socket is implicitly shared. Omitting `--project` creates a VM with no host project share.
 
-## Prebuilt images (in development)
+## Prebuilt images
 
-The development CLI implements signed catalogue selection. Public GHCR image
-publication is still pending; use the local build above until it is available.
-The planned download path requires the host VM prerequisites, but no image builder:
+All seven x86-64 images are published in [GHCR](https://github.com/orgs/frostyard/packages/container/package/nsl-images). nsl verifies the Frostyard workflow signature, catalogue policy and disk content before creating a VM. The download path requires the host VM prerequisites:
 
 ```sh
 build/nsl images
@@ -121,17 +134,17 @@ Restore checks the archive and creates a new independent disk without the origin
 
 ## Roadmap
 
-[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. [Safe removal and disk growth](docs/plans/storage-management.md) are implemented. [Image profiles and Ubuntu 24.04 LTS](docs/plans/image-profiles-and-ubuntu.md) now add a second distro through common integration and explicit boot/package adapters. [Fedora 44 and CentOS Stream 10](docs/plans/rpm-guests.md) also pass the full suite with SELinux enforcing. [openSUSE Leap/Tumbleweed and Arch](docs/plans/suse-and-arch.md) also pass the full suite; Arch passed an actual kernel-version upgrade. SUSE Linux Enterprise needs separate source/entitlement research. [Distribution plan and support matrix](docs/plans/distribution-support.md). Broader reliability, defaults/cwd/editor conveniences, signed images and desktop integration follow. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
+[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. [Safe removal and disk growth](docs/plans/storage-management.md) are implemented. [Image profiles and Ubuntu 24.04 LTS](docs/plans/image-profiles-and-ubuntu.md) now add a second distro through common integration and explicit boot/package adapters. [Fedora 44 and CentOS Stream 10](docs/plans/rpm-guests.md) also pass the full suite with SELinux enforcing. [openSUSE Leap/Tumbleweed and Arch](docs/plans/suse-and-arch.md) also pass the full suite; Arch passed an actual kernel-version upgrade. SUSE Linux Enterprise needs separate source/entitlement research. [Distribution plan and support matrix](docs/plans/distribution-support.md). Signed public image delivery is implemented; [publication results](docs/plans/public-image-delivery.md) record exact artifacts and acceptance. Broader reliability, defaults/cwd/editor conveniences and desktop integration follow. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
 
 ## Existing prototype VMs
 
-Use the current validated image for each profile: Debian/Ubuntu v6, Fedora v4, CentOS Stream v3, both openSUSE profiles v5 and Arch v2. Revisions are per profile. All use explicit root growth and an nsl-owned vsock SSH service. Earlier v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh validated profile for kernel maintenance until a tested migration is available. [Image details](image/README.md).
+Use the current validated image for each profile: Debian/Ubuntu v7, Fedora v5, CentOS Stream v4, both openSUSE profiles v6 and Arch v3. Revisions are per profile. All use explicit root growth and an nsl-owned vsock SSH service. Earlier Debian v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh validated profile for kernel maintenance until a tested migration is available. [Image details](image/README.md).
 
 ## Current limits
 
 - Host file changes through virtiofs do not produce reliable guest inotify events. Use polling for live reload, or keep source in the guest home and use a remote editor.
 - Clipboard, audio, accelerated graphics, portals and application launcher export are unfinished. One working Wayland application is not full desktop integration.
-- Host suspend/reboot, newer-kernel upgrades beyond Arch and signed image delivery remain release gates. All seven profiles passed kernel reinstallation, reboot and rootless Podman checks.
+- Host suspend/reboot and newer-kernel upgrades beyond Arch remain reliability gates. All seven profiles passed kernel reinstallation, reboot and rootless Podman checks.
 - Writable shares are accessible to guest processes, including guest root. `--root` is a convenience for administration inside the VM.
 
 ## Validate

@@ -1,12 +1,12 @@
 # Plan: Signed prebuilt image delivery
 
-**Status: implementation in progress; public image delivery has not shipped.**
+**Status: client and publication implemented; all seven images are public on GHCR.** See [publication results](public-image-delivery.md) for exact artifacts and release acceptance.
 
 [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md) and the [delivery contract](../specs/image-delivery.md) settle the verifier, formats, expiry, rollback, revocation and offline policy.
 
 Let users select a supported distribution and create a VM without building its image locally. [ADR-0012](../adr/0012-signed-image-distribution.md) selects public GHCR OCI artifacts, a signed catalogue and verification tied to the Frostyard publishing workflow. This builds on [image profiles](image-profiles-and-ubuntu.md) and the [distribution support matrix](distribution-support.md).
 
-Implemented development CLI syntax; public catalogue publication is pending:
+Implemented CLI syntax:
 
 ```sh
 nsl images
@@ -14,7 +14,7 @@ nsl create dev --distro ubuntu:24.04
 nsl create work --distro fedora:44
 ```
 
-The catalogue must advertise only published, tested combinations. These selectors become usable after publication. nsl selects the architecture, resolves a compatible digest, downloads and verifies the base, and creates an independent writable environment. Public downloads should require neither a registry login nor Lima/mkosi; host VM prerequisites still apply.
+The catalogue must advertise only published, tested combinations. nsl selects the architecture, resolves a compatible digest, downloads and verifies the base, and creates an independent writable environment. Public downloads require neither a registry login nor Lima/mkosi; host VM prerequisites still apply.
 
 ## Phase 1 — Artifact and trust contract
 
@@ -64,10 +64,7 @@ interruption/range checks, corrupt compression/raw images, unsafe cache paths an
 readiness incompatibility. These tests use local registry fixtures; they do not
 establish public delivery or replace the real VM acceptance gate.
 
-Next: build/test/sign/publish all seven profiles in the main-branch workflow,
-verify anonymous GHCR access, exercise CLI creation from published artifacts, and
-record download measurements. Exercise the [rebuild/refresh/withdrawal runbook](../design/image-publication.md) before the
-v0.3.0 tag. The trust/format questions are settled in ADR-0015 and the delivery spec.
+All seven profiles passed the full VM suite and were signed/published by the main-branch workflow. The [publication report](public-image-delivery.md) records anonymous pull/boot acceptance and download measurements. The [operations runbook](../design/image-publication.md) covers rebuild, refresh and withdrawal. Optional provisioning, guest integration updates and additional host/architecture validation remain future work.
 
 ## References
 

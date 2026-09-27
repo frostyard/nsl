@@ -15,7 +15,7 @@ scripts/build-image.sh --distribution opensuse --release tumbleweed
 scripts/build-image.sh --distribution arch --release rolling
 ```
 
-The default is Debian trixie. The prior revisions of these combinations passed the full VM suite; the revisions below prepare the publication build with the updated integration-input checksum and require new acceptance runs. `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
+The default is Debian trixie. All seven revisions below passed the full VM suite in the [public image publication](../docs/plans/public-image-delivery.md). `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
 
 | Profile | Release | Root filesystem | Output under `build/image/share/` |
 | --- | --- | --- | --- |
@@ -31,13 +31,13 @@ The default is Debian trixie. The prior revisions of these combinations passed t
 
 The script requires Lima 2.2.0, Python 3, Git, `flock` and the host VM prerequisites. Build packages stay inside an owned Debian builder with 4 CPUs, 4 GiB RAM and a 64 GiB sparse disk. It shares only `build/image/share`, serializes builds with a lock, removes successful guest build workspaces, and stops on exit. Failed workspaces remain for diagnosis.
 
-Images are published without replacing existing files. Each raw disk has a sibling `.manifest` with package versions and `.json` with nsl build identity, selected profile, protocol range, source pins and an integration source checksum. The raw SHA256 is written to `build/image/evidence/OUTPUT.sha256`. Move retained outputs before rebuilding. Live package repositories mean builds are not bit-for-bit reproducible; checksums and manifests do not authenticate publishers. The client implements signed catalogue delivery; public publication is pending.
+Images are published without replacing existing files. Each raw disk has a sibling `.manifest` with package versions and `.json` with nsl build identity, selected profile, protocol range, source pins and an integration source checksum. The raw SHA256 is written to `build/image/evidence/OUTPUT.sha256`. Move retained outputs before rebuilding. Live package repositories mean builds are not bit-for-bit reproducible; checksums and manifests do not authenticate publishers. The client authenticates published artifacts through signed catalogue delivery.
 
-## Planned prebuilt image delivery
+## Prebuilt image delivery
 
-The [image delivery plan](../docs/plans/image-distribution.md) selects public GHCR OCI artifacts containing a compressed raw disk, image metadata, package inventory and provenance. A signed catalogue will map distro selections to tested immutable digests. nsl will verify the publishing workflow identity and content, resume interrupted downloads, cache verified bases and create independent writable VMs. Ordinary users will not need Lima or mkosi for this path.
+The [image delivery plan](../docs/plans/image-distribution.md) selects public GHCR OCI artifacts containing a compressed raw disk, image metadata, package inventory and provenance. A signed catalogue maps distro selections to tested immutable digests. nsl verifies the publishing workflow identity and content, resumes interrupted downloads, caches verified bases and creates independent writable VMs. Ordinary users do not need Lima or mkosi for this path.
 
-Catalogue selection and client signature verification are implemented. The [publication workflow](../docs/design/image-publication.md) builds/tests the full matrix before signing and promoting it; its first public run is pending. Current sibling manifests describe local builds and do not authenticate them. New bases will affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [guest contract](../docs/specs/guest-images.md).
+Catalogue selection and client signature verification are implemented. The [publication workflow](../docs/design/image-publication.md) builds/tests the full matrix before signing and promoting it; its first public run passed for all seven profiles. Current sibling manifests describe local builds and do not authenticate them. New bases affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [guest contract](../docs/specs/guest-images.md).
 
 ## Integration layers
 

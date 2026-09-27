@@ -4,17 +4,17 @@ Make Ubuntu, Debian, Fedora, CentOS, Arch and SUSE-family guests work through th
 
 ## Current matrix
 
-The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44, CentOS Stream 10, openSUSE Leap 16.0, Tumbleweed 20260923 and Arch on x86_64 through explicit profiles. Reports cover [Debian/Ubuntu](image-profiles-and-ubuntu.md), [Fedora/CentOS](rpm-guests.md) and [SUSE/Arch](suse-and-arch.md). Recipe availability is distinct from a working nsl image.
+The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44, CentOS Stream 10, openSUSE Leap 16.0, Tumbleweed 20260923 and Arch on x86_64 through explicit profiles. The [public publication report](public-image-delivery.md) records the current artifacts. Earlier reports cover [Debian/Ubuntu](image-profiles-and-ubuntu.md), [Fedora/CentOS](rpm-guests.md) and [SUSE/Arch](suse-and-arch.md). Recipe availability is distinct from a working nsl image.
 
 | Guest target | Inputs available | nsl evidence | Next gate |
 | --- | --- | --- | --- |
-| Debian stable | `debian` profile, `linux-image-amd64` | v6 profile, btrfs; common acceptance suite on Snow | Actual newer-kernel upgrade; broader host coverage |
-| Ubuntu LTS | `ubuntu` profile, `linux-generic` | v6 noble profile, ext4 and AppArmor; common acceptance suite on Snow | Additional supported Ubuntu releases; actual newer-kernel upgrade |
-| Fedora | `fedora` profile, `kernel-core` | v4 Fedora 44, btrfs; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
-| CentOS Stream | `centos` profile, `kernel-core` | v3 Stream 10, ext4; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
-| openSUSE Leap | Explicit 16.0 profile, `kernel-default` | v5 full common/maintenance suite, btrfs, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
-| openSUSE Tumbleweed | Snapshot 20260923, `kernel-default` | v5 full common/maintenance suite, btrfs, SELinux enforcing | New rolling snapshot/kernel upgrade; broader host coverage |
-| Arch | Snapshot 2026/09/25, native `linux` package | v2 full suite, including kernel 7.2.6→7.2.7; btrfs | Broader host coverage |
+| Debian stable | `debian` profile, `linux-image-amd64` | v7 profile, btrfs; common acceptance suite on Snow | Actual newer-kernel upgrade; broader host coverage |
+| Ubuntu LTS | `ubuntu` profile, `linux-generic` | v7 noble profile, ext4 and AppArmor; common acceptance suite on Snow | Additional supported Ubuntu releases; actual newer-kernel upgrade |
+| Fedora | `fedora` profile, `kernel-core` | v5 Fedora 44, btrfs; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
+| CentOS Stream | `centos` profile, `kernel-core` | v4 Stream 10, ext4; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
+| openSUSE Leap | Explicit 16.0 profile, `kernel-default` | v6 full common/maintenance suite, btrfs, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
+| openSUSE Tumbleweed | Snapshot 20260923, `kernel-default` | v6 full common/maintenance suite, btrfs, SELinux enforcing | New rolling snapshot/kernel upgrade; broader host coverage |
+| Arch | Snapshot 2026/09/25, native `linux` package | v3 full suite, including kernel 7.2.6→7.2.7; btrfs | Broader host coverage |
 | SUSE Linux Enterprise | Not established by the openSUSE recipe | Planned research | Verify authorized image sources, entitlements/redistribution and compatible build route |
 | AlmaLinux / Rocky Linux | CentOS-family recipe matches both | Planned follow-up | Independent artifacts and maintenance tests before inheriting a support claim |
 

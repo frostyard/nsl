@@ -1,5 +1,7 @@
 # Plan: SUSE-family and Arch development VMs
 
+Historical milestone report. Current image revisions, signed artifacts and acceptance are recorded in [public image delivery results](public-image-delivery.md).
+
 Complete the remaining [v0.2.0 distribution gates](v0.2-v0.3-release.md). All three profiles passed the full suite on Snow Linux x86-64.
 
 ## Phase 1 — Profiles and native integration
