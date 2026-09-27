@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -22,6 +23,7 @@ def main():
     env = dict(os.environ, NSL_HOME=str(home))
     results = dict(passed=False, images=[])
     active = None
+    guests = set()
 
     def cli(*args):
         start = time.monotonic()
@@ -39,7 +41,9 @@ def main():
         record = json.loads((home/'delivery/catalogue.json').read_text())
         catalogue = json.loads(base64.b64decode(record['document']))
         entries = [entry for entry in catalogue['images'] if entry['architecture'] == 'x86-64']
-        if len(entries) != 7:
+        expected = {'debian:trixie', 'ubuntu:noble', 'fedora:44', 'centos:10', 'arch:rolling', 'opensuse:16.0', 'opensuse:tumbleweed'}
+        advertised = {selector for entry in entries for selector in entry['selectors']}
+        if len(entries) != 7 or not expected <= advertised:
             raise ValueError('release acceptance requires all seven image profiles')
         results['catalogue_sequence'] = catalogue['sequence']
         for index, entry in enumerate(entries):
@@ -54,6 +58,7 @@ def main():
             item['raw'] = descriptor['raw']
             item['compressed'] = descriptor['compressed']
             _, item['create_seconds'] = cli('create', active, '--distro', selector)
+            guests.add(active)
             _, item['first_start_seconds'] = cli('start', active)
             image = json.loads(guest('cat', '/usr/lib/nsl/image.json'))
             if image != descriptor['image']:
@@ -61,6 +66,20 @@ def main():
             if guest('id', '-u') != str(os.getuid()) or guest('uname', '-m') != 'x86_64':
                 raise ValueError('wrong guest user or architecture')
             item['os_release'] = guest('cat', '/etc/os-release')
+            machine_id = guest('cat', '/etc/machine-id')
+            host_key = guest('cat', '/etc/ssh/ssh_host_ed25519_key.pub').split()[1]
+            peer = f'peer-{index}'
+            cli('create', peer, '--distro', selector, '--offline')
+            guests.add(peer)
+            peer_id = cli('exec', peer, '--', 'cat', '/etc/machine-id')[0].strip()
+            peer_key = cli('exec', peer, '--', 'cat', '/etc/ssh/ssh_host_ed25519_key.pub')[0].split()[1]
+            if (not re.fullmatch(r'[a-f0-9]{32}', machine_id) or not re.fullmatch(r'[a-f0-9]{32}', peer_id)
+                    or machine_id == '0'*32 or peer_id == '0'*32 or machine_id == peer_id or host_key == peer_key):
+                raise ValueError('fresh VMs reused a machine ID or SSH host key')
+            cli('stop', peer)
+            cli('remove', peer, '--yes')
+            guests.remove(peer)
+            item['independent_machine_and_host_key_identities'] = True
             boot = guest('cat', '/proc/sys/kernel/random/boot_id')
             guest('python3', '-c', 'from pathlib import Path; (Path.home()/"delivery-check").write_text("persistent")')
             cli('stop', active)
@@ -72,14 +91,15 @@ def main():
                 raise ValueError('guest did not reboot')
             cli('stop', active)
             cli('remove', active, '--yes')
+            guests.remove(active)
             active = None
             item['passed'] = True
             results['images'].append(item)
             output.write_text(json.dumps(results, indent=2)+'\n')
         results['passed'] = True
     finally:
-        if active:
-            subprocess.run([str(binary), 'stop', active], env=env, timeout=120, check=False)
+        for name in sorted(guests):
+            subprocess.run([str(binary), 'stop', name], env=env, timeout=120, check=False)
         output.write_text(json.dumps(results, indent=2)+'\n')
     print(json.dumps(results, indent=2))
 
