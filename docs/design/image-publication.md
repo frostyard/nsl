@@ -47,7 +47,15 @@ package/provenance/acceptance evidence.
   registry config is deleted afterward.
 - Initial GHCR package creation may default to private. Set the package public,
   verify anonymous catalogue/blob access, and exercise CLI pull/create/start/exec
-  from a clean cache before claiming public delivery.
+  from a clean cache before claiming public delivery. Run the complete public
+  acceptance command below; it records download/boot timings and removes passing
+  disposable guests:
+
+  ```sh
+  make build
+  python3 scripts/probe-published-images.py --home /absolute/unused/nsl-state \
+    --output build/native/evidence/public-delivery.json
+  ```
 - Each catalogue expires after 30 days. Dispatch `operation=refresh` before
   expiry to re-sign the same authenticated selections with a higher sequence and
   renewed expiry. Use `operation=publish` for integration or package refreshes.
