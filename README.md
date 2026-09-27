@@ -146,4 +146,4 @@ python3 scripts/measure-poc.py --nsl build/nsl \
 
 The measurement harness writes uniquely named test files, starts a temporary HTTP server, briefly opens a calculator and cycles the VM. It leaves the measured VM stopped. Unit tests use fake tools and local helper processes and need neither root nor a VM. Additional recovery and multi-VM checks are described in the [implementation report](docs/plans/vmspawn-implementation.md).
 
-[Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md) · [Earlier runtime comparison](docs/plans/vmspawn-comparison.md)
+[Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md) · [Earlier runtime comparison](docs/plans/vmspawn-comparison.md)

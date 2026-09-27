@@ -19,6 +19,7 @@ Procedures belong in [.agents/skills/](.agents/skills/). Add a skill based on it
 - Backups follow [ADR-0006](docs/adr/0006-stopped-vm-backups.md): stopped VMs only; restore preserves guest identity and keys but allocates new runtime identity. Validate archives before publishing; never inherit a host share implicitly.
 - Storage operations follow [ADR-0008](docs/adr/0008-offline-storage-management.md): stopped owned units only, resumable removal and growth, no shrinking. Lifecycle calls must reject a replacement environment ID after waiting for a lock.
 - Keep host lifecycle independent of guest distribution. Image adapters own packages, boot hooks, filesystem growth and security policy; follow the [guest contract](docs/specs/guest-images.md) and [distribution plan](docs/plans/distribution-support.md). Debian, Ubuntu, Fedora, CentOS Stream, openSUSE Leap/Tumbleweed and Arch profiles passed the common suite on Snow x86-64. Keep `scripts/probe-distribution.py` common and package/kernel command arrays in profile maintenance files. Native SUSE bootloader and Arch pacman adapters own their UKI maintenance.
+- Regenerate `THIRD_PARTY_NOTICES.txt` with `python3 scripts/license-notices.py` when Go dependencies change; CI checks it against shipped packages.
 - Run `make ci` before claiming a change is complete. CI runs the same recipe. GoReleaser Pro (not OSS) validates `.goreleaser.yaml` in CI using the org secret; run Pro's `goreleaser check` when changing release configuration.
 
 ## Repository boundary
