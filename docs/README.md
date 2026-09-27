@@ -49,7 +49,11 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Plans
 
+- [Fedora and CentOS Stream guests](plans/rpm-guests.md) — validated RPM adapters, SELinux and maintenance.
+
 - [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — planned project setup, status and restore support.
+
+- [v0.2.0 and v0.3.0 release gates](plans/v0.2-v0.3-release.md).
 
 - [Signed prebuilt image delivery](plans/image-distribution.md) — planned GHCR publication, catalogue, verification and downloads.
 

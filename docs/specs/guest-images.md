@@ -1,6 +1,6 @@
 # Spec: Cross-distribution guest images
 
-Target contract under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md). Debian and Ubuntu v6 profiles implement credential/command protocol 1 and carry a build descriptor. Host capability negotiation is planned. The [acceptance report](../plans/image-profiles-and-ubuntu.md) defines measured coverage.
+Target contract under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md). The validated Debian, Ubuntu, Fedora and CentOS Stream profiles implement credential/command protocol 1 and carry a build descriptor. Host capability negotiation is planned. The [acceptance report](../plans/image-profiles-and-ubuntu.md) and [RPM report](../plans/rpm-guests.md) define measured coverage.
 
 ## Shared behavior
 

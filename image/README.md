@@ -8,14 +8,20 @@ Build bootable VMs from pinned [nspawn/mkosi-definitions](https://github.com/nsp
 source build/poc/env.sh  # when using the locally downloaded Lima tool
 scripts/build-image.sh --distribution debian --release trixie
 scripts/build-image.sh --distribution ubuntu --release noble
+scripts/build-image.sh --distribution fedora --release 44
+scripts/build-image.sh --distribution centos --release 10
 ```
 
-The default is Debian trixie. Only the combinations below are accepted; `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
+The default is Debian trixie. The combinations below have passed the full VM suite; `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
 
 | Profile | Release | Root filesystem | Output under `build/image/share/` |
 | --- | --- | --- | --- |
 | Debian | 13 / trixie | btrfs | `nsl-debian-trixie-x86-64-v6.raw` |
 | Ubuntu | 24.04 LTS / noble | ext4 | `nsl-ubuntu-noble-x86-64-v6.raw` |
+| Fedora | 44 | btrfs | `nsl-fedora-44-x86-64-v4.raw` |
+| CentOS Stream | 10 | ext4 | `nsl-centos-10-x86-64-v3.raw` |
+
+[Fedora/CentOS evidence](../docs/plans/rpm-guests.md) includes SELinux enforcing, kernel maintenance and rootless containers. openSUSE 16.0 and the pinned Tumbleweed 20260923 snapshot have experimental profiles under active validation; their availability in the builder is not a support claim.
 
 The script requires Lima 2.2.0, Python 3, Git, `flock` and the host VM prerequisites. Build packages stay inside an owned Debian builder with 4 CPUs, 4 GiB RAM and a 64 GiB sparse disk. It shares only `build/image/share`, serializes builds with a lock, removes successful guest build workspaces, and stops on exit. Failed workspaces remain for diagnosis.
 
@@ -32,22 +38,22 @@ Publication, catalogue selection and client signature verification are planned. 
 `scripts/compose-image.py` assembles these layers in order:
 
 1. `common/`: account/command helpers, network setup, SSH authentication policy, vsock transport, root growth and EFI layout.
-2. `families/debian/`: initramfs-tools modules, UKI layout and the platform hook that records a root UUID for later kernel updates.
-3. `profiles/DISTRO/`: explicit release/architecture/build revision, packages, optional filesystem overrides and maintenance commands.
+2. `families/FAMILY/`: initramfs-tools for Debian/Ubuntu or dracut and SELinux labels for RPM guests, plus UKI layout and the platform hook that records the root UUID.
+3. `profiles/PROFILE/`: explicit release/architecture/build revision, packages, optional filesystem overrides and maintenance commands.
 
-The composer rejects an existing destination. Root-free tests exercise profile validation, composition and no-overwrite behavior. A new RPM/SUSE family will supply its own packages, platform hook, boot setup and security-policy integration; it must not require changes to host lifecycle or storage code. [ADR-0011](../docs/adr/0011-image-profiles-and-portable-vsock.md), [distribution plan](../docs/plans/distribution-support.md).
+The composer rejects an existing destination. Root-free tests exercise profile validation, composition and no-overwrite behavior. The RPM family supplies dracut/UKI setup, first-boot labels and a Fedora 44 tools tree; it must not require changes to host lifecycle or storage code. [ADR-0011](../docs/adr/0011-image-profiles-and-portable-vsock.md), [distribution plan](../docs/plans/distribution-support.md).
 
 ## Guest contract and transport
 
 Generic images contain no client private key, fixed development account or guest SSH host keys. `nsl-setup` validates the boot credential and binds the disk to the environment ID, selected UID/primary GID and public key. It generates missing host keys and preserves them on subsequent boots. The family platform hook runs during setup.
 
-Both v6 profiles use `nsl-ssh.socket` on vsock port 22 and `nsl-ssh@.service` with OpenSSH's inetd mode. Connections require successful setup and root growth. The systemd SSH generator is masked to prevent duplicate listeners; distro SSH units remain available for guest administration. This works with Ubuntu's older systemd without replacing systemd. AppArmor remains enabled on Ubuntu.
+All profiles use `nsl-ssh.socket` on vsock port 22 and `nsl-ssh@.service` with OpenSSH's inetd mode. Connections require successful setup and root growth. The systemd SSH generator is masked to prevent duplicate listeners; distro SSH units remain available for guest administration. This works with Ubuntu's older systemd without replacing systemd. AppArmor remains enabled on Ubuntu; SELinux remains enforcing on Fedora and CentOS. A common systemd preset keeps nsl units enabled after distro presets run.
 
 `/usr/lib/nsl/image.json` carries build identity and the declared protocol range. It survives backup/restore as guest disk content. Protocol 1 still performs readiness/authentication; the host does not yet negotiate the descriptor's optional capabilities. [Guest contract](../docs/specs/guest-images.md).
 
 ## Boot layout and maintenance
 
-The 1 GiB EFI partition mounts at `/efi`; `/boot` stays on the root filesystem so package managers can replace kernel files using hard links. Debian-family kernel hooks regenerate UKIs using systemd-ukify. The platform hook preserves an administrator's existing `/etc/kernel/cmdline`; otherwise it records the root UUID. The initramfs includes the virtio-vsock driver.
+The 1 GiB EFI partition mounts at `/efi`; `/boot` stays on the root filesystem so package managers can replace kernel files using hard links. Debian-family kernel hooks use initramfs-tools and systemd-ukify; RPM profiles use dracut and systemd-ukify. The platform hook preserves an administrator's existing `/etc/kernel/cmdline`; otherwise it records the root UUID. The initramfs includes the virtio-vsock driver.
 
 Setup explicitly requires `systemd-growfs-root.service` after repartitioning/remounting. Ubuntu explicitly includes `udev` for device discovery, plus ext4 tools. These details belong in image profiles, while the host only changes virtual capacity.
 

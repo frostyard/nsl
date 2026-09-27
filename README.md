@@ -1,6 +1,6 @@
 # nsl — development VMs for atomic Linux
 
-`nsl` manages persistent Linux development VMs with terminal, project-file, localhost and Wayland integration. Each environment runs its distribution and applications directly inside one VM. The Go CLI uses systemd-vmspawn and QEMU/KVM, with Debian and Ubuntu images built from nspawn's mkosi recipes.
+`nsl` manages persistent Linux development VMs with terminal, project-file, localhost and Wayland integration. Each environment runs its distribution and applications directly inside one VM. The Go CLI uses systemd-vmspawn and QEMU/KVM, with Debian, Ubuntu, Fedora and CentOS Stream images built from nspawn's mkosi recipes.
 
 This is a development prototype. The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland. Other atomic distributions remain to be tested. [Implementation and validation](docs/plans/vmspawn-implementation.md).
 
@@ -78,7 +78,7 @@ build/nsl remove dev
 build/nsl remove dev --yes
 ```
 
-Resize grows virtual capacity only; the image grows its root filesystem on the next boot. Use current v6 images for this workflow; maintained v4 guests can require a guest integration update. Shrinking is refused. If growth is interrupted, repeat the same resize command or use `recover`. Take a stopped backup before changing important storage.
+Resize grows virtual capacity only; the image grows its root filesystem on the next boot. Use a current validated profile image for this workflow; maintained v4 guests can require a guest integration update. Shrinking is refused. If growth is interrupted, repeat the same resize command or use `recover`. Take a stopped backup before changing important storage.
 
 Removal permanently deletes the guest disk, credentials and configuration. It preserves external host projects, cached images and exported backups. A running VM must be stopped explicitly. Interrupted deletion reserves the name and resumes with `remove NAME --yes`.
 
@@ -99,17 +99,17 @@ Restore checks the archive and creates a new independent disk without the origin
 
 ## Roadmap
 
-[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. [Safe removal and disk growth](docs/plans/storage-management.md) are implemented. [Image profiles and Ubuntu 24.04 LTS](docs/plans/image-profiles-and-ubuntu.md) now add a second distro through common integration and explicit boot/package adapters. Fedora is next, followed by CentOS Stream and openSUSE Leap/Tumbleweed. SUSE Linux Enterprise needs separate source/entitlement research. [Distribution plan and support matrix](docs/plans/distribution-support.md). Broader reliability, defaults/cwd/editor conveniences, signed images and desktop integration follow. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
+[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. [Safe removal and disk growth](docs/plans/storage-management.md) are implemented. [Image profiles and Ubuntu 24.04 LTS](docs/plans/image-profiles-and-ubuntu.md) now add a second distro through common integration and explicit boot/package adapters. [Fedora 44 and CentOS Stream 10](docs/plans/rpm-guests.md) also pass the full suite with SELinux enforcing. openSUSE Leap/Tumbleweed and Arch are next. SUSE Linux Enterprise needs separate source/entitlement research. [Distribution plan and support matrix](docs/plans/distribution-support.md). Broader reliability, defaults/cwd/editor conveniences, signed images and desktop integration follow. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
 
 ## Existing prototype VMs
 
-Use image v6 for new environments. It retains explicit root growth and adds Debian/Ubuntu profiles with an nsl-owned vsock SSH service. Earlier v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh v6 environment for kernel maintenance until a tested migration is available. [Image details](image/README.md).
+Use the current validated image for each profile: Debian/Ubuntu v6, Fedora v4 and CentOS Stream v3. Revisions are per profile. All use explicit root growth and an nsl-owned vsock SSH service. Earlier v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh v6 environment for kernel maintenance until a tested migration is available. [Image details](image/README.md).
 
 ## Current limits
 
 - Host file changes through virtiofs do not produce reliable guest inotify events. Use polling for live reload, or keep source in the guest home and use a remote editor.
 - Clipboard, audio, accelerated graphics, portals and application launcher export are unfinished. One working Wayland application is not full desktop integration.
-- Host suspend/reboot, upgrades to a newer kernel, alternate distributions and signed image delivery remain release gates. Kernel reinstallation and rootless Podman are covered by the Debian/Ubuntu acceptance suite; results are listed in the image report.
+- Host suspend/reboot, upgrades to a newer kernel, SUSE/Arch validation and signed image delivery remain release gates. Kernel reinstallation and rootless Podman are covered by the Debian/Ubuntu and Fedora/CentOS acceptance suites.
 - Writable shares are accessible to guest processes, including guest root. `--root` is a convenience for administration inside the VM.
 
 ## Validate

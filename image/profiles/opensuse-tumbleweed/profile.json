@@ -1,0 +1,11 @@
+{
+  "distribution": "opensuse",
+  "release": "tumbleweed",
+  "architecture": "x86-64",
+  "family": "rpm",
+  "revision": 2,
+  "root_filesystem": "btrfs",
+  "os_id": "opensuse-tumbleweed",
+  "os_version": "20260923",
+  "snapshot": "20260923"
+}

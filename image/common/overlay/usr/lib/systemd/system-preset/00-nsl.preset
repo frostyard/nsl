@@ -1,0 +1,10 @@
+# mkosi applies distro presets after post-install scripts. Keep the nsl transport
+# enabled explicitly, including on distributions whose default is disable-all.
+enable nsl-setup.service
+enable nsl-ssh.socket
+enable systemd-networkd.service
+enable systemd-resolved.service
+disable ssh.service
+disable ssh.socket
+disable sshd.service
+disable sshd.socket

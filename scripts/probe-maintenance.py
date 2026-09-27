@@ -3,6 +3,7 @@
 import argparse
 import base64
 import json
+import importlib.util
 import os
 from pathlib import Path
 import socket
@@ -76,10 +77,15 @@ try:
     result['boot_before'] = boot_before
     image = json.loads(guest('cat', '/usr/lib/nsl/image.json'))
     distro = image['distribution']
-    if distro not in ('debian', 'ubuntu'):
-        raise ValueError('no maintenance adapter for ' + distro)
-    profile = json.loads((Path(__file__).resolve().parents[1]/'image/profiles'/distro/'maintenance.json').read_text())
+    spec = importlib.util.spec_from_file_location('compose', Path(__file__).with_name('compose-image.py'))
+    profiles = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(profiles)
+    directory = profiles.profile_directory(Path(__file__).resolve().parents[1], distro, image['release'])
+    profile = json.loads((directory/'maintenance.json').read_text())
     result['image'] = image
+    if image['family'] == 'rpm':
+        result['selinux_before'] = guest('getenforce').strip()
+        assert result['selinux_before'] == 'Enforcing'
     guest(*profile['refresh'], root=True)
     guest(*profile['install_containers'], root=True)
     result['kernel_policy'] = guest(*profile['kernel_policy']).strip()
@@ -99,7 +105,7 @@ try:
           'p=Path(sys.argv[1]); p.mkdir(); (p/"data").mkdir(); '
           '(p/"Containerfile").write_text(sys.stdin.read())', work, input=containerfile)
     guest('podman', 'build', '-t', label, work)
-    guest('podman', 'run', '--rm', '--userns=keep-id', '-v', work + '/data:/data',
+    guest('podman', 'run', '--rm', '--userns=keep-id', '-v', work + '/data:/data:Z',
           label, 'sh', '-c', 'printf "persistent container data" > /data/value')
     guest('python3', '-c', 'from pathlib import Path; import os,sys; '
           'p=Path(sys.argv[1])/"data/value"; assert p.stat().st_uid==os.getuid(); '
@@ -113,13 +119,15 @@ try:
     guest('podman', 'run', '-d', '--name', label, '-p', f'127.0.0.1:{port}:8080', label)
     request_server(port)
     result['host_localhost_http'] = True
-    # Reinstall the current package to exercise dpkg/initramfs/UKI hooks even
-    # when apt has no newer kernel. Do not label this a kernel version upgrade.
+    # Reinstall the current package to exercise package/initramfs/UKI hooks even
+    # when the repository has no newer kernel. Do not label this a kernel version upgrade.
     result['uki_before'] = uki_hashes(profile['uki_glob'])
     guest(*(arg.format(kernel=before) for arg in profile['kernel_reinstall']), root=True)
     result['uki_after'] = uki_hashes(profile['uki_glob'])
     assert result['uki_after'] != result['uki_before']
-    assert not guest(*profile['audit'], root=True).strip()
+    result['package_audit'] = guest(*profile['audit'], root=True).strip()
+    if profile.get('audit_empty', True):
+        assert not result['package_audit']
     guest('sync')
     run('stop', a.environment)
     run('start', a.environment)
@@ -146,6 +154,9 @@ try:
         assert current != boot_after
         boot_after = current
         guest('podman', 'run', '--rm', label, 'true')
+    if result['image']['family'] == 'rpm':
+        result['selinux_after'] = guest('getenforce').strip()
+        assert result['selinux_after'] == 'Enforcing'
     result['passed'] = True
 except Exception as exc:
     result['error'] = str(exc)

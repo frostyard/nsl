@@ -7,13 +7,29 @@ from pathlib import Path
 import shutil
 
 
+PROFILES = {
+    ('debian', 'trixie'): 'debian',
+    ('ubuntu', 'noble'): 'ubuntu',
+    ('fedora', '44'): 'fedora',
+    ('centos', '10'): 'centos',
+    ('opensuse', '16.0'): 'opensuse-leap',
+    ('opensuse', 'tumbleweed'): 'opensuse-tumbleweed',
+}
+
+
+def profile_directory(root, distribution, release):
+    # CLI/guest strings are lookup keys, never path components.
+    try:
+        return root/'image/profiles'/PROFILES[distribution, release]
+    except KeyError:
+        raise ValueError(f'unsupported image profile: {distribution}:{release}') from None
+
+
 def select(root, distribution, release=None, architecture='x86-64'):
-    # Never use unvalidated CLI strings as paths or mkosi configuration.
-    if distribution not in ('debian', 'ubuntu'):
-        raise ValueError('supported image profiles: debian, ubuntu')
-    profile = json.loads((root/'image/profiles'/distribution/'profile.json').read_text())
-    if release is not None and release != profile['release']:
-        raise ValueError(f"unsupported release for {distribution}: {release}")
+    if release is None:
+        release = next((r for d, r in PROFILES if d == distribution), None)
+    directory = profile_directory(root, distribution, release)
+    profile = json.loads((directory/'profile.json').read_text())
     if architecture != profile['architecture']:
         raise ValueError(f'unsupported image architecture: {architecture}')
     return profile
@@ -22,7 +38,7 @@ def select(root, distribution, release=None, architecture='x86-64'):
 def compose(root, destination, profile, recipes, mkosi):
     destination.mkdir()  # Never merge with an existing build input tree.
     layers = [root/'image/common', root/'image/families'/profile['family'],
-              root/'image/profiles'/profile['distribution']]
+              profile_directory(root, profile['distribution'], profile['release'])]
     config = []
     for layer in layers:
         for item in layer.iterdir():
@@ -30,7 +46,8 @@ def compose(root, destination, profile, recipes, mkosi):
                 config.append(item.read_text())
             elif item.name != 'profile.json':
                 if item.is_dir():
-                    shutil.copytree(item, destination/item.name, dirs_exist_ok=True, symlinks=True)
+                    shutil.copytree(item, destination/item.name, dirs_exist_ok=True, symlinks=True,
+                                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
                 else:
                     shutil.copy2(item, destination/item.name, follow_symlinks=False)
     name = 'nsl-{distribution}-{release}-{architecture}-v{revision}'.format(**profile)
@@ -59,7 +76,7 @@ def compose(root, destination, profile, recipes, mkosi):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--distribution', choices=['debian', 'ubuntu'], default='debian')
+    p.add_argument('--distribution', choices=sorted({d for d, _ in PROFILES}), default='debian')
     p.add_argument('--release')
     p.add_argument('--architecture', default='x86-64')
     p.add_argument('--destination', type=Path)

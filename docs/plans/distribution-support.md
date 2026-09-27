@@ -4,14 +4,14 @@ Make Ubuntu, Debian, Fedora, CentOS and SUSE-family guests work through the same
 
 ## Current matrix
 
-The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now builds Debian 13 and Ubuntu 24.04 LTS x86_64 through explicit profiles. [The v6 acceptance report](image-profiles-and-ubuntu.md) records their test coverage. Recipe availability is distinct from a working nsl image.
+The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44 and CentOS Stream 10 on x86_64 through explicit profiles. [The v6 acceptance report](image-profiles-and-ubuntu.md) records their test coverage. Recipe availability is distinct from a working nsl image.
 
 | Guest target | Inputs available | nsl evidence | Next gate |
 | --- | --- | --- | --- |
 | Debian stable | `debian` profile, `linux-image-amd64` | v6 profile, btrfs; common acceptance suite on Snow | Actual newer-kernel upgrade; broader host coverage |
 | Ubuntu LTS | `ubuntu` profile, `linux-generic` | v6 noble profile, ext4 and AppArmor; common acceptance suite on Snow | Additional supported Ubuntu releases; actual newer-kernel upgrade |
-| Fedora | `fedora` profile, `kernel-core` | Unbuilt | Build a supported release; prove RPM/dracut, SELinux, guest transport and common workflow |
-| CentOS Stream | `centos` profile, `kernel-core` | Unbuilt | Pin a supported Stream release; resolve systemd/boot-tool availability, SELinux and maintenance |
+| Fedora | `fedora` profile, `kernel-core` | v4 Fedora 44, btrfs; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
+| CentOS Stream | `centos` profile, `kernel-core` | v3 Stream 10, ext4; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
 | openSUSE Leap | `opensuse` profile, `kernel-default` | Unbuilt | Pin a supported Leap release; prove bootloader, zypper, network and security policy |
 | openSUSE Tumbleweed | Same family input; snapshot must be pinned | Unbuilt | Record snapshot and test rolling updates separately from Leap |
 | SUSE Linux Enterprise | Not established by the openSUSE recipe | Planned research | Verify authorized image sources, entitlements/redistribution and compatible build route |
@@ -31,6 +31,8 @@ Implemented in [the profiles/Ubuntu slice](image-profiles-and-ubuntu.md): layere
 - **Done when:** Debian still passes and adding a distro does not require editing host lifecycle/backup/storage logic.
 
 ## Phase 2 — Ubuntu and Fedora vertical tests
+
+[Fedora and CentOS validation](rpm-guests.md) passed.
 
 Ubuntu noble is the first additional profile and exposes ext4/AppArmor differences. Fedora is next to exercise RPM/dracut/SELinux. Keep testing Ubuntu releases separately.
 
@@ -57,6 +59,8 @@ Optional cloud-init is a planned per-image capability, with Debian and Ubuntu as
 - Desktop support gets its own capability matrix; core development support should not wait for GPU/audio/portal parity.
 
 ## References
+
+- [v0.2.0 and v0.3.0 release gates](v0.2-v0.3-release.md).
 
 - [Pinned nspawn disk profiles](https://github.com/nspawn/mkosi-definitions/tree/68263d05169784f44168ca65241d989865ed011b/mkosi.profiles/disk/mkosi.conf.d).
 - [Main roadmap](wsl2-equivalent.md), [storage milestone](storage-management.md), [backup/maintenance evidence](backup-and-reliability.md), [image build](../../image/README.md).

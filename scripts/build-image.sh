@@ -16,7 +16,7 @@ while (($#)); do
       (($# >= 2)) || { echo "Missing value for $1" >&2; exit 2; }
       selection+=("$1" "$2"); shift 2 ;;
     --help|-h)
-      echo 'Usage: scripts/build-image.sh [--distribution debian|ubuntu] [--release trixie|noble] [--architecture x86-64]'
+      echo 'Usage: scripts/build-image.sh [--distribution debian|ubuntu|fedora|centos|opensuse] [--release trixie|noble|44|10|16.0|tumbleweed] [--architecture x86-64]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -84,7 +84,7 @@ trap '"$limactl" --tty=false stop nsl-image-builder >&2 || true' EXIT
 "$limactl" shell --workdir / nsl-image-builder sudo -n sh -c '
 set -eu
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git systemd-container systemd-ukify systemd-repart systemd-boot bubblewrap dosfstools mtools fdisk uidmap zstd cpio btrfs-progs e2fsprogs ubuntu-keyring debootstrap openssl kmod
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git systemd-container systemd-ukify systemd-repart systemd-boot bubblewrap dosfstools mtools fdisk uidmap zstd cpio btrfs-progs e2fsprogs ubuntu-keyring debootstrap openssl kmod dnf rpm policycoreutils
 build_dir=$(mktemp -d /root/nsl-build.XXXXXX)
 tar -xf "$1/sources.tar" -C "$build_dir"
 cp -a "$1/." "$build_dir/mkosi-definitions/"

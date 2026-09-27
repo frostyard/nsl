@@ -54,8 +54,8 @@ try:
     result['image'] = json.loads(guest('cat', '/usr/lib/nsl/image.json'))
     result['os_release'] = guest('cat', '/etc/os-release')
     os_release = dict(line.split('=', 1) for line in shlex.split(result['os_release'], comments=True))
-    assert os_release['ID'] == result['image']['distribution']
-    assert os_release['VERSION_CODENAME'] == result['image']['release']
+    assert os_release['ID'] == result['image'].get('os_id', result['image']['distribution'])
+    assert (os_release.get('VERSION_CODENAME') or os_release.get('VERSION_ID')) == result['image'].get('os_version', result['image']['release'])
     assert guest('uname', '-m') == 'x86_64'
     result['systemd'] = guest('systemctl', '--version').splitlines()[0]
     result['root_filesystem'] = guest('findmnt', '-n', '-o', 'FSTYPE', '/')
@@ -66,6 +66,9 @@ try:
         result['apparmor'] = guest('aa-status', '--json', root=True)
         assert json.loads(result['apparmor'])['profiles']
         assert guest('cat', '/sys/module/apparmor/parameters/enabled') == 'Y'
+    if result['image']['family'] == 'rpm':
+        result['selinux'] = guest('getenforce')
+        assert result['selinux'] == 'Enforcing'
     payload = bytes(range(256))*16
     streams = cli('exec', 'dev', '--', 'python3', '-c', 'import sys; sys.stdout.buffer.write(sys.stdin.buffer.read()); sys.stderr.write("separate stderr"); sys.exit(37)', data=payload, check=False)
     assert streams.returncode == 37 and streams.stdout == payload and streams.stderr == b'separate stderr'
@@ -100,7 +103,12 @@ try:
     probe('probe-storage','--archive',a.evidence/'maintained.nsl','--home',a.home.parent/(a.home.name+'-storage'),
           '--project',a.project.parent/(a.project.name+'-storage'),'--peer-home',a.home,'--output',a.evidence/'storage.json')
     result['passed'] = True; passed = True
+except Exception as exc:
+    result['error'] = str(exc)
+    raise
 finally:
+    if not passed:
+        (a.evidence/'boot.log').write_bytes(cli('logs', 'dev', check=False).stdout)
     for name in ('dev','peer'):
         cli('stop',name,check=False)
         if passed: cli('remove',name,'--yes')
