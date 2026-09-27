@@ -23,6 +23,18 @@ Before introducing an image catalogue, add a versioned descriptor containing ima
 
 A first build descriptor is implemented at `/usr/lib/nsl/image.json`: schema, build ID, distro/release/architecture, family/revision, root filesystem, protocol minimum/maximum, transport and source pins/checksum. A sibling artifact JSON and mkosi package manifest record inputs. Optional capability discovery, signature metadata and host-side negotiation remain planned. Environment metadata records the raw image digest and guest binding; archives preserve the descriptor as guest disk content without an image catalogue.
 
+## Planned distribution contract
+
+The delivery mechanism in [ADR-0012](../adr/0012-signed-image-distribution.md) is a target contract; registry downloads and signature verification are not implemented yet.
+
+- Published bases MUST use immutable artifact digests. A signed catalogue MAY map friendly distro/release/channel names to those digests, with architecture, protocol compatibility and validation status.
+- The initial OCI artifact MUST contain a compressed raw disk, image descriptor, package inventory and build provenance, with compressed/uncompressed sizes and digests. The disk remains a VM payload.
+- Clients MUST authenticate the catalogue and artifact against the designated Frostyard workflow identity and issuer, verify content digests and compatibility, and reject untrusted or incomplete data before creating a VM. Catalogue freshness, rollback and trust-rotation policy MUST be settled before automatic selection ships.
+- Download staging MUST support safe retries and atomic cache publication. Cache identity MUST use content digests; interrupted or failed verification MUST NOT leave a usable base or named environment.
+- Catalogue refresh and new base downloads MUST NOT modify existing guest disks. Ordinary guest updates belong to the distro package manager; nsl integration updates require a separate versioned mechanism.
+
+Publication gates and client acceptance tests are in the [image delivery plan](../plans/image-distribution.md).
+
 ## Acceptance levels
 
 1. **Recipe available:** upstream or local build definitions exist; no support claim.

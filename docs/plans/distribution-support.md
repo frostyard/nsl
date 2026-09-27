@@ -50,7 +50,7 @@ Ubuntu noble is the first additional profile and exposes ext4/AppArmor differenc
 
 - Pin currently supported stable/LTS releases; pin rolling snapshots by immutable image build. Record upstream EOL and stop advertising unsupported releases.
 - Version guest integration independently of guest package state; test upgrades of customized environments without replacing their disks.
-- Publish signed bases and provenance. Run the shared matrix in isolated KVM jobs, with lighter root-free tests for every change.
+- Publish signed bases and provenance through public GHCR OCI artifacts and a signed catalogue, following [ADR-0012](../adr/0012-signed-image-distribution.md) and the [image delivery plan](image-distribution.md). Promote tested digests only. Run the shared matrix in isolated KVM jobs, with lighter root-free tests for every change.
 - Test guest distro separately from atomic host distro: Snow and Fedora Atomic first, then openSUSE atomic desktops. arm64 is a separate image/hardware gate.
 - Desktop support gets its own capability matrix; core development support should not wait for GPU/audio/portal parity.
 

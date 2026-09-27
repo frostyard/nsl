@@ -17,6 +17,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Decisions
 
+- [0012 — Signed image distribution](adr/0012-signed-image-distribution.md)
+
 - [0011 — Image profiles and portable vsock](adr/0011-image-profiles-and-portable-vsock.md)
 
 - [0010 — Explicit guest root growth](adr/0010-explicit-guest-root-growth.md)
@@ -42,6 +44,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 - [CLI contract](specs/cli.md)
 
 ### Plans
+
+- [Signed prebuilt image delivery](plans/image-distribution.md) — planned GHCR publication, catalogue, verification and downloads.
 
 - [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md)
 

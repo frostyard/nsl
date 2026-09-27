@@ -21,6 +21,12 @@ The script requires Lima 2.2.0, Python 3, Git, `flock` and the host VM prerequis
 
 Images are published without replacing existing files. Each raw disk has a sibling `.manifest` with package versions and `.json` with nsl build identity, selected profile, protocol range, source pins and an integration source checksum. The raw SHA256 is written to `build/image/evidence/OUTPUT.sha256`. Move retained outputs before rebuilding. Live package repositories mean builds are not bit-for-bit reproducible; checksums and manifests do not authenticate publishers. Signed catalogue delivery is future work.
 
+## Planned prebuilt image delivery
+
+The [image delivery plan](../docs/plans/image-distribution.md) selects public GHCR OCI artifacts containing a compressed raw disk, image metadata, package inventory and provenance. A signed catalogue will map distro selections to tested immutable digests. nsl will verify the publishing workflow identity and content, resume interrupted downloads, cache verified bases and create independent writable VMs. Ordinary users will not need Lima or mkosi for this path.
+
+Publication, catalogue selection and client signature verification are planned. Current sibling manifests describe local builds and do not authenticate them. New bases will affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [guest contract](../docs/specs/guest-images.md).
+
 ## Integration layers
 
 `scripts/compose-image.py` assembles these layers in order:

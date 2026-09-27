@@ -18,7 +18,7 @@ Priority order:
 2. **Support distro choice early:** common guest contract and separate image adapters; Debian/Ubuntu profiles and common acceptance implemented; Fedora next, then CentOS Stream and openSUSE Leap/Tumbleweed. Research SUSE Enterprise separately. [Plan and matrix](distribution-support.md).
 3. **Prove daily reliability:** kernel reinstallation and rootless Podman passed; next test newer-kernel upgrades, host reboot/suspend, network changes, disk-full behavior and another atomic host.
 4. **Reduce routine commands:** default environment, host cwd mapping, editor setup and selected command exports.
-5. **Make installation practical:** signed prebuilt images, versioned dependencies, protocol/update policy, Snow plus Fedora Atomic validation.
+5. **Make installation practical:** signed prebuilt VM disks on GHCR, a signed catalogue, verified resumable downloads and a digest-addressed cache; versioned dependencies, protocol/update policy, Snow plus Fedora Atomic validation. [Image delivery plan](image-distribution.md).
 6. **Complete desktop workflows:** application launchers, visual/input checks, clipboard, audio, portals and measured GPU support.
 
 No release date is inferred from the prototype's development speed. Re-estimate each milestone after its acceptance checks. The user permits a complete rewrite, but the current Go implementation now has useful measured behavior; change language or runtime when it resolves a demonstrated problem. Unused historical guests were deleted with user authorization; the maintained validation guest and backup remain available.
@@ -136,6 +136,12 @@ Initial inspection found Snow Linux 13, x86_64, systemd-vmspawn 261.2, QEMU 10.0
 On this host `/usr/bin/systemd-vmspawn` belongs to `systemd-container` 261.2-1. Standard Debian 13's package file list omits it, while Sid's includes it. Snow's package availability is not a portable Debian baseline. [Trixie files](https://packages.debian.org/trixie/amd64/systemd-container/filelist), [Sid files](https://packages.debian.org/sid/amd64/systemd-container/filelist).
 
 ## Target mechanisms
+
+### Image delivery
+
+Planned delivery uses public GHCR OCI artifacts carrying compressed raw VM disks, image metadata, package inventory and build provenance. A signed catalogue resolves distro/release/architecture selections to tested immutable digests. The client verifies the designated Frostyard publishing workflow identity, issuer, digests and protocol compatibility before caching a base and creating an independent writable VM. Users should not need local image-building tools or a registry login for public images.
+
+Build, test, publish/sign and catalogue promotion are separate gates; image releases have their own cadence. New bases affect new VMs, while existing guests retain distro-managed package updates and require a separate nsl integration-update mechanism. Start with whole compressed disks and resumable downloads; evaluate deltas and mirrors from measured demand. [ADR-0012](../adr/0012-signed-image-distribution.md) records the decision; the [delivery plan](image-distribution.md) defines phases, trust-policy questions and acceptance checks. These commands and downloads are not implemented yet.
 
 ### Lifecycle, storage and updates
 
