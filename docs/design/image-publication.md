@@ -12,7 +12,10 @@ passes. Initial public publication is pending.
 ## Design
 
 A runner labeled `nsl-image-builder` supplies the existing host VM prerequisites
-and user systemd session. Use a temporary runner restricted to this trusted
+and user systemd session. Keep the account's normal primary GID when launching
+the runner so Lima can map exported file ownership; nsl handles its own KVM group
+entry. Clear inherited `GOROOT`/`GOBIN` so Actions selects its requested Go toolchain.
+Use a temporary runner restricted to this trusted
 manual main-branch workflow; remove it after the job. Pull requests do not invoke
 this workflow. The runner installs no host packages or services. Pinned Lima,
 ORAS and cosign binaries are downloaded into ignored build output and checked

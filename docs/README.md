@@ -65,7 +65,7 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 - [v0.2.0 and v0.3.0 release gates](plans/v0.2-v0.3-release.md).
 
-- [Signed prebuilt image delivery](plans/image-distribution.md) — planned GHCR publication, catalogue, verification and downloads.
+- [Signed prebuilt image delivery](plans/image-distribution.md) — implemented client and publication workflow; public acceptance pending.
 
 - [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md)
 
