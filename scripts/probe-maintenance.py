@@ -127,12 +127,12 @@ try:
     guest('podman', 'run', '-d', '--name', label, '-p', f'127.0.0.1:{port}:8080', label)
     request_server(port)
     result['host_localhost_http'] = True
-    # Reinstall the current package to exercise package/initramfs/UKI hooks even
-    # when the repository has no newer kernel. Do not label this a kernel version upgrade.
+    # Exercise package/initramfs/UKI hooks even when the repository has no newer
+    # kernel. Record a version upgrade only when the reboot runs a new kernel.
     result['uki_before'] = uki_hashes(profile['uki_glob'])
     guest(*(arg.format(kernel=before) for arg in profile['kernel_reinstall']), root=True)
     result['uki_after'] = uki_hashes(profile['uki_glob'])
-    assert result['uki_after'] != result['uki_before']
+    assert result['uki_after'] != result['uki_before'], 'kernel transaction did not regenerate the booted UKI'
     result['package_audit'] = guest(*profile['audit'], root=True).strip()
     if profile.get('audit_empty', True):
         assert not result['package_audit']
@@ -171,6 +171,18 @@ try:
     result['passed'] = True
 except Exception as exc:
     result['error'] = str(exc)
+    # Capture AVCs and boot diagnostics before shutdown discards the journal.
+    # Use the existing transport directly so a failed boot is not restarted.
+    try:
+        request = base64.b64encode(json.dumps(dict(version=1,
+            argv=['journalctl', '-b', '--no-pager', '-n', '500'])).encode()).decode()
+        diagnostics = subprocess.run(['ssh', '-F', str(Path(env['NSL_HOME'])/'environments'/a.environment/'ssh.config'),
+            '-T', 'guest', 'sudo', '-n', '--', '/usr/local/libexec/nsl-exec', request],
+            capture_output=True, text=True, timeout=10)
+        log.write('\nFailure journal:\n' + diagnostics.stdout + diagnostics.stderr)
+        log.flush()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
     raise
 finally:
     if container_created:
