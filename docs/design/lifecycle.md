@@ -4,13 +4,13 @@ Living document. Rationale: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)
 
 ## Overview
 
-Each environment is a full Debian VM with its own kernel and persistent disk. The Go CLI manages systemd user services that launch systemd-vmspawn/QEMU. SSH over vsock carries commands, terminal sessions and Waypipe. A second service discovers IPv4 TCP listeners and forwards them to host loopback.
+Each environment is a full distro VM with its own kernel and persistent disk. The Go CLI manages systemd user services that launch systemd-vmspawn/QEMU. SSH over vsock carries commands, terminal sessions and Waypipe. A second service discovers IPv4 TCP listeners and forwards them to host loopback.
 
 ```mermaid
 flowchart LR
     CLI[nsl Go CLI] --> Units[Per-environment user services]
     Units --> VM[vmspawn + QEMU/KVM]
-    Image[nspawn-derived Debian image] --> Disk[Independent qcow2 disk]
+    Image[nspawn-derived distro image] --> Disk[Independent qcow2 disk]
     Disk --> VM
     CLI --> SSH[SSH over vsock]
     SSH --> VM
@@ -31,13 +31,13 @@ A manager lock serializes image import and name allocation. Per-environment lock
 
 ## Image and first boot
 
-The [image build](../../image/README.md) combines pinned nspawn Debian/disk recipes with nsl integration. Lima is an optional build tool only. The runtime requires an explicit local raw image and SHA256. nsl verifies an imported copy, then converts it to an independent qcow2 disk and enlarges its virtual capacity. Existing environments do not depend on the cached raw image after conversion.
+The [image build](../../image/README.md) combines pinned nspawn disk recipes with common integration, a family boot adapter and an explicit Debian/Ubuntu profile. Lima is an optional build tool only. The runtime requires an explicit local raw image and SHA256. nsl verifies an imported copy, then converts it to an independent qcow2 disk and enlarges its virtual capacity. Existing environments do not depend on the cached raw image after conversion.
 
-Image v4 keeps `/boot` on btrfs and mounts a 1 GiB EFI partition at `/efi`. Debian package hooks use `systemd-ukify` and the UKI layout; first boot records the root UUID for later initramfs-tools boots without replacing administrator settings. The CLI requests the vsock SSH listener explicitly instead of relying on early driver detection. [ADR-0007](../adr/0007-maintainable-guest-boot.md). Existing v3 disks retain their earlier layout and require an explicit migration before kernel maintenance.
+Image v4 keeps `/boot` on btrfs and mounts a 1 GiB EFI partition at `/efi`. Debian package hooks use `systemd-ukify` and the UKI layout; first boot records the root UUID for later initramfs-tools boots without replacing administrator settings. Image v6 uses an nsl-owned vsock socket and inetd-style OpenSSH unit that require successful setup. The guest SSH generator is masked to prevent duplicate listeners. Older images still use the CLI's explicit listener kernel arguments. [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md). [ADR-0007](../adr/0007-maintainable-guest-boot.md). Existing v3 disks retain their earlier layout and require an explicit migration before kernel maintenance.
 
-The generic image contains no fixed development account or client key. vmspawn supplies a boot credential containing the environment ID, host UID/primary GID and public SSH key. The guest's `nsl-setup.service` validates the credential and configures the `nsl` account, home and guest sudo. It records the binding on disk and rejects a different identity on subsequent boots. Setup is idempotent, recovers partial account/home creation and preserves later authorized-key additions. Guest setup syncs its changes; first-use readiness also flushes guest storage before recording initialization, including generated SSH host keys. Client private keys remain on the host; Debian generates guest host keys at first boot.
+The generic image contains no fixed development account or client key. vmspawn supplies a boot credential containing the environment ID, host UID/primary GID and public SSH key. The guest's `nsl-setup.service` validates the credential and configures the `nsl` account, home and guest sudo. It records the binding on disk and rejects a different identity on subsequent boots. Setup is idempotent, recovers partial account/home creation and preserves later authorized-key additions. Guest setup syncs its changes; first-use readiness also flushes guest storage before recording initialization, including generated SSH host keys. Client private keys remain on the host; The common setup helper generates guest host keys at first boot.
 
-`systemd-repart` grows the root partition and btrfs filesystem to the virtual disk capacity. The guest image includes the Debian `systemd-repart` package explicitly. This step is independent of account setup. Debian v5 explicitly makes setup require `systemd-growfs-root.service` after repart/remount; kernel regeneration can bypass the automatic root discovery that previously scheduled this service. Earlier v4 guests need an explicit integration update. See [ADR-0010](../adr/0010-explicit-guest-root-growth.md).
+`systemd-repart` grows the root partition; root growth supports btrfs on Debian and ext4 on Ubuntu to the virtual disk capacity. The guest image includes the Debian `systemd-repart` package explicitly. This step is independent of account setup. Debian v5 explicitly makes setup require `systemd-growfs-root.service` after repart/remount; kernel regeneration can bypass the automatic root discovery that previously scheduled this service. Earlier v4 guests need an explicit integration update. See [ADR-0010](../adr/0010-explicit-guest-root-growth.md).
 
 ## Launch and readiness
 
@@ -63,7 +63,7 @@ Every `start`, `exec`, `shell`, `gui` or `ssh-config` checks authenticated guest
 
 Schema-2 metadata has an optional `guest_id`: fresh environments use their runtime `id` as the guest binding; restored environments keep the backed-up binding and get a fresh runtime `id`. Readiness, boot credentials and SSH host-key aliases use the guest binding; units, sockets and CIDs use runtime identity. Restored copies preserve machine ID and SSH identities, so they are not independently authenticated clones. Version 1 requires matching UID/primary GID. Project sharing and desktop opt-in must be selected again. The independent restored disk does not need the base-image cache.
 
-The [backup milestone](../plans/backup-and-reliability.md) and [storage milestone](../plans/storage-management.md) record acceptance results. The [distribution plan](../plans/distribution-support.md) moves package, boot and filesystem differences into image adapters under a common [guest contract](../specs/guest-images.md); only Debian has been validated so far.
+The [backup milestone](../plans/backup-and-reliability.md) and [storage milestone](../plans/storage-management.md) record acceptance results. The [distribution plan](../plans/distribution-support.md) moves package, boot and filesystem differences into image adapters under a common [guest contract](../specs/guest-images.md); Debian and Ubuntu have explicit profiles and a shared [acceptance suite](../plans/image-profiles-and-ubuntu.md).
 
 ## Commands, files and GUI
 

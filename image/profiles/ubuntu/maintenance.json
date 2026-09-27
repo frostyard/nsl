@@ -1,0 +1,36 @@
+{
+  "refresh": [
+    "apt-get",
+    "update"
+  ],
+  "install_containers": [
+    "env",
+    "DEBIAN_FRONTEND=noninteractive",
+    "apt-get",
+    "install",
+    "-y",
+    "podman",
+    "uidmap",
+    "slirp4netns",
+    "fuse-overlayfs"
+  ],
+  "kernel_policy": [
+    "apt-cache",
+    "policy",
+    "linux-generic"
+  ],
+  "kernel_reinstall": [
+    "env",
+    "DEBIAN_FRONTEND=noninteractive",
+    "apt-get",
+    "install",
+    "--reinstall",
+    "-y",
+    "linux-image-{kernel}"
+  ],
+  "audit": [
+    "dpkg",
+    "--audit"
+  ],
+  "uki_glob": "/efi/EFI/Linux/*.efi"
+}

@@ -9,13 +9,15 @@
 
 ## Current state
 
-The main Go CLI launches full Debian VMs using systemd-vmspawn/QEMU and nspawn-derived bootable images. Lima is the image builder and historical runtime baseline. Read the [user guide](../README.md), [measured vmspawn results](plans/vmspawn-implementation.md) and [prioritized roadmap](plans/wsl2-equivalent.md).
+The main Go CLI launches full distro VMs using systemd-vmspawn/QEMU and nspawn-derived bootable images. Lima is the image builder and historical runtime baseline. Read the [user guide](../README.md), [measured vmspawn results](plans/vmspawn-implementation.md) and [prioritized roadmap](plans/wsl2-equivalent.md).
 
-The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Broad distribution support](plans/distribution-support.md) is the next architectural increment. The contracts describe implemented behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
+The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md) implement the next part of [broad distribution support](plans/distribution-support.md). The contracts describe implemented behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
 
 ## Index
 
 ### Decisions
+
+- [0011 — Image profiles and portable vsock](adr/0011-image-profiles-and-portable-vsock.md)
 
 - [0010 — Explicit guest root growth](adr/0010-explicit-guest-root-growth.md)
 - [0009 — Distribution-neutral guest contract](adr/0009-distribution-neutral-guest-contract.md)
@@ -40,6 +42,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 - [CLI contract](specs/cli.md)
 
 ### Plans
+
+- [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md)
 
 - [Broad distribution support](plans/distribution-support.md)
 - [Safe removal and disk growth](plans/storage-management.md)

@@ -13,6 +13,7 @@ fmt:
 	gofmt -w *.go
 
 verify:
+	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go mod tidy -diff
 	go vet ./...
 	test -z "$$(gofmt -l *.go)"

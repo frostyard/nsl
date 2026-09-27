@@ -19,7 +19,7 @@ Deliver explicit removal and resumable offline disk growth following [ADR-0008](
 
 ## Later / ideas
 
-The next increment separates common image integration from distro adapters, then tests Ubuntu LTS and Fedora. See the [distribution plan](distribution-support.md) and [guest contract](../specs/guest-images.md). Defaults, working-directory mapping, editor/command exports and broader reliability remain in the [roadmap](wsl2-equivalent.md).
+The following [image-profile increment](image-profiles-and-ubuntu.md) separates common integration from adapters and adds Ubuntu LTS. Fedora is next. See the [distribution plan](distribution-support.md) and [guest contract](../specs/guest-images.md). Defaults, working-directory mapping, editor/command exports and broader reliability remain in the [roadmap](wsl2-equivalent.md).
 
 ## References
 

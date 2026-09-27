@@ -60,9 +60,12 @@ python3 scripts/probe-backup.py --nsl build/nsl \
   --archive build/native/backups/another-test.nsl \
   --output build/native/evidence/another-backup.json
 
-python3 scripts/probe-maintenance.py --nsl build/nsl \
-  --home "$HOME/.local/share/nsl-v5-eval" --environment dev \
-  --output build/native/evidence/another-maintenance.json
+# The current maintenance probe needs the v6 image descriptor.
+python3 scripts/probe-distribution.py --nsl build/nsl \
+  --image build/image/share/nsl-debian-trixie-x86-64-v6.raw \
+  --home "$HOME/.local/share/nsl-another-maintenance-test" \
+  --project build/another-maintenance-project \
+  --evidence build/another-maintenance-evidence
 ```
 
 The v4 fixture was retained through the initial cleanup, then replaced by the v5 validation guest during the [storage milestone](storage-management.md). All historical nsl VM/container test guests were deleted; their measurement logs remain. The stopped current image builder is retained for future image work. The maintained v4 backup remains at `build/native/backups/dev-v4.nsl` for reproducing the root-growth regression. These artifacts are private local state, excluded from Git.
@@ -77,7 +80,7 @@ Local evidence:
 ## Next work
 
 1. Safe environment removal and offline growth are now implemented in the [storage milestone](storage-management.md); it also records the v5 filesystem-growth fix.
-2. [Broad guest distribution support](distribution-support.md): Ubuntu/Fedora next, then CentOS Stream and openSUSE. Host reboot/suspend, VPN/DNS changes, disk-full/interrupted-write trials and another atomic host remain reliability gates.
+2. [Broad guest distribution support](distribution-support.md): Debian/Ubuntu profiles now exist; Fedora next, then CentOS Stream and openSUSE. Host reboot/suspend, VPN/DNS changes, disk-full/interrupted-write trials and another atomic host remain reliability gates.
 3. Default VM, cwd mapping, editor setup and command exports.
 4. Signed prebuilt images, versioned host prerequisites and integration update policy.
 5. Desktop launchers, visual/input validation, clipboard, audio, portals and graphics.

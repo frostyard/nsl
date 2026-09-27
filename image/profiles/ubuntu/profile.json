@@ -1,0 +1,8 @@
+{
+  "distribution": "ubuntu",
+  "release": "noble",
+  "architecture": "x86-64",
+  "family": "debian",
+  "revision": 6,
+  "root_filesystem": "ext4"
+}

@@ -1,6 +1,6 @@
 # Spec: Cross-distribution guest images
 
-Target contract under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md). The present Debian image implements credential/command protocol 1. Capability discovery and a distribution matrix are planned; this document does not imply other images work today.
+Target contract under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md). Debian and Ubuntu v6 profiles implement credential/command protocol 1 and carry a build descriptor. Host capability negotiation is planned. The [acceptance report](../plans/image-profiles-and-ubuntu.md) defines measured coverage.
 
 ## Shared behavior
 
@@ -21,7 +21,7 @@ Image adapters MUST own package names, SSH unit names, account tools, network co
 
 Before introducing an image catalogue, add a versioned descriptor containing image build ID, distro `ID` and `VERSION_ID`, architecture, integration protocol range, recipe/integration revisions, root-growth capability, command/PTY transport and optional desktop capabilities. Artifact digest/signature and package provenance belong in the published manifest. Read guest identity/capabilities through the authenticated channel and validate required features before claiming readiness.
 
-The descriptor is not yet implemented. Protocol-1 environment metadata currently records the base-image digest and guest binding; archives retain that digest and the whole guest disk. A future descriptor must survive export/restore without consulting an image catalogue.
+A first build descriptor is implemented at `/usr/lib/nsl/image.json`: schema, build ID, distro/release/architecture, family/revision, root filesystem, protocol minimum/maximum, transport and source pins/checksum. A sibling artifact JSON and mkosi package manifest record inputs. Optional capability discovery, signature metadata and host-side negotiation remain planned. Environment metadata records the raw image digest and guest binding; archives preserve the descriptor as guest disk content without an image catalogue.
 
 ## Acceptance levels
 

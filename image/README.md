@@ -1,42 +1,56 @@
-# Generic nsl Debian image
+# nsl guest images
 
-This overlay builds a bootable Debian image from pinned [nspawn/mkosi-definitions](https://github.com/nspawn/mkosi-definitions) recipes and mkosi v27. It adds the guest command/setup helpers, SSH, CA certificates, systemd-repart, kernel update tooling, sudo, Waypipe and a sample calculator. It contains no client key or development account. Per-environment boot credentials create the account and bind the disk to its identity.
+Build bootable VMs from pinned [nspawn/mkosi-definitions](https://github.com/nspawn/mkosi-definitions) disk recipes, mkosi v27 and nsl integration. The guest runs applications directly; no nspawn runtime or nested container is required.
 
-From the repository root:
+## Build
 
 ```sh
-source build/poc/env.sh  # if using the locally downloaded Lima tool
-scripts/build-image.sh
+source build/poc/env.sh  # when using the locally downloaded Lima tool
+scripts/build-image.sh --distribution debian --release trixie
+scripts/build-image.sh --distribution ubuntu --release noble
 ```
 
-The script requires Lima 2.2.0, Python 3, Git and the host VM prerequisites. It installs all image-building packages inside a disposable Debian builder with 4 CPUs, 4 GiB RAM and a 64 GiB sparse disk. Builder state and downloads live under ignored `build/image`. The builder shares only `build/image/share` and is stopped when the script exits. Successful guest build workspaces are removed. Failed workspaces remain available for diagnosis.
+The default is Debian trixie. Only the combinations below are accepted; `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
 
-The output is `build/image/share/nsl-debian-v5.raw`; its checksum is in `build/image/evidence/image.sha256`. Existing output images are never overwritten. Move an output you want to retain before rebuilding. Source revisions are pinned in the script; live Debian package repositories mean the build is not bit-for-bit reproducible. Image signing and a downloadable catalogue are not implemented.
+| Profile | Release | Root filesystem | Output under `build/image/share/` |
+| --- | --- | --- | --- |
+| Debian | 13 / trixie | btrfs | `nsl-debian-trixie-x86-64-v6.raw` |
+| Ubuntu | 24.04 LTS / noble | ext4 | `nsl-ubuntu-noble-x86-64-v6.raw` |
 
-Guest setup reads `nsl.config` through systemd credentials. It validates a protocol version, environment ID, UID/GID and public SSH key; it never receives a client private key. Subsequent boots must match the persisted identity. Debian supplies SSH host-key generation and the vsock listener. The root partition grows using the included repart definition; v5 explicitly starts root filesystem growth before readiness.
+The script requires Lima 2.2.0, Python 3, Git, `flock` and the host VM prerequisites. Build packages stay inside an owned Debian builder with 4 CPUs, 4 GiB RAM and a 64 GiB sparse disk. It shares only `build/image/share`, serializes builds with a lock, removes successful guest build workspaces, and stops on exit. Failed workspaces remain for diagnosis.
 
-Related: [runtime design](../docs/design/lifecycle.md), [ADR-0005](../docs/adr/0005-vmspawn-and-nspawn-images.md), [implementation validation](../docs/plans/vmspawn-implementation.md). The earlier fixed-user/key experiment is retained under `experiments/vmspawn` as historical evaluation code.
+Images are published without replacing existing files. Each raw disk has a sibling `.manifest` with package versions and `.json` with nsl build identity, selected profile, protocol range, source pins and an integration source checksum. The raw SHA256 is written to `build/image/evidence/OUTPUT.sha256`. Move retained outputs before rebuilding. Live package repositories mean builds are not bit-for-bit reproducible; checksums and manifests do not authenticate publishers. Signed catalogue delivery is future work.
 
-## Guest updates and restored systems
+## Integration layers
 
-The generic image is for fresh environments. Existing guests keep their own packages and disk across CLI changes; replacing the base image does not update them. Kernel/package maintenance uses the guest package manager. A versioned integration-update mechanism and signed image delivery remain planned. [Roadmap](../docs/plans/wsl2-equivalent.md).
+`scripts/compose-image.py` assembles these layers in order:
 
-Whole-system backups preserve the protocol-1 guest binding, client key and host trust. Restore supplies that same binding with a new host runtime identity; no image rebuild or cache is required. See [ADR-0006](../docs/adr/0006-stopped-vm-backups.md) and [backup/reliability validation](../docs/plans/backup-and-reliability.md).
+1. `common/`: account/command helpers, network setup, SSH authentication policy, vsock transport, root growth and EFI layout.
+2. `families/debian/`: initramfs-tools modules, UKI layout and the platform hook that records a root UUID for later kernel updates.
+3. `profiles/DISTRO/`: explicit release/architecture/build revision, packages, optional filesystem overrides and maintenance commands.
 
-## Boot layout (v4 and v5)
+The composer rejects an existing destination. Root-free tests exercise profile validation, composition and no-overwrite behavior. A new RPM/SUSE family will supply its own packages, platform hook, boot setup and security-policy integration; it must not require changes to host lifecycle or storage code. [ADR-0011](../docs/adr/0011-image-profiles-and-portable-vsock.md), [distribution plan](../docs/plans/distribution-support.md).
 
-The 1 GiB EFI System Partition mounts at `/efi`; `/boot` remains on btrfs. Only firmware boot files are copied to the EFI partition. This lets Debian replace kernel package files using hard links. `systemd-ukify` and Debian's kernel/initramfs hooks regenerate unified kernel images (UKIs); first boot writes the root UUID to `/etc/kernel/cmdline` if that file is absent. Existing administrator configuration is preserved. The initramfs includes the virtio-vsock driver, and the CLI explicitly requests the SSH listener to avoid early-detection races.
+## Guest contract and transport
 
-The built v4 artifact has SHA256 `8b4d1658a3dfaca8796fba7c688c06719fa66a8bb347422452faac2cf7dcb90d`. Its guest credential protocol remains version 1. [ADR-0007](../docs/adr/0007-maintainable-guest-boot.md) explains the change; [maintenance results](../docs/plans/backup-and-reliability.md) distinguish kernel reinstallation from a newer-version upgrade.
+Generic images contain no client private key, fixed development account or guest SSH host keys. `nsl-setup` validates the boot credential and binds the disk to the environment ID, selected UID/primary GID and public key. It generates missing host keys and preserves them on subsequent boots. The family platform hook runs during setup.
 
-**Earlier v3 guests need attention before kernel maintenance.** Their FAT `/boot` layout failed a real Debian kernel reinstall, which also removed the boot entry in the disposable test VM. Updating the host CLI or importing v4 does not repair an existing v3 disk. Keep a stopped backup; use a fresh v5 VM for maintenance tests until an explicit guest migration is implemented. The unused historical v3 guests were deleted after user authorization; their measurement reports remain.
+Both v6 profiles use `nsl-ssh.socket` on vsock port 22 and `nsl-ssh@.service` with OpenSSH's inetd mode. Connections require successful setup and root growth. The systemd SSH generator is masked to prevent duplicate listeners; distro SSH units remain available for guest administration. This works with Ubuntu's older systemd without replacing systemd. AppArmor remains enabled on Ubuntu.
 
-## Root growth (v5)
+`/usr/lib/nsl/image.json` carries build identity and the declared protocol range. It survives backup/restore as guest disk content. Protocol 1 still performs readiness/authentication; the host does not yet negotiate the descriptor's optional capabilities. [Guest contract](../docs/specs/guest-images.md).
 
-Image v5 retains the v4 boot layout and requires `systemd-growfs-root.service` before nsl setup and SSH readiness. A maintained v4 test grew its root partition but left the filesystem at its previous capacity: an explicit root UUID after kernel regeneration bypassed automatic root discovery. The explicit service dependency fixes that boot path. Existing v4 backups do not gain it from a CLI update. [ADR-0010](../docs/adr/0010-explicit-guest-root-growth.md), [storage results](../docs/plans/storage-management.md).
+## Boot layout and maintenance
 
-The built v5 artifact has SHA256 `ab3f4dee30ac9deafe49846893c060e69c2aa98ec436c56b1b1c627928beb4e6`. Its credential/command protocol remains version 1.
+The 1 GiB EFI partition mounts at `/efi`; `/boot` stays on the root filesystem so package managers can replace kernel files using hard links. Debian-family kernel hooks regenerate UKIs using systemd-ukify. The platform hook preserves an administrator's existing `/etc/kernel/cmdline`; otherwise it records the root UUID. The initramfs includes the virtio-vsock driver.
 
-## Distribution support
+Setup explicitly requires `systemd-growfs-root.service` after repartitioning/remounting. Ubuntu explicitly includes `udev` for device discovery, plus ext4 tools. These details belong in image profiles, while the host only changes virtual capacity.
 
-Debian is currently the only built and verified nsl image. [The guest contract](../docs/specs/guest-images.md) and [distribution plan](../docs/plans/distribution-support.md) put common integration above distro-specific packages, boot hooks, root growth and security policy. Ubuntu LTS and Fedora are next, followed by CentOS Stream and openSUSE; SUSE Enterprise is a separate research target. The current Debian build script does not yet implement these adapters.
+Normal package/kernel updates use the guest package manager. New bases affect new VMs; updating the CLI never replaces a customized guest root. `scripts/probe-maintenance.py` selects command arrays from the image's distro profile, and `scripts/probe-distribution.py` runs common lifecycle/storage checks. A newer-kernel upgrade and an ordinary reinstall are recorded separately.
+
+## Earlier experimental images
+
+- v3 placed `/boot` on FAT and failed kernel replacement. The historical VMs were deleted with user authorization.
+- v4 fixed the boot layout, but maintained guests could skip root filesystem growth after kernel regeneration.
+- v5 explicitly required root growth. v6 retains that fix and introduces profiles and the portable SSH socket.
+
+Existing guests retain their installed integration. Historical backups remain useful for reproducing failures; there is no automatic guest migration. See [boot layout decision](../docs/adr/0007-maintainable-guest-boot.md), [root growth decision](../docs/adr/0010-explicit-guest-root-growth.md) and [storage results](../docs/plans/storage-management.md).

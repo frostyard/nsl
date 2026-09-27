@@ -1,7 +1,7 @@
 [Unit]
 Description=Configure the nsl development environment
-After=local-fs.target systemd-repart.service systemd-growfs-root.service sshd-keygen.service
-Requires=sshd-keygen.service systemd-growfs-root.service
+After=local-fs.target systemd-repart.service systemd-growfs-root.service
+Requires=systemd-growfs-root.service
 Before=systemd-user-sessions.service
 
 [Service]

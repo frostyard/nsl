@@ -2,7 +2,7 @@
 
 Deliver persistent Linux VMs that open from a terminal or application launcher, use the user's projects and desktop, and require little routine VM administration.
 
-**Status: working vmspawn prototype, 2026-09-26.** The Go CLI manages one full Debian VM per environment through systemd-vmspawn/QEMU/KVM. Images use pinned nspawn mkosi disk recipes. Lima supplies the disposable image builder and remains a historical runtime baseline. No nspawn container runs inside the development VM. Decisions: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md); current behavior: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md).
+**Status: working vmspawn prototype, 2026-09-26.** The Go CLI manages one full distro VM per environment through systemd-vmspawn/QEMU/KVM. Images use pinned nspawn mkosi disk recipes. Lima supplies the disposable image builder and remains a historical runtime baseline. No nspawn container runs inside the development VM. Decisions: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md); current behavior: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md).
 
 ## Current evidence and next work
 
@@ -15,7 +15,7 @@ The storage increment added explicit removal and resumable offline growth. A mai
 Priority order:
 
 1. **Protect guest work:** export/restore, safe removal and resumable offline growth are implemented. [Storage acceptance](storage-management.md).
-2. **Support distro choice early:** common guest contract and separate image adapters; Ubuntu LTS and Fedora next, then CentOS Stream and openSUSE Leap/Tumbleweed. Research SUSE Enterprise separately. [Plan and matrix](distribution-support.md).
+2. **Support distro choice early:** common guest contract and separate image adapters; Debian/Ubuntu profiles and common acceptance implemented; Fedora next, then CentOS Stream and openSUSE Leap/Tumbleweed. Research SUSE Enterprise separately. [Plan and matrix](distribution-support.md).
 3. **Prove daily reliability:** kernel reinstallation and rootless Podman passed; next test newer-kernel upgrades, host reboot/suspend, network changes, disk-full behavior and another atomic host.
 4. **Reduce routine commands:** default environment, host cwd mapping, editor setup and selected command exports.
 5. **Make installation practical:** signed prebuilt images, versioned dependencies, protocol/update policy, Snow plus Fedora Atomic validation.
@@ -193,7 +193,7 @@ Each VM provides a separate kernel boundary, but shared files, clipboard, graphi
 | --- | --- | --- |
 | Runtime and image choice | Complete for the prototype: Go, vmspawn/QEMU, nspawn disk recipes; ADR-0005. | Revisit only for measured limitations. |
 | Persistent VM CLI | Implemented: owned state, independent disks/keys, boot setup, growth at creation, lifecycle, readiness, recovery, port reporting, verified backup/restore, safe removal and resumable offline growth. | Broader failure tests and filesystem/distro coverage. |
-| Distribution choice | Common contract and per-family plan recorded; Debian is the verified family. | Ubuntu/Fedora vertical tests, then CentOS Stream and SUSE-family tests; negotiated image capabilities. |
+| Distribution choice | Debian trixie and Ubuntu noble v6 profiles, common vsock transport and shared acceptance suite. | Fedora vertical tests, then CentOS Stream and SUSE-family tests; negotiated image capabilities. |
 | Daily development | Shared and guest-owned files, SSH editor access, localhost, two VMs, polling live reload, kernel reinstall and rootless Podman verified. | Newer-kernel upgrades, defaults/cwd/export conveniences, network transitions. |
 | Atomic-host delivery | Local build and Snow launch proven. | Signed image distribution, integration updates, clean installation on a second host and minimum dependency versions. |
 | Integrated desktop | Software Waypipe transport and one application protocol check proven. | Launcher exports; visual/input, clipboard, audio, session recovery, GPU and portal matrix. |

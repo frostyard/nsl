@@ -32,7 +32,7 @@ Names start with a lowercase ASCII letter, contain lowercase letters/digits/inte
 - State and runtime unit identity MUST be validated before mutation. Existing names, foreign units and unsupported metadata MUST be rejected.
 - Lifecycle changes MUST serialize per environment; command sessions MAY run concurrently after readiness.
 - Freshly created environments MUST have independent disks and client keys. All environments MUST have distinct runtime units and CIDs within a state directory. Restored copies preserve their backup's guest identity/keypair and have independent disk files ([ADR-0006](../adr/0006-stopped-vm-backups.md)).
-- Launch MUST request the vsock SSH listener explicitly, so readiness does not depend on automatic detection before modules load.
+- Images MUST supply a vsock SSH listener independently of early automatic detection. V6 uses an nsl-owned socket; launch retains explicit listener arguments for earlier images.
 - Readiness MUST verify the guest ID, UID, GID and protocol even for an already running unit.
 - Interrupted preparation MUST retain state. Recovery MUST preserve an existing disk, private key and host-key trust; it MUST NOT silently repair corruption or regenerate lost keys.
 - Normal guest work MUST use the host numeric UID and primary GID. `--root` selects guest root, never host root.

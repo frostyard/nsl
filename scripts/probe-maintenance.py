@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Destructive maintenance probe for a disposable nsl VM with a stopped backup."""
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,18 @@ def guest(*args, root=False, input=None, check=True):
     return run('exec', a.environment, *flags, '--', *args, input=input, check=check)
 
 
+def uki_hashes(pattern):
+    code = '\n'.join([
+        'import glob, hashlib, sys',
+        'from pathlib import Path',
+        'files = sorted(glob.glob(sys.argv[1]))',
+        'assert files, "no UKI files found"',
+        'for path in files:',
+        '    print(hashlib.sha256(Path(path).read_bytes()).hexdigest(), path)',
+    ])
+    return guest('python3', '-c', code, pattern, root=True).strip()
+
+
 def request_server(port):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + 30
@@ -61,10 +74,15 @@ try:
     boot_before = guest('cat', '/proc/sys/kernel/random/boot_id').strip()
     result['kernel_before'] = before
     result['boot_before'] = boot_before
-    guest('apt-get', 'update', root=True)
-    guest('env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y',
-          'podman', 'uidmap', 'slirp4netns', 'fuse-overlayfs', root=True)
-    result['kernel_policy'] = guest('apt-cache', 'policy', 'linux-image-amd64').strip()
+    image = json.loads(guest('cat', '/usr/lib/nsl/image.json'))
+    distro = image['distribution']
+    if distro not in ('debian', 'ubuntu'):
+        raise ValueError('no maintenance adapter for ' + distro)
+    profile = json.loads((Path(__file__).resolve().parents[1]/'image/profiles'/distro/'maintenance.json').read_text())
+    result['image'] = image
+    guest(*profile['refresh'], root=True)
+    guest(*profile['install_containers'], root=True)
+    result['kernel_policy'] = guest(*profile['kernel_policy']).strip()
     info = json.loads(guest('podman', 'info', '--format', 'json'))
     assert info['host']['security']['rootless'] is True
     result['podman_version'] = info['version']['Version']
@@ -97,12 +115,11 @@ try:
     result['host_localhost_http'] = True
     # Reinstall the current package to exercise dpkg/initramfs/UKI hooks even
     # when apt has no newer kernel. Do not label this a kernel version upgrade.
-    result['uki_before'] = guest('sh', '-c', 'sha256sum /efi/EFI/Linux/*.efi', root=True).strip()
-    guest('env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '--reinstall',
-          '-y', 'linux-image-' + before, root=True)
-    result['uki_after'] = guest('sh', '-c', 'sha256sum /efi/EFI/Linux/*.efi', root=True).strip()
+    result['uki_before'] = uki_hashes(profile['uki_glob'])
+    guest(*(arg.format(kernel=before) for arg in profile['kernel_reinstall']), root=True)
+    result['uki_after'] = uki_hashes(profile['uki_glob'])
     assert result['uki_after'] != result['uki_before']
-    assert not guest('dpkg', '--audit', root=True).strip()
+    assert not guest(*profile['audit'], root=True).strip()
     guest('sync')
     run('stop', a.environment)
     run('start', a.environment)
@@ -135,7 +152,14 @@ except Exception as exc:
     raise
 finally:
     if container_created:
-        guest('podman', 'rm', '-f', label, check=False)
+        # Cleanup must not try to boot an unreachable guest after a boot failure.
+        request = base64.b64encode(json.dumps(dict(version=1, argv=['podman', 'rm', '-f', label])).encode()).decode()
+        try:
+            subprocess.run(['ssh', '-F', str(Path(env['NSL_HOME'])/'environments'/a.environment/'ssh.config'),
+                            '-T', 'guest', '/usr/local/libexec/nsl-exec', request],
+                           capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
     run('stop', a.environment, check=False)
     output.write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=2))

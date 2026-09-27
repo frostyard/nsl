@@ -62,18 +62,7 @@ def configure(config):
         temporary.write_text(json.dumps(identity) + '\n')
         temporary.chmod(0o644)
         temporary.replace(record)
-    # Debian's initramfs-tools needs a root argument for later kernel updates.
-    # Preserve an administrator's existing command line on subsequent boots.
-    cmdline = Path('/etc/kernel/cmdline')
-    if not cmdline.exists():
-        root_uuid = subprocess.check_output(
-            ['findmnt', '--noheadings', '--output', 'UUID', '--target', '/'],
-            text=True).strip()
-        if not re.fullmatch(r'[0-9a-fA-F-]{36}', root_uuid):
-            raise ValueError('cannot determine root filesystem UUID')
-        temporary = cmdline.with_suffix('.tmp')
-        temporary.write_text(f'root=UUID={root_uuid} rw console=hvc0\n')
-        temporary.replace(cmdline)
+    subprocess.run(["/usr/local/libexec/nsl-platform-setup"], check=True)
     # Also cover interruption before first-boot key generation completed.
     # Existing host keys are kept; the host still rejects a changed key.
     subprocess.run(['ssh-keygen', '-A'], check=True)
