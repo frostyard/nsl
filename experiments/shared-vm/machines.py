@@ -132,8 +132,18 @@ def vm(argv, timeout=300, check=True):
 
 def offline(name, *argv, timeout=300):
     """Run a command in a stopped machine's tree, without booting it, using the VM's resolver."""
-    return vm(['systemd-nspawn', '--quiet', '--register=no', '--pipe', '--bind-ro=/run/systemd/resolve',
+    return vm(['systemd-nspawn', '--quiet', '--register=no', '--pipe', '--bind-ro=/run/systemd/resolve', '--timezone=off',
                '--directory=/var/lib/machines/' + name, '--', *argv], timeout=timeout)
+
+
+def host_zone():
+    """The host's time zone name, or UTC. Machines show local time, as WSL does."""
+    try:
+        target = os.readlink('/etc/localtime')
+    except OSError:
+        return 'Etc/UTC'
+    zone = target.split('zoneinfo/', 1)[1] if 'zoneinfo/' in target else 'Etc/UTC'
+    return zone if re.fullmatch(r'[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*', zone) else 'Etc/UTC'
 
 
 def account():
@@ -145,6 +155,9 @@ def account():
 SETTINGS = '''[Exec]
 Boot=yes
 PrivateUsers=no
+# Creation links /etc/localtime to the host's zone. nspawn would otherwise bind the VM's zone
+# over images without zone data, and tzdata's first update would fail with EBUSY.
+Timezone=off
 
 [Network]
 VirtualEthernet=no
@@ -165,12 +178,43 @@ NETWORK_UNITS = ['systemd-networkd.service', 'systemd-networkd.socket', 'systemd
 BOOTSTRAP = {
     'debian': [['apt-get', 'update', '-qq'],
                ['env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq', '--no-install-recommends',
-                'libpam-systemd', 'sudo']],
-    'fedora': [['dnf', 'install', '-y', '-q', '--setopt=install_weak_deps=False', 'systemd-pam', 'sudo']],
+                'libpam-systemd', 'dbus-user-session', 'sudo', 'tzdata']],
+    'fedora': [['dnf', 'install', '-y', '-q', '--setopt=install_weak_deps=False', 'systemd-pam', 'sudo', 'tzdata']],
+    # The image ships a populated pacman keyring, private master key included: every
+    # machine would share it. Generate a fresh one, then upgrade fully (Arch does not
+    # support partial upgrades).
+    'arch': [['rm', '-rf', '/etc/pacman.d/gnupg'], ['pacman-key', '--init'], ['pacman-key', '--populate', 'archlinux'],
+             ['pacman', '-Syu', '--noconfirm', 'sudo']],
+    'opensuse-tumbleweed': [['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh'],
+                            ['zypper', '--non-interactive', 'install', '--no-recommends', 'sudo', 'timezone', 'shadow']],
 }
+# Nested container runtimes inside nspawn. The kernel allows a new procfs in a user
+# namespace only if a fully visible one exists (mount_too_revealing), and nspawn masks
+# /proc; LXC and Incus add the same spare mount for nesting. nspawn also filters the
+# keyring syscalls and mounts /proc/sys read-only.
+NESTING_MOUNT = '''[Unit]
+Description=Fully visible procfs for nested container runtimes
+DefaultDependencies=no
+Before=local-fs.target
+
+[Mount]
+What=proc
+Where=/run/nsl/proc
+Type=proc
+Options=nosuid,nodev,noexec
+
+[Install]
+WantedBy=local-fs.target
+'''
+CONTAINERS_CONF = '''# nsl machine: nspawn filters keyring syscalls and mounts /proc/sys read-only.
+[containers]
+keyring = false
+default_sysctls = []
+'''
+
 # A root-initiated stack with account and pam_systemd session modules. Fedora's systemd
 # ships systemd-run0; Debian trixie has none, but its runuser-l falls back to common-*.
-PAM_SERVICE = {'debian': 'runuser-l', 'fedora': 'systemd-run0'}
+PAM_SERVICE = {'debian': 'runuser-l', 'fedora': 'systemd-run0', 'arch': 'systemd-run0', 'opensuse-tumbleweed': 'systemd-run0'}
 
 WRITE = 'import os, sys; p = sys.argv[1]; open(p, "w").write(sys.argv[2]); os.chmod(p, int(sys.argv[3], 8))'
 APPEND_HOST = ('import sys; p, n = sys.argv[1:]; t = open(p).read() if __import__("os").path.exists(p) else ""\n'
@@ -194,13 +238,21 @@ def create(data, name, reference):
         raise ValueError('layer contains OCI whiteouts; this importer handles single-layer images only')
     began = time.monotonic()
     vm(['btrfs', 'subvolume', 'create', root])
+    try:
+        return populate(name, root, image, layer, record_path, began)
+    except BaseException:
+        # Leave no half-built machine behind; the name stays free for a retry.
+        vm(['btrfs', 'subvolume', 'delete', '--recursive', root], check=False)
+        vm(['rm', '-f', f'/etc/systemd/nspawn/{name}.nspawn'], check=False)
+        raise
+
+
+def populate(name, root, image, layer, record_path, began):
     vm(['tar', '--zstd', '--extract', '--preserve-permissions', '--numeric-owner', '--xattrs',
         '--xattrs-include=*', '--file', layer, '--directory', root])
-    user, group, uid, gid = account()
-    offline(name, 'groupadd', '--gid', str(gid), group)
-    offline(name, 'useradd', '--uid', str(uid), '--gid', str(gid), '--create-home', '--shell', '/bin/bash', user)
-    # Hub images ship RootPassword=root; a machine must not accept it.
-    offline(name, 'usermod', '--lock', 'root')
+    # Before anything runs in the tree: nspawn would bind a zone over a regular file.
+    zone = host_zone()
+    vm(['ln', '-sfn', '../usr/share/zoneinfo/' + zone, root + '/etc/localtime'])
     vm(['python3', '-c', WRITE, root + '/etc/hostname', name + '\n', '644'])
     # Debian lacks nss-myhostname; sudo and others resolve the hostname through /etc/hosts.
     vm(['python3', '-c', APPEND_HOST, root + '/etc/hosts', name])
@@ -213,13 +265,27 @@ def create(data, name, reference):
     for command in BOOTSTRAP[distro]:
         offline(name, *command, timeout=900)
     bootstrap_seconds = round(time.monotonic() - bootstrap_began, 2)
+    # After bootstrap: some images (Tumbleweed) ship no shadow tools until it installs them.
+    user, group, uid, gid = account()
+    offline(name, 'groupadd', '--gid', str(gid), group)
+    offline(name, 'useradd', '--uid', str(uid), '--gid', str(gid), '--create-home', '--shell', '/bin/bash', user)
+    # Hub images ship RootPassword=root; a machine must not accept it.
+    offline(name, 'usermod', '--lock', 'root')
     vm(['python3', '-c', WRITE, root + '/etc/sudoers.d/nsl', f'{user} ALL=(ALL) NOPASSWD: ALL\n', '440'])
+    vm(['python3', '-c', WRITE, root + '/etc/systemd/system/run-nsl-proc.mount', NESTING_MOUNT, '644'])
+    vm(['systemctl', '--root=' + root, 'enable', 'run-nsl-proc.mount'])
+    # Images with an uninitialized machine ID apply presets on first boot, which would
+    # undo a plain enable on distributions whose default preset is disable-all.
+    vm(['mkdir', '-p', root + '/etc/systemd/system-preset'])
+    vm(['python3', '-c', WRITE, root + '/etc/systemd/system-preset/00-nsl.preset', 'enable run-nsl-proc.mount\n', '644'])
+    vm(['mkdir', '-p', root + '/etc/containers/containers.conf.d'])
+    vm(['python3', '-c', WRITE, root + '/etc/containers/containers.conf.d/50-nsl-nspawn.conf', CONTAINERS_CONF, '644'])
     vm(['mkdir', '-p', '/etc/systemd/nspawn'])
     vm(['python3', '-c', WRITE, f'/etc/systemd/nspawn/{name}.nspawn', SETTINGS, '644'])
     has_bus = any(vm(['test', '-e', root + path], check=False).returncode == 0
                   for path in ('/usr/bin/dbus-broker', '/usr/bin/dbus-daemon'))
     record = {'name': name, 'image': image, 'distro': distro, 'user': user, 'uid': uid, 'gid': gid, 'root_locked': True,
-              'masked': NETWORK_UNITS, 'bootstrap': BOOTSTRAP[distro], 'bootstrap_seconds': bootstrap_seconds,
+              'masked': NETWORK_UNITS, 'time_zone': zone, 'bootstrap': BOOTSTRAP[distro], 'bootstrap_seconds': bootstrap_seconds,
               'has_dbus_broker': has_bus, 'create_seconds': round(time.monotonic() - began, 2),
               'created': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}
     record_path.parent.mkdir(mode=0o700, exist_ok=True)

@@ -1,6 +1,6 @@
 # Experiment: machines as containers in one shared VM
 
-**Status: Phases 1 and 2 passed, 2026-09-27; Phase 3 next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
+**Status: Phases 1–3 passed, 2026-09-27; Phase 4 next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
 [ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/machine-cli.md) now makes several running machines a primary workflow, which changes that trade.
 
@@ -117,6 +117,71 @@ Run inside each machine, reusing `scripts/probe-development.py`, `probe-files.py
 - Directory translation, and stop/start preserving packages, home and services.
 - **Done when:** each check has pass/fail evidence for Debian and Fedora, then Arch and openSUSE Tumbleweed for systemd-version and family breadth.
 
+**Result, 2026-09-27: passed.** [`workloads.py`](../../experiments/shared-vm/README.md#workloads) ran all eight checks on four freshly created machines in one VM: 32 of 32 passed. The CLI-bound probes hard-code `/work` and `nsl exec`, so their Podman and watcher workflows were ported rather than reused. All four hub images were dated 20260927.
+
+| | Debian 13 | Fedora 44 | Arch | Tumbleweed |
+| --- | --- | --- | --- | --- |
+| Create, including bootstrap | 6.1 s | 9.6 s | 10.6 s | 11.0 s |
+| Workload install (python3, jq, Podman, wayland-utils, GUI app) | 17.4 s | 24.4 s | 14.4 s | 5.9 s |
+| Rootless Podman | 5.4.2 | 5.8.7 | 6.1.2 | 6.0.2 |
+| GUI application | galculator | galculator | galculator | foot |
+| Machine start after a VM restart | 0.46 s | 0.71 s | 1.64 s | 0.70 s |
+| Disk after workloads | 1.14 GiB | 1.35 GiB | 1.43 GiB | 0.53 GiB |
+
+Every machine reached `running` with no failed units. The checks covered:
+
+- package install and removal, and `sudo`;
+- rootless Podman: build, `--userns=keep-id` volume ownership, container HTTPS, and a published port reachable from the machine, the VM and a peer machine;
+- `/mnt/host` operations: spaces and Unicode, relative symlinks, executable bits, rename, delete and fsync;
+- a user service forwarded to host loopback;
+- directory translation;
+- a Waypipe window;
+- packages, home, an enabled system service and a Podman image surviving a VM restart.
+
+Findings:
+
+- **Nested containers need three machine-level adjustments,** applied by creation to every distro. The first is a spare, fully visible procfs mount: the kernel's `mount_too_revealing` rule refuses a new procfs in a user namespace while nspawn masks `/proc`; LXC and Incus nest the same way. The other two are `keyring = false`, because nspawn filters keyring syscalls, and `default_sysctls = []`, because `/proc/sys` is read-only.
+- **With `PrivateUsers=no`, machine root is effectively VM root.** The spare procfs exposes writable kernel sysctls, so nspawn's `/proc` restrictions were hygiene, not a boundary. This fits the trust model and confirms that an `--isolated` machine cannot be a peer in the shared VM.
+- **Integration units need preset files.** Images with an uninitialized machine ID apply presets on first boot. Fedora's disable-all preset silently undid `systemctl --root enable`.
+- **Machines show the host's time zone.** Creation links `/etc/localtime` to the host's zone before anything runs, and nspawn leaves it alone (`Timezone=off`). The VM itself remains on UTC.
+- **Cross-machine file semantics beat separate VMs.** An edit in one machine produced inotify events in another, and `flock` conflicts between machines were honored, because both share one kernel. Host edits still produced no events (polling saw them in 0.05 s). The host acquired a lock a machine held. These last two apply to both topologies.
+- **Networking behaves like WSL.** Machines share the VM's network namespace, so a port in one is visible to the VM and to its peers, and binding the same port in a second machine fails with `Address already in use`. The VM sees machine listeners, so today's forwarding mechanism works unchanged.
+- **GUI works with one persistent Waypipe session per machine.** The host runs `waypipe --display /run/nsl-wayland/NAME/wayland-0 ssh … sleep`, and `machinectl bind` places that directory in the running machine without a restart. All four machines saw 33 Wayland interfaces, including `xdg_wm_base`.
+- **Directory translation handled the bind-mount alias.** A `/mnt/host/home → var/home` symlink in the VM, plus device-and-inode matching, mapped the worktree under `/home/bjk/…` correctly. `/usr/share` was correctly refused.
+- **Machines do not start with the VM.** Autostart through `machines.target` or lazy start per command is a design choice for the adoption ADR.
+
+Raw evidence is in ignored `build/shared-vm/evidence/phase3-*.json`; the 19:40:28 file is the final four-machine run.
+
+## Image source tally: hub.nspawn.org or our own
+
+A running record, updated each phase, for deciding whether to publish Frostyard machine images. "Own image fixes it" assumes images built from the same pinned `mkosi-definitions` recipes plus an nsl layer, published through the existing [signed delivery pipeline](../design/image-publication.md).
+
+| # | Found | Pain point with hub images | Impact | Experiment workaround | Own image fixes it |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Phase 2 | Recipe sets `RootPassword=root`; confirmed in Debian, Fedora, Arch and Tumbleweed. | Every machine starts with a known root password. | Lock root at creation. | Yes |
+| 2 | Phase 2 | networkd and resolved are enabled for a private nspawn bridge. | In the VM's network namespace, Fedora DNS fails. | Mask seven units; bind the VM's resolver. | Yes |
+| 3 | Phase 2 | No `pam_systemd`: Debian lacks `libpam-systemd`, Fedora lacks `systemd-pam`. Arch and Tumbleweed include it. | No logind session, runtime directory or user manager. | Install at creation. | Yes |
+| 4 | Phase 2 | No `sudo` in any of the four images. | A passwordless account cannot administer its machine. | Install at creation; NOPASSWD rule. | Yes |
+| 5 | Phase 2 | Debian cannot resolve its own hostname. | `sudo` and similar tools warn on every run. | Add `127.0.1.1 NAME` to `/etc/hosts`. | Yes |
+| 6 | Phase 2 | No PAM stack works on both distros: Debian has no `login` or `systemd-run0`, and Fedora's `other` denies. | Entry needs per-distro PAM knowledge. | Map Debian to `runuser-l`, Fedora to `systemd-run0`. | Yes: ship one `nsl` PAM service |
+| 7 | Phase 2 | Signed with nspawn.org's key and identity. Mutable tags (`13` moves daily), no signed catalogue, no rollback or freshness policy. | Does not meet [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md); trust rests on a third party's key. | Pin the key; verify the manifest digest. | Yes |
+| 8 | Phase 2 | Items 3–5 need network access and live repositories at creation. | Creation cannot be offline, is not reproducible, and adds 4–6 s. | Accepted for the experiment. | Yes |
+| 9 | Phase 3 | Debian ships `/etc/localtime` as a regular file, with no `tzdata` or zone data. | nspawn can only bind the VM's zone over it, so the first `tzdata` install in every new machine fails with `EBUSY`. Every package depending on `tzdata` (python3, Podman's CRIU bindings) is left unconfigured. | Link `/etc/localtime` to the host's zone right after extraction; `Timezone=off` for boots and offline runs. | Yes |
+| 10 | Phase 3 | Debian lacks `dbus-user-session`; Fedora's `dbus-broker` provides the user bus. | No user D-Bus: Podman falls back to cgroupfs, and desktop applications lose their session bus. | Install at creation. | Yes |
+| 11 | Phase 3 | Arch ships a populated pacman keyring, including the local master **private key** (`private-keys-v1.d`, `secring.gpg`). | Every machine from the image shares one master key that anyone holding the image also holds. Keys it certifies are fully trusted, so this is a package supply-chain risk. | Delete the keyring; `pacman-key --init` and `--populate` at creation. | Yes |
+| 12 | Phase 3 | Tumbleweed has no shadow tools: no `useradd`, `groupadd`, `usermod` or `passwd`. | Accounts, subordinate UID ranges and root locking need a package install first. | Bootstrap installs `shadow` before creating the account. | Yes |
+| 13 | Phase 3 | No desktop baseline: Tumbleweed has no fonts. On the other distros, galculator's GTK dependencies happened to pull some in. | The Wayland connection works, but the first GUI application can fail to start (`foot`: failed to match font). | Install a font with the workload. | Yes: a desktop layer with fonts and a cursor theme |
+
+In favor of hub images so far:
+
+- Small single-layer zstd OCI images (Debian 76 MB, Fedora 112 MB, Arch 202 MB, Tumbleweed 73 MB) that boot systemd and D-Bus in under a second.
+- After bootstrap, all four passed the full Phase 3 workload, including rootless Podman and GUI.
+- No image shares a machine ID: all four ship `uninitialized`.
+- Daily rebuilds with distro security updates, plus dated tags for pinning.
+- A broad catalogue: Arch, Debian, Ubuntu, Fedora, CentOS, Alma, Rocky, openSUSE and Kali, plus development and language variants.
+- Signed with both a project key and a keyless Sigstore identity, discoverable through the OCI referrers API.
+- The recipes are the ones nsl already pins, so rebuilding our own is the same Lima/mkosi pipeline without the disk profile.
+
 ## Phase 4 — Measurements against one VM per machine
 
 Use the same host (Snow 13), distros and guest memory ceiling for both topologies. Record versions and configuration.
@@ -150,8 +215,8 @@ The thresholds below are proposals; adjust them before measuring, not after.
 | Machine storage? | btrfs subvolumes on one data disk: no hot-plug, cheap snapshots. Import and removal worked; measure export. | Phase 3 |
 | Shared VM image ownership? | Immutable and nsl-updated as a unit. The distro is Debian for the experiment only. | Adoption ADR |
 | `--isolated` under a shared VM? | Record what an escape reaches. A separate VM for isolated machines may be the one justified exception to a single topology. | Adoption ADR |
-| Absolute host symlinks into shared trees? | Link the host's canonical top-level directory (for example `/var/home`) to `/mnt/host` inside machines where it is absent. | Phase 3 |
-| cloud-init inside containers? | Test NoCloud in Debian and Fedora containers before revising the [provisioning contract](../specs/provisioning.md). | Phase 3 |
+| Absolute host symlinks into shared trees? | Link the host's canonical top-level directory (for example `/var/home`) to `/mnt/host` inside machines where it is absent. Phase 3 tested top-level aliases under `/mnt/host` only. | Adoption ADR |
+| cloud-init inside containers? | Test NoCloud in Debian and Fedora containers before revising the [provisioning contract](../specs/provisioning.md). Not tested in Phase 3. | Adoption ADR |
 
 ## References
 

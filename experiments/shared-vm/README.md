@@ -8,6 +8,7 @@ Experiment code for the [shared-VM plan](../../docs/plans/shared-vm-experiment.m
 - `layer/`: adds `systemd-container` and a machine-storage disk. On first boot, `nsl-machines-storage` formats the one blank non-root disk as btrfs labelled `nsl-machines`, and `var-lib-machines.mount` mounts it at `/var/lib/machines`. A disk with any other signature is refused.
 - `driver.py`: lifecycle, authenticated readiness and acceptance checks for the shared VM. It shares the [ADR-0016](../../docs/adr/0016-wsl-style-machines.md) allowlist (home, `/run/media/USER`, `/mnt`, whichever exist) at canonical paths under `/mnt/host`.
 - `machines.py`: Phase 2 machines as systemd-nspawn containers inside the VM, and the entry-method comparison.
+- `workloads.py`: Phase 3 workload acceptance across machines.
 - `nspawn-hub-cosign.pub`: the hub's project signing key, copied from `nspawn/mkosi-definitions` at `68263d05169784f44168ca65241d989865ed011b`, the commit the image recipes are pinned to.
 
 ## Requirements
@@ -49,6 +50,23 @@ experiments/shared-vm/machines.py remove fedora
 `pull` fetches the manifest from hub.nspawn.org and accepts it only if a DSSE signature bundle verifies with `nspawn-hub-cosign.pub` and names the manifest digest. The keyless Sigstore signature is not checked. Layers are cached by digest in `~/.cache/nsl-shared-vm/blobs`. The VM reads them through `/mnt/host`; that shortcut is an experiment convenience, not a design.
 
 `create` runs as VM root. It imports the layer into `/var/lib/machines/NAME`, adds your account with your UID and primary GID, locks root's password and sets the hostname. It masks the image's networkd and resolved, installs `pam_systemd` and `sudo` (Debian and Fedora only), and writes `/etc/systemd/nspawn/NAME.nspawn`. Machine records live in the state directory's `machines/`. Flags for `exec` go before the machine name. `--method run` is `systemd-run --machine` with the adjustments recorded in the [plan](../../docs/plans/shared-vm-experiment.md).
+
+## Workloads
+
+```sh
+source build/poc/env.sh        # NSL_WAYPIPE for the GUI check
+WAYLAND_DISPLAY=wayland-0 experiments/shared-vm/workloads.py check --gui debian fedora arch tumbleweed
+```
+
+`check` creates missing machines from the hub (`debian:13`, `fedora:44`, `archlinux:rolling`, `opensuse:tumbleweed`). It installs the workload packages, then runs the system, Podman, file, port, translation, optional GUI and persistence checks. Cross-machine checks pair each machine with another named one. The persistence check restarts the VM, and with it every machine. `--gui` opens a calculator (a terminal on Tumbleweed) from each machine for three seconds.
+
+Creation applies the machine layer to every distro:
+- the host's time zone;
+- masked network units and the VM's resolver;
+- a per-distro bootstrap: `pam_systemd`, `sudo`, zone data, Debian's `dbus-user-session`, Tumbleweed's `shadow`, and a fresh Arch pacman keyring;
+- the host account with a locked root password;
+- `run-nsl-proc.mount` with its preset;
+- a Podman drop-in in `/etc/containers/containers.conf.d/`.
 
 ## Clean up
 
