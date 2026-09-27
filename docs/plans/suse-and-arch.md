@@ -1,6 +1,6 @@
 # Plan: SUSE-family and Arch development VMs
 
-Complete the remaining [v0.2.0 distribution gates](v0.2-v0.3-release.md). Arch's first profile passed the full suite; openSUSE Leap and Tumbleweed remain in validation.
+Complete the remaining [v0.2.0 distribution gates](v0.2-v0.3-release.md). All three profiles passed the full suite on Snow Linux x86-64.
 
 ## Phase 1 — Profiles and native integration
 
@@ -26,17 +26,33 @@ Fresh Leap SSH connections took about 20 seconds. A syscall trace showed PAM's a
 
 A Tumbleweed build using Fedora tools stalled with zypp-rpm blocked writing package progress while zypper polled a different pipe. The interrupted artifact was not published. The SUSE family now uses a native openSUSE tools tree pinned to the same snapshot; both builds completed with that adapter.
 
-Leap's Podman package did not bring in `container-selinux`. Without it, pasta entered the wrong SELinux domain and could not open the container network namespace. Installing the distribution's container policy and relabeling the already-created container store fixed the diagnostic build. The next clean Leap image installs `container-selinux` before any container storage exists. No local policy exceptions or enforcement changes are used.
+Leap's Podman package did not bring in `container-selinux`. Without it, pasta entered the wrong SELinux domain and could not open the container network namespace. Installing the distribution's container policy and relabeling the already-created container store fixed the diagnostic build. The validated Leap v5 image installs `container-selinux` before any container storage exists. No local policy exceptions or enforcement changes are used.
 
-SUSE kernel RPMs call `update-bootloader`, which needs an explicit `LOADER_TYPE="systemd-boot"` setting. Without that configuration, reinstalling the kernel changes its separate initramfs but leaves the UKI unchanged. The SUSE adapter installs the native bootloader adapter and selects its kernel-install path; fresh-image maintenance validation is pending.
+SUSE kernel RPMs call `update-bootloader`, which needs an explicit `LOADER_TYPE="systemd-boot"` setting. Without that configuration, reinstalling the kernel changes its separate initramfs but leaves the UKI unchanged. The SUSE adapter installs the native bootloader adapter and selects its kernel-install path; fresh-image maintenance validation passed on Leap v5 and Tumbleweed v5.
 
 ## Arch result
 
-The initial Arch image passed the full common suite on Snow Linux x86-64. The package refresh upgraded the kernel from `7.2.6-arch2-1` to `7.2.7-arch1-1`; the test verified the new kernel after reboot. Rootless Podman, saved containers/volumes, further reboots, backup/restore, 16→24 GiB growth and safe removal passed.
+The revision 2 Arch image passed the full common suite on Snow Linux x86-64. The package refresh upgraded the kernel from `7.2.6-arch2-1` to `7.2.7-arch1-1`; the test verified the new kernel after reboot. Rootless Podman, saved containers/volumes, further reboots, backup/restore, 16→24 GiB growth and safe removal passed.
 
-Image: `nsl-arch-rolling-x86-64-v1`; SHA256 `e71c08441e247e9865f1c5c4c3f3d7d4972e290a6bbd2c420b379d91cacc2403`. systemd 262, Podman 6.1.2, btrfs. Root capacity grew from 16,105,058,304 to 24,694,992,896 bytes. Passing guests were removed. Revision 2 tightens inventory validation to reject option-like values and path components; its clean rebuild is in validation.
+Image: `nsl-arch-rolling-x86-64-v2`; SHA256 `b6dbda7908f00342ff2e395ed1f37bb09b6470c1c1b000b142a2d8b63f7578bf`. systemd 262, Podman 6.1.2, btrfs. Root capacity grew from 16,105,058,304 to 24,694,992,896 bytes. Passing guests were removed. Revision 2 also rejects option-like kernel inventory values and path components.
 
-Local evidence: [results](../../build/native/evidence/arch-v1/results.json), [lifecycle](../../build/native/evidence/arch-v1/lifecycle.json), [maintenance](../../build/native/evidence/arch-v1/maintenance.json), [storage](../../build/native/evidence/arch-v1/storage.json).
+Local evidence: [results](../../build/native/evidence/arch-v2/results.json), [lifecycle](../../build/native/evidence/arch-v2/lifecycle.json), [maintenance](../../build/native/evidence/arch-v2/maintenance.json), [storage](../../build/native/evidence/arch-v2/storage.json).
+
+## Leap result
+
+Leap 16.0 v5 passed the complete common suite with SELinux enforcing before and after maintenance. The kernel reinstall regenerated the UKI; three subsequent boots and rootless container persistence passed. Backup/restore, 16→24 GiB root growth and safe removal passed. A newer kernel version was not available in this run.
+
+Image: `nsl-opensuse-16.0-x86-64-v5`; SHA256 `93083cbdeedd675b369b40a878fa3a32f04cdf81205313f5b9052c366ce4928c`. systemd 257 (257.13+suse.131.g575b4807b7), kernel 6.12.0-160000.38-default, Podman 5.4.2, btrfs. Passing guests were removed.
+
+Local evidence: [results](../../build/native/evidence/leap-v5/results.json), [lifecycle](../../build/native/evidence/leap-v5/lifecycle.json), [maintenance](../../build/native/evidence/leap-v5/maintenance.json), [storage](../../build/native/evidence/leap-v5/storage.json).
+
+## Tumbleweed result
+
+Tumbleweed snapshot 20260923 v5 passed the complete suite with SELinux enforcing. Native kernel RPM hooks regenerated the UKI, and three subsequent boots plus saved container/volume tests passed. Backup/restore, 16→24 GiB btrfs growth and safe removal passed. This run tested a kernel reinstall, not a newer version. The initial image is snapshot-pinned; guest repositories follow the native rolling service.
+
+Image: `nsl-opensuse-tumbleweed-x86-64-v5`; SHA256 `2cc8eff33b631d56bde8e0d45c7a3d5dc1f22ea0da1f41e1dbb5e8d8488e2ae0`. systemd 261 (261.2), kernel 7.2.6-1-default, Podman 6.0.2. Passing guests and obsolete diagnostic guests were removed.
+
+Local evidence: [results](../../build/native/evidence/tumbleweed-v5/results.json), [lifecycle](../../build/native/evidence/tumbleweed-v5/lifecycle.json), [maintenance](../../build/native/evidence/tumbleweed-v5/maintenance.json), [storage](../../build/native/evidence/tumbleweed-v5/storage.json).
 
 ## References
 

@@ -10,6 +10,9 @@ scripts/build-image.sh --distribution debian --release trixie
 scripts/build-image.sh --distribution ubuntu --release noble
 scripts/build-image.sh --distribution fedora --release 44
 scripts/build-image.sh --distribution centos --release 10
+scripts/build-image.sh --distribution opensuse --release 16.0
+scripts/build-image.sh --distribution opensuse --release tumbleweed
+scripts/build-image.sh --distribution arch --release rolling
 ```
 
 The default is Debian trixie. The combinations below have passed the full VM suite; `--architecture` currently accepts `x86-64`. Unsupported combinations fail before starting the builder. See [distribution acceptance](../docs/plans/image-profiles-and-ubuntu.md) for measured coverage.
@@ -20,8 +23,11 @@ The default is Debian trixie. The combinations below have passed the full VM sui
 | Ubuntu | 24.04 LTS / noble | ext4 | `nsl-ubuntu-noble-x86-64-v6.raw` |
 | Fedora | 44 | btrfs | `nsl-fedora-44-x86-64-v4.raw` |
 | CentOS Stream | 10 | ext4 | `nsl-centos-10-x86-64-v3.raw` |
+| openSUSE Leap | 16.0 | btrfs | `nsl-opensuse-16.0-x86-64-v5.raw` |
+| openSUSE Tumbleweed | 20260923 | btrfs | `nsl-opensuse-tumbleweed-x86-64-v5.raw` |
+| Arch | rolling, initial snapshot 2026/09/25 | btrfs | `nsl-arch-rolling-x86-64-v2.raw` |
 
-[Fedora/CentOS evidence](../docs/plans/rpm-guests.md) includes SELinux enforcing, kernel maintenance and rootless containers. openSUSE 16.0 and the pinned Tumbleweed 20260923 snapshot have experimental profiles under active validation; their availability in the builder is not a support claim.
+[Fedora/CentOS evidence](../docs/plans/rpm-guests.md) includes SELinux enforcing, kernel maintenance and rootless containers. [SUSE/Arch evidence](../docs/plans/suse-and-arch.md) covers both openSUSE profiles and Arch. Arch passed an actual kernel-version upgrade; the other six profiles passed kernel reinstallation and regenerated-image reboots.
 
 The script requires Lima 2.2.0, Python 3, Git, `flock` and the host VM prerequisites. Build packages stay inside an owned Debian builder with 4 CPUs, 4 GiB RAM and a 64 GiB sparse disk. It shares only `build/image/share`, serializes builds with a lock, removes successful guest build workspaces, and stops on exit. Failed workspaces remain for diagnosis.
 
@@ -38,7 +44,7 @@ Publication, catalogue selection and client signature verification are planned. 
 `scripts/compose-image.py` assembles these layers in order:
 
 1. `common/`: account/command helpers, network setup, SSH authentication policy, vsock transport, root growth and EFI layout.
-2. `families/FAMILY/`: initramfs-tools for Debian/Ubuntu or dracut and SELinux labels for RPM guests, plus UKI layout and the platform hook that records the root UUID.
+2. `families/FAMILY/`: initramfs-tools for Debian/Ubuntu or dracut and SELinux labels for RPM guests, plus UKI layout and the platform hook that records the root UUID. SUSE layers native tools/bootloader configuration on RPM integration; Arch supplies its pacman UKI hook.
 3. `profiles/PROFILE/`: explicit release/architecture/build revision, packages, optional filesystem overrides and maintenance commands.
 
 The composer rejects an existing destination. Root-free tests exercise profile validation, composition and no-overwrite behavior. The RPM family supplies dracut/UKI setup, first-boot labels and a Fedora 44 tools tree; it must not require changes to host lifecycle or storage code. [ADR-0011](../docs/adr/0011-image-profiles-and-portable-vsock.md), [distribution plan](../docs/plans/distribution-support.md).
@@ -47,7 +53,7 @@ The composer rejects an existing destination. Root-free tests exercise profile v
 
 Generic images contain no client private key, fixed development account or guest SSH host keys. `nsl-setup` validates the boot credential and binds the disk to the environment ID, selected UID/primary GID and public key. It generates missing host keys and preserves them on subsequent boots. The family platform hook runs during setup.
 
-All profiles use `nsl-ssh.socket` on vsock port 22 and `nsl-ssh@.service` with OpenSSH's inetd mode. Connections require successful setup and root growth. The systemd SSH generator is masked to prevent duplicate listeners; distro SSH units remain available for guest administration. This works with Ubuntu's older systemd without replacing systemd. AppArmor remains enabled on Ubuntu; SELinux remains enforcing on Fedora and CentOS. A common systemd preset keeps nsl units enabled after distro presets run.
+All profiles use `nsl-ssh.socket` on vsock port 22 and `nsl-ssh@.service` with OpenSSH's inetd mode. Connections require successful setup and root growth. The systemd SSH generator is masked to prevent duplicate listeners; distro SSH units remain available for guest administration. This works with Ubuntu's older systemd without replacing systemd. AppArmor remains enabled on Ubuntu; SELinux remains enforcing on Fedora, CentOS and both openSUSE profiles. A common systemd preset keeps nsl units enabled after distro presets run.
 
 `/usr/lib/nsl/image.json` carries build identity and the declared protocol range. It survives backup/restore as guest disk content. Protocol 1 still performs readiness/authentication; the host does not yet negotiate the descriptor's optional capabilities. [Guest contract](../docs/specs/guest-images.md).
 

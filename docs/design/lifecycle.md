@@ -31,7 +31,7 @@ A manager lock serializes image import and name allocation. Per-environment lock
 
 ## Image and first boot
 
-The [image build](../../image/README.md) combines pinned nspawn disk recipes with common integration, a family boot adapter and an explicit Debian/Ubuntu profile. Lima is an optional build tool only. The runtime requires an explicit local raw image and SHA256. nsl verifies an imported copy, then converts it to an independent qcow2 disk and enlarges its virtual capacity. Existing environments do not depend on the cached raw image after conversion.
+The [image build](../../image/README.md) combines pinned nspawn disk recipes with common integration, family boot adapters and seven explicit distribution profiles. Lima is an optional build tool only. The runtime requires an explicit local raw image and SHA256. nsl verifies an imported copy, then converts it to an independent qcow2 disk and enlarges its virtual capacity. Existing environments do not depend on the cached raw image after conversion.
 
 Image v4 keeps `/boot` on btrfs and mounts a 1 GiB EFI partition at `/efi`. Debian package hooks use `systemd-ukify` and the UKI layout; first boot records the root UUID for later initramfs-tools boots without replacing administrator settings. Image v6 uses an nsl-owned vsock socket and inetd-style OpenSSH unit that require successful setup. The guest SSH generator is masked to prevent duplicate listeners. Older images still use the CLI's explicit listener kernel arguments. [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md). [ADR-0007](../adr/0007-maintainable-guest-boot.md). Existing v3 disks retain their earlier layout and require an explicit migration before kernel maintenance.
 
@@ -63,7 +63,7 @@ Every `start`, `exec`, `shell`, `gui` or `ssh-config` checks authenticated guest
 
 Schema-2 metadata has an optional `guest_id`: fresh environments use their runtime `id` as the guest binding; restored environments keep the backed-up binding and get a fresh runtime `id`. Readiness, boot credentials and SSH host-key aliases use the guest binding; units, sockets and CIDs use runtime identity. Restored copies preserve machine ID and SSH identities, so they are not independently authenticated clones. Version 1 requires matching UID/primary GID. Project sharing and desktop opt-in must be selected again. The independent restored disk does not need the base-image cache.
 
-The [backup milestone](../plans/backup-and-reliability.md) and [storage milestone](../plans/storage-management.md) record acceptance results. The [distribution plan](../plans/distribution-support.md) moves package, boot and filesystem differences into image adapters under a common [guest contract](../specs/guest-images.md); Debian and Ubuntu have explicit profiles and a shared [acceptance suite](../plans/image-profiles-and-ubuntu.md).
+The [backup milestone](../plans/backup-and-reliability.md) and [storage milestone](../plans/storage-management.md) record acceptance results. The [distribution plan](../plans/distribution-support.md) moves package, boot and filesystem differences into image adapters under a common [guest contract](../specs/guest-images.md); all seven profiles use the shared acceptance suite, with separate [Debian/Ubuntu](../plans/image-profiles-and-ubuntu.md), [RPM](../plans/rpm-guests.md) and [SUSE/Arch](../plans/suse-and-arch.md) reports.
 
 ## Commands, files and GUI
 
@@ -81,7 +81,7 @@ A failed host bind is reported by `ports`, retried on subsequent polls and never
 
 ## Release gates
 
-The tested target is Snow Linux, x86_64, systemd 261. Another atomic distribution, host reboot/suspend, upgrades to a newer kernel, signed image delivery and broader desktop integration remain release gates; backup round trips, kernel reinstallation and rootless Podman passed as recorded in the [milestone report](../plans/backup-and-reliability.md). See the [implementation report](../plans/vmspawn-implementation.md) for exact validation and remaining work.
+The tested target is Snow Linux, x86_64, systemd 261. Another atomic distribution, host reboot/suspend, newer-kernel upgrades beyond Arch, signed image delivery and broader desktop integration remain release gates; backup round trips, kernel reinstallation and rootless Podman passed across seven profiles, and Arch passed a kernel-version upgrade. Results are recorded in the [distribution matrix](../plans/distribution-support.md) and its linked acceptance reports. See the [implementation report](../plans/vmspawn-implementation.md) for exact validation and remaining work.
 
 ## Planned provisioning lifecycle
 

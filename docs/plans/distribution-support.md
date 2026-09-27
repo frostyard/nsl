@@ -4,7 +4,7 @@ Make Ubuntu, Debian, Fedora, CentOS, Arch and SUSE-family guests work through th
 
 ## Current matrix
 
-The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44, CentOS Stream 10 and Arch on x86_64 through explicit profiles. Reports cover [Debian/Ubuntu](image-profiles-and-ubuntu.md), [Fedora/CentOS](rpm-guests.md) and [SUSE/Arch](suse-and-arch.md). Recipe availability is distinct from a working nsl image.
+The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44, CentOS Stream 10, openSUSE Leap 16.0, Tumbleweed 20260923 and Arch on x86_64 through explicit profiles. Reports cover [Debian/Ubuntu](image-profiles-and-ubuntu.md), [Fedora/CentOS](rpm-guests.md) and [SUSE/Arch](suse-and-arch.md). Recipe availability is distinct from a working nsl image.
 
 | Guest target | Inputs available | nsl evidence | Next gate |
 | --- | --- | --- | --- |
@@ -12,9 +12,9 @@ The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` na
 | Ubuntu LTS | `ubuntu` profile, `linux-generic` | v6 noble profile, ext4 and AppArmor; common acceptance suite on Snow | Additional supported Ubuntu releases; actual newer-kernel upgrade |
 | Fedora | `fedora` profile, `kernel-core` | v4 Fedora 44, btrfs; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
 | CentOS Stream | `centos` profile, `kernel-core` | v3 Stream 10, ext4; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
-| openSUSE Leap | Explicit 16.0 profile, `kernel-default` | Boot, commands, shares, lifecycle passed; native container policy fix verified diagnostically | Validate clean image and native kernel-update hooks |
-| openSUSE Tumbleweed | Snapshot 20260923, `kernel-default` | Boot, lifecycle and rootless containers passed with SELinux enforcing | Complete native kernel-update and storage gates |
-| Arch | Snapshot 2026/09/25, native `linux` package | v1 full suite, including kernel 7.2.6→7.2.7; btrfs | Validate v2 inventory hardening; broader host coverage |
+| openSUSE Leap | Explicit 16.0 profile, `kernel-default` | v5 full common/maintenance suite, btrfs, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
+| openSUSE Tumbleweed | Snapshot 20260923, `kernel-default` | v5 full common/maintenance suite, btrfs, SELinux enforcing | New rolling snapshot/kernel upgrade; broader host coverage |
+| Arch | Snapshot 2026/09/25, native `linux` package | v2 full suite, including kernel 7.2.6→7.2.7; btrfs | Broader host coverage |
 | SUSE Linux Enterprise | Not established by the openSUSE recipe | Planned research | Verify authorized image sources, entitlements/redistribution and compatible build route |
 | AlmaLinux / Rocky Linux | CentOS-family recipe matches both | Planned follow-up | Independent artifacts and maintenance tests before inheriting a support claim |
 
@@ -35,7 +35,7 @@ Implemented in [the profiles/Ubuntu slice](image-profiles-and-ubuntu.md): layere
 
 [Fedora and CentOS validation](rpm-guests.md) passed.
 
-Ubuntu noble is the first additional profile and exposes ext4/AppArmor differences. Fedora is next to exercise RPM/dracut/SELinux. Keep testing Ubuntu releases separately.
+Ubuntu noble was the first additional profile and exposed ext4/AppArmor differences. Fedora then exercised RPM/dracut/SELinux. Keep testing Ubuntu releases separately.
 
 - For each: build, create two VMs, verify distinct fresh identities, argv/PTY, shares/ownership, localhost conflicts, rootless Podman, recovery, export/restore with no cache, disk growth and removal.
 - Exercise package hooks, a real kernel-version change when available, reboot, and transport recovery. Preserve the original security policy and record required integration adjustments.
@@ -43,6 +43,8 @@ Ubuntu noble is the first additional profile and exposes ext4/AppArmor differenc
 - **Done when:** exact supported releases/builds and feature results are published; missing features are explicit, not silently disabled.
 
 ## Phase 3 — CentOS and SUSE family
+
+Completed for CentOS Stream 10, Leap 16.0 and Tumbleweed 20260923; [SUSE/Arch results](suse-and-arch.md) also cover the Arch adapter.
 
 - Resolve boot packages, older systemd capability gaps and native maintenance for CentOS Stream, openSUSE Leap and a pinned Tumbleweed snapshot.
 - Reuse family adapters only where tested; avoid requiring an unsupported replacement of systemd or a disabled security policy.

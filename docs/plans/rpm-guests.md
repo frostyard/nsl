@@ -61,4 +61,4 @@ CentOS Stream 10's systemd package already provides working PAM/user-session int
 
 The Fedora v3 diagnostic guest also passed maintenance after manually installing the missing PAM package; the reported Fedora v4 result above comes from a fresh generic image with that package already included. Failed prototype guests were removed after diagnosis.
 
-SUSE profiles are experimental and are being tested next. Additional hosts, architectures, desktop visual checks and actual kernel-version upgrades remain separate gates.
+[SUSE and Arch profiles](suse-and-arch.md) subsequently passed their own complete suites. Additional hosts, architectures, desktop visual checks and actual kernel-version upgrades remain separate gates.
