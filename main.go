@@ -68,6 +68,7 @@ type app struct {
 	r                               runner
 	in                              io.Reader
 	out, err                        io.Writer
+	imageService                    *imageClient
 }
 
 func newApp() (*app, error) {
@@ -229,6 +230,9 @@ func usage(w io.Writer) {
 
   create NAME --image FILE --digest sha256:HEX [--project DIR] [--desktop]
               [--cpus 2] [--memory 2] [--disk 16]
+  create NAME --distro DISTRO:RELEASE [--offline] [same resource/project flags]
+  images [--offline]
+  pull DISTRO:RELEASE [--offline]
   list
   start NAME
   shell NAME
@@ -256,6 +260,8 @@ func (a *app) execute(args []string) error {
 		return nil
 	}
 	switch args[0] {
+	case "images", "pull":
+		return a.imageCommand(args)
 	case "version":
 		fmt.Fprintln(a.out, version)
 		return nil

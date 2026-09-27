@@ -229,6 +229,8 @@ func (a *app) create(name string, args []string) error {
 	disk := fs.Int("disk", 16, "disk in GiB")
 	image := fs.String("image", "", "local nsl raw image")
 	digest := fs.String("digest", "", "sha256:HEX")
+	distro := fs.String("distro", "", "verified catalogue selection DISTRO:RELEASE")
+	offline := fs.Bool("offline", false, "use a fresh signed catalogue and verified local cache")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -238,8 +240,8 @@ func (a *app) create(name string, args []string) error {
 	if runtime.GOARCH != "amd64" {
 		return errors.New("VM creation currently supports x86_64 only")
 	}
-	if *image == "" || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(*digest) {
-		return errors.New("create requires --image FILE --digest sha256:HEX")
+	if (*distro != "" && (*image != "" || *digest != "")) || (*distro == "" && (*offline || *image == "" || !digestPattern.MatchString(*digest))) {
+		return errors.New("create requires either --distro DISTRO:RELEASE [--offline] or --image FILE --digest sha256:HEX")
 	}
 	projectDir, err := projectPath(*project)
 	if err != nil {
@@ -247,6 +249,15 @@ func (a *app) create(name string, args []string) error {
 	}
 	if err = a.init(); err != nil {
 		return err
+	}
+	if err = a.nameAvailable(name); err != nil {
+		return err
+	}
+	if *distro != "" {
+		*image, *digest, err = a.imageClient().pull(*distro, *offline)
+		if err != nil {
+			return err
+		}
 	}
 	manager, err := fileLock(filepath.Join(a.home, "lock"))
 	if err != nil {

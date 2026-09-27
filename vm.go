@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -93,7 +94,7 @@ func (a *app) runtimeFiles(e *environment) error {
 func (a *app) ready(e *environment) error {
 	request, _ := encodeRequest([]string{"cat", "/var/lib/nsl/identity.json"}, "")
 	args := append(a.sshArgs(e, false), "/usr/local/libexec/nsl-exec", request)
-	b, err := a.capture(5*time.Second, "ssh", args...)
+	b, err := a.captureMetadata("ssh", args...)
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,40 @@ func (a *app) ready(e *environment) error {
 	if identity.Version != 1 || identity.ID != guestID(e) || identity.UID != e.Owner || identity.GID != e.GID {
 		return errors.New("guest identity does not match environment")
 	}
-	return nil
+	request, _ = encodeRequest([]string{"cat", "/usr/lib/nsl/image.json"}, "")
+	b, err = a.captureMetadata("ssh", append(a.sshArgs(e, false), "/usr/local/libexec/nsl-exec", request)...)
+	if err != nil {
+		return err
+	}
+	var descriptor imageDescriptor
+	if err = decodeMetadata(b, &descriptor, metadataLimit); err != nil {
+		return fmt.Errorf("%w: %v", errIncompatibleImage, err)
+	}
+	return descriptor.compatible()
+}
+
+type boundedBuffer struct {
+	buffer bytes.Buffer
+	limit  int
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	remaining := b.limit - b.buffer.Len()
+	if len(p) > remaining {
+		n, _ := b.buffer.Write(p[:remaining])
+		return n, io.ErrShortBuffer
+	}
+	return b.buffer.Write(p)
+}
+func (a *app) captureMetadata(bin string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, stderr := &boundedBuffer{limit: metadataLimit}, &boundedBuffer{limit: 4096}
+	err := a.r.run(ctx, nil, out, stderr, os.Environ(), bin, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %s", bin, err, stderr.buffer.String())
+	}
+	return out.buffer.Bytes(), nil
 }
 func (a *app) start(e *environment) error {
 	l, e, err := a.lockOwned(e)
@@ -181,6 +215,9 @@ func (a *app) startLocked(e *environment) error {
 				}
 			}
 			return a.startForwarder(e)
+		}
+		if errors.Is(readiness, errIncompatibleImage) {
+			return readiness
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

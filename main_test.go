@@ -32,6 +32,7 @@ type fakeRunner struct {
 	failResize           bool
 	wrongKey             bool
 	wrongIdentity        bool
+	guestDescriptor      *imageDescriptor
 }
 
 func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Writer, env []string, bin string, args ...string) error {
@@ -127,6 +128,13 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 					id = strings.Repeat("f", 32)
 				}
 				return json.NewEncoder(out).Encode(map[string]any{"version": 1, "id": id, "uid": e.Owner, "gid": e.GID})
+			}
+			if reflect.DeepEqual(req.Argv, []string{"cat", "/usr/lib/nsl/image.json"}) {
+				d := imageDescriptor{Schema: 1, BuildID: "test-image", Distribution: "debian", Release: "trixie", Architecture: "x86-64", RootFilesystem: "btrfs", ProtocolMin: 1, ProtocolMax: 1, Transport: "nsl-vsock-ssh"}
+				if f.guestDescriptor != nil {
+					d = *f.guestDescriptor
+				}
+				return json.NewEncoder(out).Encode(d)
 			}
 			if reflect.DeepEqual(req.Argv, []string{"systemctl", "poweroff"}) {
 				f.states[unit(&e)] = "inactive"
