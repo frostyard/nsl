@@ -1,6 +1,6 @@
 # 0005 — Use vmspawn and nspawn-derived development images
 
-- **Status:** Accepted for the next development prototype; explicit host integration superseded by [ADR-0016](0016-wsl-style-machines.md), topology under review in the [shared-VM experiment](../plans/shared-vm-experiment.md)
+- **Status:** Accepted for the next development prototype; explicit host integration superseded by [ADR-0016](0016-wsl-style-machines.md); one VM per environment and per-distro bootable images superseded by [ADR-0017](0017-shared-vm-and-machine-images.md)
 - **Date:** 2026-09-26
 
 ## Context

@@ -1,6 +1,6 @@
 # 0011 — Compose guest images from common integration and explicit profiles
 
-- **Status:** Accepted
+- **Status:** Accepted; profiles become machine-image profiles under [ADR-0017](0017-shared-vm-and-machine-images.md), while the vsock transport remains for the VM
 - **Date:** 2026-09-26
 
 ## Context

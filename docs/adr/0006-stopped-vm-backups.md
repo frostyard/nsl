@@ -1,6 +1,6 @@
 # 0006 — Self-contained backups of stopped VMs
 
-- **Status:** Accepted; project and desktop restore grants superseded by [ADR-0016](0016-wsl-style-machines.md)
+- **Status:** Accepted; project and desktop restore grants superseded by [ADR-0016](0016-wsl-style-machines.md); the qcow2 archive gives way to machine archives under [ADR-0017](0017-shared-vm-and-machine-images.md)
 - **Date:** 2026-09-26
 
 ## Context

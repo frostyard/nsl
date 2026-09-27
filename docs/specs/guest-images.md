@@ -52,4 +52,4 @@ Publish the exact release, image build and host/hypervisor versions. A passing r
 ## References
 
 - [Distribution roadmap and matrix](../plans/distribution-support.md), [CLI](cli.md), [image pipeline](../../image/README.md).
-- Planned changes: account, hostname, `/mnt/host` and desktop session under [ADR-0016](../adr/0016-wsl-style-machines.md); topology in the [shared-VM experiment](../plans/shared-vm-experiment.md).
+- Planned changes: account, hostname, `/mnt/host` and desktop session under [ADR-0016](../adr/0016-wsl-style-machines.md). [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) splits this contract into an nsl VM contract and a machine-image contract.

@@ -1,6 +1,6 @@
 # 0010 — Require root filesystem growth before guest readiness
 
-- **Status:** Accepted
+- **Status:** Accepted; narrowed to the nsl VM image by [ADR-0017](0017-shared-vm-and-machine-images.md)
 - **Date:** 2026-09-26
 
 ## Context

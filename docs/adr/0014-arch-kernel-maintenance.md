@@ -1,6 +1,6 @@
 # 0014 — Synchronize Arch kernels into unified boot images
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0017](0017-shared-vm-and-machine-images.md); retired with per-distro VM images
 - **Date:** 2026-09-27
 
 ## Context

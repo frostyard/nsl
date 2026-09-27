@@ -1,6 +1,6 @@
 # 0009 — One guest contract across distribution families
 
-- **Status:** Accepted
+- **Status:** Accepted; the guest contract becomes a machine-image contract under [ADR-0017](0017-shared-vm-and-machine-images.md)
 - **Date:** 2026-09-26
 
 ## Context

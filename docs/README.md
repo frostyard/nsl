@@ -11,11 +11,13 @@
 
 The main Go CLI launches full distro VMs using systemd-vmspawn/QEMU and nspawn-derived bootable images. Lima is the image builder and historical runtime baseline. Read the [user guide](../README.md), [measured vmspawn results](plans/vmspawn-implementation.md) and [prioritized roadmap](plans/wsl2-equivalent.md).
 
-The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md) implement the next part of [broad distribution support](plans/distribution-support.md). Seven x86-64 profiles now pass the common suite; [SUSE and Arch results](plans/suse-and-arch.md) complete the distribution milestone. [v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0) delivers all seven signed images from public GHCR; see [publication results](plans/public-image-delivery.md). [ADR-0016](adr/0016-wsl-style-machines.md) sets the product direction: WSL-style machines with a default machine and host storage at `/mnt/host`. The [machine CLI](specs/machine-cli.md) is planned and the [shared-VM experiment](plans/shared-vm-experiment.md) decides topology. The implemented contracts describe current behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
+The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md) implement the next part of [broad distribution support](plans/distribution-support.md). Seven x86-64 profiles now pass the common suite; [SUSE and Arch results](plans/suse-and-arch.md) complete the distribution milestone. [v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0) delivers all seven signed images from public GHCR; see [publication results](plans/public-image-delivery.md). [ADR-0016](adr/0016-wsl-style-machines.md) sets the product direction: WSL-style machines with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs machines as containers in one shared VM, from Frostyard machine images, as the [shared-VM experiment](plans/shared-vm-experiment.md) supported. The [machine CLI](specs/machine-cli.md) is planned. The implemented contracts describe current behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
 
 ## Index
 
 ### Decisions
+
+- [0017 — Shared VM and Frostyard machine images](adr/0017-shared-vm-and-machine-images.md)
 
 - [0016 — WSL-style machines trusted as the user](adr/0016-wsl-style-machines.md)
 
@@ -57,11 +59,11 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 - [CLI contract](specs/cli.md)
 
-- [Machine CLI](specs/machine-cli.md) — planned successor under ADR-0016.
+- [Machine CLI](specs/machine-cli.md) — planned successor under ADR-0016 and ADR-0017.
 
 ### Plans
 
-- [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; decides topology.
+- [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; evidence for ADR-0017.
 
 - [SUSE and Arch validation](plans/suse-and-arch.md)
 

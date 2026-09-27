@@ -91,6 +91,7 @@ The proposed [cloud-init interface](../specs/provisioning.md) adds a separate pr
 
 - [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [CLI contract](../specs/cli.md).
 - [Comparison experiment](../plans/vmspawn-comparison.md), [roadmap](../plans/wsl2-equivalent.md).
+- Planned replacement: one shared VM running machines as containers, under [ADR-0017](../adr/0017-shared-vm-and-machine-images.md).
 
 ## Signed base selection
 

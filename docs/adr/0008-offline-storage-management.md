@@ -1,6 +1,6 @@
 # 0008 — Remove and grow stopped environments
 
-- **Status:** Accepted
+- **Status:** Accepted; partially superseded by [ADR-0017](0017-shared-vm-and-machine-images.md): growth applies to the shared VM's data disk, removal to machine subvolumes
 - **Date:** 2026-09-26
 
 ## Context

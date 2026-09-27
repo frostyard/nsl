@@ -1,6 +1,6 @@
 # Experiment: machines as containers in one shared VM
 
-**Status: all four phases complete, 2026-09-27. The decision rule is met: adopt the shared VM. The adoption ADR is next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
+**Status: all four phases complete, 2026-09-27. The decision rule is met, and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts the shared VM and Frostyard machine images.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
 [ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/machine-cli.md) now makes several running machines a primary workflow, which changes that trade.
 
@@ -193,7 +193,7 @@ After four phases the tally holds 13 pain points, and every one was worked aroun
 
 The cost is small. The images come from the same pinned `mkosi-definitions` recipes without the disk profile, so they need no bootloader, UKI, root-growth or kernel adapter per distro. They would be published through the existing signed pipeline, and should stay close to the hub's sizes: about a fifth of the bootable disks. The hub remains the upstream reference, and a fallback for distributions we do not build.
 
-**Proposal:** build and sign Frostyard machine images from the same recipes, starting with the four distros tested here. Settle it in the adoption ADR.
+**Decision:** [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts Frostyard machine images built and signed from the same recipes, starting with the four distros tested here.
 
 ## Phase 4 — Measurements against one VM per machine
 
