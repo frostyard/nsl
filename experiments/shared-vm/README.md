@@ -7,6 +7,8 @@ Experiment code for the [shared-VM plan](../../docs/plans/shared-vm-experiment.m
 - `build.sh`: builds `nsl-shared-vm-trixie-x86-64-v1.raw` from the Debian trixie profile plus `layer/`, inside a disposable Lima builder. Builder steps mirror `scripts/build-image.sh`; source pins are read from it.
 - `layer/`: adds `systemd-container` and a machine-storage disk. On first boot, `nsl-machines-storage` formats the one blank non-root disk as btrfs labelled `nsl-machines`, and `var-lib-machines.mount` mounts it at `/var/lib/machines`. A disk with any other signature is refused.
 - `driver.py`: lifecycle, authenticated readiness and acceptance checks for the shared VM. It shares the [ADR-0016](../../docs/adr/0016-wsl-style-machines.md) allowlist (home, `/run/media/USER`, `/mnt`, whichever exist) at canonical paths under `/mnt/host`.
+- `machines.py`: Phase 2 machines as systemd-nspawn containers inside the VM, and the entry-method comparison.
+- `nspawn-hub-cosign.pub`: the hub's project signing key, copied from `nspawn/mkosi-definitions` at `68263d05169784f44168ca65241d989865ed011b`, the commit the image recipes are pinned to.
 
 ## Requirements
 
@@ -30,10 +32,28 @@ experiments/shared-vm/driver.py stop
 
 The whole home is visible to the VM by design, including nsl state and this experiment's private key. That matches ADR-0016's trust model; do not run untrusted software in this VM.
 
+## Machines
+
+```sh
+experiments/shared-vm/machines.py pull debian:13        # verify and cache only
+experiments/shared-vm/machines.py create debian debian:13
+experiments/shared-vm/machines.py create fedora fedora:44
+experiments/shared-vm/machines.py start debian
+experiments/shared-vm/machines.py exec debian -- id
+experiments/shared-vm/machines.py exec --tty debian -- bash -l
+experiments/shared-vm/machines.py exec --method nsenter --root fedora -- dnf --version
+experiments/shared-vm/machines.py check                 # Phase 2 evidence for debian and fedora
+experiments/shared-vm/machines.py remove fedora
+```
+
+`pull` fetches the manifest from hub.nspawn.org and accepts it only if a DSSE signature bundle verifies with `nspawn-hub-cosign.pub` and names the manifest digest. The keyless Sigstore signature is not checked. Layers are cached by digest in `~/.cache/nsl-shared-vm/blobs`. The VM reads them through `/mnt/host`; that shortcut is an experiment convenience, not a design.
+
+`create` runs as VM root. It imports the layer into `/var/lib/machines/NAME`, adds your account with your UID and primary GID, locks root's password and sets the hostname. It masks the image's networkd and resolved, installs `pam_systemd` and `sudo` (Debian and Fedora only), and writes `/etc/systemd/nspawn/NAME.nspawn`. Machine records live in the state directory's `machines/`. Flags for `exec` go before the machine name. `--method run` is `systemd-run --machine` with the adjustments recorded in the [plan](../../docs/plans/shared-vm-experiment.md).
+
 ## Clean up
 
 ```sh
 experiments/shared-vm/driver.py stop
-rm -rf ~/.local/share/nsl-shared-vm
+rm -rf ~/.local/share/nsl-shared-vm ~/.cache/nsl-shared-vm
 LIMA_HOME=~/.local/share/nsl-shared-vm-build "$NSL_LIMACTL" delete nsl-shared-vm-builder
 ```

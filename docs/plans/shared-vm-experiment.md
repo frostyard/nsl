@@ -1,6 +1,6 @@
 # Experiment: machines as containers in one shared VM
 
-**Status: Phase 1 passed, 2026-09-27; Phase 2 next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
+**Status: Phases 1 and 2 passed, 2026-09-27; Phase 3 next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
 [ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/machine-cli.md) now makes several running machines a primary workflow, which changes that trade.
 
@@ -54,6 +54,57 @@ Raw evidence is in ignored `build/shared-vm/evidence/phase1-*.json`; the 18:38:1
 - Route commands through the VM's SSH forced command into the target machine. Compare `systemd-run --machine`, `machinectl shell` and `nsenter` for PTY, signal and exit-status fidelity.
 - **Done when:** two machines run concurrently and each passes the argv, PTY, exit-status and binary-stream checks with separate hostnames and homes.
 
+**Result, 2026-09-27: passed.** [`machines.py`](../../experiments/shared-vm/README.md#machines) pulls hub.nspawn.org images. It verifies the key-signed DSSE bundle against the project key pinned from `mkosi-definitions` `68263d0`, using `openssl`; a random key and a mismatched digest are both rejected. As VM root, it imports the single zstd layer into a btrfs subvolume. Creation then:
+
+- adds the host account (`bjk`, 1000:1000) and sets the hostname;
+- locks the image's `root:root` password;
+- masks the image's networkd and resolved;
+- installs `pam_systemd` and `sudo`;
+- writes a `.nspawn` file: `PrivateUsers=no`, the VM's network namespace, `Bind=/mnt/host` and the VM's resolver.
+
+| | Debian 13 | Fedora 44 |
+| --- | --- | --- |
+| Hub image | 20260927, 76 MB layer | 20260927, 112 MB layer |
+| Create, including bootstrap | 5.2 s (packages 3.9 s) | 8.5 s (packages 6.2 s) |
+| First boot to `running` | 0.68 s | 0.43 s |
+| systemd inside | 257 | 259 |
+| Command latency, median of 10 | 73 ms | 75 ms |
+
+Both machines ran concurrently with distinct hostnames, machine IDs and homes. A file in one home was absent from the other. Entry-method comparison, identical on both machines unless noted:
+
+| Check | `systemd-run --machine` | `nsenter` | `machinectl shell` |
+| --- | --- | --- | --- |
+| Literal argv | pass¹ | pass | fail: PTY newline translation |
+| Exit status | pass | pass | fail: always 0 |
+| Signal death as 128+N | pass² | fail: 255 | fail: 0 |
+| Separate stdout and stderr | pass | pass | fail: merged |
+| 1 MiB binary stream | pass | pass | fail: truncated at stdin EOF |
+| Account, hostname, home, `/mnt/host` ownership | pass | pass | Debian only |
+| logind session and user manager | pass³ | fail: VM session cgroup | Debian only |
+| PTY | pass⁴ | fail: VM `/dev/pts` invisible | fail: forwarder escapes |
+| Ctrl-C | pass | pass | pass |
+| Median latency | 73–75 ms | 30–32 ms | 76–86 ms |
+
+`systemd-run --machine` is selected. Each adjustment below was found by a failing check:
+
+1. `--expand-environment=no`. `ExecStart=` semantics otherwise expand `$VAR`, `${VAR}` and `$$` in argv.
+2. systemd counts SIGTERM, SIGINT, SIGHUP and SIGPIPE deaths as clean (`systemd-run` returns 0), and SIGKILL or SIGSEGV as 255. A non-exec `/bin/sh -c '"$@"; exit $?'` parent restores 128+N. Production should instead use a VM-side agent that reads `ExecMainCode`/`ExecMainStatus` over D-Bus.
+3. A per-distro PAM service: Debian's `runuser-l`, whose modules fall back to its permissive `common-*`, and Fedora's `systemd-run0`, since Fedora's `other` denies account management. Neither distro ships one stack that works for both.
+4. `SYSTEMD_ADJUST_TERMINAL_TITLE=0 SYSTEMD_COLORS=0`. The PTY forwarder otherwise injects title and color sequences.
+
+Findings:
+
+- **Machines in the VM's network namespace must use the VM's resolver.** Hub images run networkd and resolved for a private nspawn bridge. Inside the VM's namespace, Fedora's `nss-resolve` queried its own resolver, which had no upstream servers. Debian's libc happened to reach the VM's stub. Machines now mask both services and bind the VM's `/run/systemd/resolve`.
+- **Hub images are not user machines as shipped.** They have root password `root`, no `pam_systemd` and no `sudo`, and Debian cannot resolve its own hostname (no `nss-myhostname`, so creation adds it to `/etc/hosts`). Creation needs a per-distro bootstrap, like the image profiles' adapters.
+- **Fedora runs without SELinux.** The VM kernel does not enable it, so Fedora's enforcing-SELinux acceptance does not transfer.
+- **systemd 258+ marks PTY sessions with OSC 3008 context sequences** naming the machine and user. Terminals such as Ptyxis use these to label tabs, which could provide WSL-style terminal integration without generated profiles.
+- **A newer systemd inside a machine works.** Fedora's 259 booted under the VM's nspawn 257.
+- **Image transfer went through `/mnt/host`.** The host cache lives in the home and the VM read the layer through the share. Production needs a dedicated nsl share, so a VM without host files can still import.
+- **Ctrl-C took 1.3–2.0 s end to end with every method, including with no machine involved.** The delay is in the SSH transport or the harness, not the topology. It needs a separate check from a real interactive terminal.
+- **Memory is not yet measured.** With two machines after package installs, QEMU was at 2.0 GiB PSS and virtiofsd at 208 MiB; Phase 4 measures this properly.
+
+Raw evidence is in ignored `build/shared-vm/evidence/phase2-*.json`; the 19:06:58 file is the final run.
+
 ## Phase 3 — Workload acceptance
 
 Run inside each machine, reusing `scripts/probe-development.py`, `probe-files.py` and `probe-native.py` where they fit:
@@ -82,7 +133,7 @@ The thresholds below are proposals; adjust them before measuring, not after.
 
 - **Adopt the shared VM** if Phase 3 passes for Debian and Fedora with every weakened security control documented, four idle machines use at most half the memory of four separate VMs, and an additional machine starts at p95 ≤ 2 seconds.
 - **Keep one VM per machine** if rootless Podman or systemd user sessions cannot work without a privileged container, or the measured benefit misses the thresholds.
-- **If adopted,** the ADR must also settle how `--isolated` works (see open questions), the image contract split, and which ADR-0007/0010/0014 adapters are retired.
+- **If adopted,** the ADR must also settle how `--isolated` works (see open questions), the image contract split, and which ADR-0007/0010/0014 adapters are retired. It must also settle the VM-side execution agent, the per-distro machine bootstrap, and whether machine images come from the hub's key or a Frostyard-signed rebuild.
 
 ## Later / ideas
 
@@ -94,9 +145,9 @@ The thresholds below are proposals; adjust them before measuring, not after.
 
 | Question | Default proposal | Resolve by |
 | --- | --- | --- |
-| Container manager? | systemd-nspawn, for machined integration and prior nsl use. | Phase 2 |
-| Shared UIDs or a private user namespace per machine? | Shared UIDs, matching the trust model. | Phase 2 |
-| Machine storage? | btrfs subvolumes on one data disk: no hot-plug, cheap snapshots. Measure export and removal. | Phase 2 |
+| Container manager? | systemd-nspawn, for machined integration and prior nsl use. Phase 2 used it with `systemd-run --machine`. | Phase 2: works |
+| Shared UIDs or a private user namespace per machine? | Shared UIDs, matching the trust model. Ownership matched across host, VM and machine. | Phase 2: works |
+| Machine storage? | btrfs subvolumes on one data disk: no hot-plug, cheap snapshots. Import and removal worked; measure export. | Phase 3 |
 | Shared VM image ownership? | Immutable and nsl-updated as a unit. The distro is Debian for the experiment only. | Adoption ADR |
 | `--isolated` under a shared VM? | Record what an escape reaches. A separate VM for isolated machines may be the one justified exception to a single topology. | Adoption ADR |
 | Absolute host symlinks into shared trees? | Link the host's canonical top-level directory (for example `/var/home`) to `/mnt/host` inside machines where it is absent. | Phase 3 |
