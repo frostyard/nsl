@@ -2,8 +2,8 @@
   "distribution": "opensuse",
   "release": "16.0",
   "architecture": "x86-64",
-  "family": "rpm",
-  "revision": 2,
+  "family": "suse",
+  "revision": 5,
   "root_filesystem": "btrfs",
   "os_id": "opensuse-leap",
   "os_version": "16.0"

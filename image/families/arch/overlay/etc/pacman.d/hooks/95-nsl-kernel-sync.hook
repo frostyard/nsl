@@ -1,0 +1,18 @@
+[Trigger]
+Operation=Install
+Operation=Upgrade
+Operation=Remove
+Type=Path
+Target=usr/lib/modules/*/vmlinuz
+
+[Trigger]
+Operation=Install
+Operation=Upgrade
+Type=Package
+Target=dracut
+Target=systemd-ukify
+
+[Action]
+Description=Update nsl unified kernel images
+When=PostTransaction
+Exec=/usr/local/libexec/nsl-kernel-sync

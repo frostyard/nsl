@@ -38,13 +38,13 @@ class ImageProfiles(unittest.TestCase):
                 compose.compose(ROOT, destination, profile, 'recipes', 'mkosi')
                 config = (destination/'mkosi.local.conf').read_text()
                 self.assertEqual(profile['release'], release)
-                self.assertEqual('Snapshot=20260923' in config, release == 'tumbleweed')
+                self.assertEqual('Snapshot=20260923' in config.splitlines(), release == 'tumbleweed')
                 descriptor = json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())
                 self.assertEqual(descriptor['os_id'], 'opensuse-tumbleweed' if release == 'tumbleweed' else 'opensuse-leap')
 
     def test_complete_separate_images_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for distribution, filesystem in [('debian', 'btrfs'), ('ubuntu', 'ext4'), ('fedora', 'btrfs'), ('centos', 'ext4')]:
+            for distribution, filesystem in [('debian', 'btrfs'), ('ubuntu', 'ext4'), ('fedora', 'btrfs'), ('centos', 'ext4'), ('arch', 'btrfs')]:
                 destination = Path(tmp)/distribution
                 profile = compose.select(ROOT, distribution)
                 name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin')

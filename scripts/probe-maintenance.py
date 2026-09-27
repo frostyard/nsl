@@ -55,6 +55,12 @@ def uki_hashes(pattern):
     return guest('python3', '-c', code, pattern, root=True).strip()
 
 
+def installed_kernels():
+    return json.loads(guest('python3', '-c',
+        'from pathlib import Path; import json; '
+        'print(json.dumps(sorted(p.parent.name for p in Path("/usr/lib/modules").glob("*/modules.dep"))))'))
+
+
 def request_server(port):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + 30
@@ -75,6 +81,8 @@ try:
     boot_before = guest('cat', '/proc/sys/kernel/random/boot_id').strip()
     result['kernel_before'] = before
     result['boot_before'] = boot_before
+    result['installed_kernels_before'] = installed_kernels()
+    assert before in result['installed_kernels_before']
     image = json.loads(guest('cat', '/usr/lib/nsl/image.json'))
     distro = image['distribution']
     spec = importlib.util.spec_from_file_location('compose', Path(__file__).with_name('compose-image.py'))
@@ -83,8 +91,8 @@ try:
     directory = profiles.profile_directory(Path(__file__).resolve().parents[1], distro, image['release'])
     profile = json.loads((directory/'maintenance.json').read_text())
     result['image'] = image
-    if image['family'] == 'rpm':
-        result['selinux_before'] = guest('getenforce').strip()
+    if image['family'] in ('rpm', 'suse'):
+        result['selinux_before'] = guest('getenforce', root=True).strip()
         assert result['selinux_before'] == 'Enforcing'
     guest(*profile['refresh'], root=True)
     guest(*profile['install_containers'], root=True)
@@ -128,16 +136,19 @@ try:
     result['package_audit'] = guest(*profile['audit'], root=True).strip()
     if profile.get('audit_empty', True):
         assert not result['package_audit']
+    result['installed_kernels_after'] = installed_kernels()
+    added_kernels = set(result['installed_kernels_after']) - set(result['installed_kernels_before'])
     guest('sync')
     run('stop', a.environment)
     run('start', a.environment)
     after = guest('uname', '-r').strip()
     boot_after = guest('cat', '/proc/sys/kernel/random/boot_id').strip()
-    assert before == after and boot_before != boot_after
+    assert boot_before != boot_after
+    assert after in (added_kernels or {before}), 'did not boot the newly installed kernel'
     result['kernel_after'] = after
     result['boot_after'] = boot_after
     result['kernel_reinstall_and_reboot'] = True
-    result['newer_kernel_upgrade_tested'] = False
+    result['newer_kernel_upgrade_tested'] = before != after
     assert guest('cat', work + '/data/value').strip() == 'persistent container data'
     guest('podman', 'start', label)
     request_server(port)
@@ -154,8 +165,8 @@ try:
         assert current != boot_after
         boot_after = current
         guest('podman', 'run', '--rm', label, 'true')
-    if result['image']['family'] == 'rpm':
-        result['selinux_after'] = guest('getenforce').strip()
+    if result['image']['family'] in ('rpm', 'suse'):
+        result['selinux_after'] = guest('getenforce', root=True).strip()
         assert result['selinux_after'] == 'Enforcing'
     result['passed'] = True
 except Exception as exc:

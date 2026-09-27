@@ -1,10 +1,10 @@
 #!/usr/bin/python3
-"""RPM-family kernel-install configuration; preserve guest customizations."""
+"""Arch kernel-install configuration; preserve guest customizations."""
 from pathlib import Path
 import re
 import subprocess
 
-# Persist the root argument for later dracut/kernel-install updates.
+# dracut needs the root argument when regenerating a UKI.
 # Preserve an administrator's existing command line on subsequent boots.
 cmdline = Path('/etc/kernel/cmdline')
 if not cmdline.exists():
@@ -14,10 +14,7 @@ if not cmdline.exists():
     if not re.fullmatch(r'[0-9a-fA-F-]{36}', root_uuid):
         raise ValueError('cannot determine root filesystem UUID')
     temporary = cmdline.with_suffix('.tmp')
-    arguments = Path('/usr/lib/nsl/kernel-arguments')
-    extra = arguments.read_text().strip() if arguments.exists() else ''
-    temporary.write_text(f'root=UUID={root_uuid} rw console=hvc0 {extra}\n')
+    temporary.write_text(f'root=UUID={root_uuid} rw console=hvc0\n')
     temporary.replace(cmdline)
 
-# Account and credential files are created at first boot, after image relabeling.
-subprocess.run(["restorecon", "-RF", "/home/nsl", "/etc/sudoers.d/nsl", "/var/lib/nsl"], check=True)
+subprocess.run(["/usr/local/libexec/nsl-kernel-sync", "--initialize"], check=True)

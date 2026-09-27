@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# OpenSSH reports the non-IP vsock peer as UNKNOWN. SUSE's PAM audit path
+# resolves that sentinel repeatedly. Give it the unspecified address locally,
+# avoiding DNS timeouts without changing authentication or native PAM policy.
+printf '\n# Non-IP peer marker used by OpenSSH over vsock.\n0.0.0.0 UNKNOWN\n' >> /etc/hosts

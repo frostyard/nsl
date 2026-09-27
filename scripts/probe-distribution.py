@@ -55,7 +55,8 @@ try:
     result['os_release'] = guest('cat', '/etc/os-release')
     os_release = dict(line.split('=', 1) for line in shlex.split(result['os_release'], comments=True))
     assert os_release['ID'] == result['image'].get('os_id', result['image']['distribution'])
-    assert (os_release.get('VERSION_CODENAME') or os_release.get('VERSION_ID')) == result['image'].get('os_version', result['image']['release'])
+    reported_version = os_release.get('VERSION_CODENAME') or os_release.get('VERSION_ID') or os_release.get('BUILD_ID')
+    assert reported_version == result['image'].get('os_version', result['image']['release'])
     assert guest('uname', '-m') == 'x86_64'
     result['systemd'] = guest('systemctl', '--version').splitlines()[0]
     result['root_filesystem'] = guest('findmnt', '-n', '-o', 'FSTYPE', '/')
@@ -66,8 +67,8 @@ try:
         result['apparmor'] = guest('aa-status', '--json', root=True)
         assert json.loads(result['apparmor'])['profiles']
         assert guest('cat', '/sys/module/apparmor/parameters/enabled') == 'Y'
-    if result['image']['family'] == 'rpm':
-        result['selinux'] = guest('getenforce')
+    if result['image']['family'] in ('rpm', 'suse'):
+        result['selinux'] = guest('getenforce', root=True)
         assert result['selinux'] == 'Enforcing'
     payload = bytes(range(256))*16
     streams = cli('exec', 'dev', '--', 'python3', '-c', 'import sys; sys.stdout.buffer.write(sys.stdin.buffer.read()); sys.stderr.write("separate stderr"); sys.exit(37)', data=payload, check=False)

@@ -1,0 +1,2 @@
+# Route native kernel RPM hooks through kernel-install's UKI layout.
+LOADER_TYPE="systemd-boot"

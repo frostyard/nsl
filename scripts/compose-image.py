@@ -12,10 +12,14 @@ PROFILES = {
     ('ubuntu', 'noble'): 'ubuntu',
     ('fedora', '44'): 'fedora',
     ('centos', '10'): 'centos',
+    ('arch', 'rolling'): 'arch',
     ('opensuse', '16.0'): 'opensuse-leap',
     ('opensuse', 'tumbleweed'): 'opensuse-tumbleweed',
 }
 
+
+FAMILY_LAYERS = {'debian': ('debian',), 'rpm': ('rpm',),
+                 'suse': ('rpm', 'suse'), 'arch': ('arch',)}
 
 def profile_directory(root, distribution, release):
     # CLI/guest strings are lookup keys, never path components.
@@ -37,7 +41,8 @@ def select(root, distribution, release=None, architecture='x86-64'):
 
 def compose(root, destination, profile, recipes, mkosi):
     destination.mkdir()  # Never merge with an existing build input tree.
-    layers = [root/'image/common', root/'image/families'/profile['family'],
+    layers = [root/'image/common',
+              *(root/'image/families'/family for family in FAMILY_LAYERS[profile['family']]),
               profile_directory(root, profile['distribution'], profile['release'])]
     config = []
     for layer in layers:

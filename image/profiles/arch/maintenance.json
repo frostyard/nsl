@@ -1,0 +1,32 @@
+{
+  "refresh": [
+    "pacman",
+    "-Syu",
+    "--noconfirm"
+  ],
+  "install_containers": [
+    "pacman",
+    "-S",
+    "--noconfirm",
+    "podman",
+    "slirp4netns",
+    "fuse-overlayfs"
+  ],
+  "kernel_policy": [
+    "pacman",
+    "-Qi",
+    "linux"
+  ],
+  "kernel_reinstall": [
+    "pacman",
+    "-S",
+    "--noconfirm",
+    "linux"
+  ],
+  "audit": [
+    "pacman",
+    "-Dk"
+  ],
+  "audit_empty": false,
+  "uki_glob": "/efi/EFI/Linux/*.efi"
+}
