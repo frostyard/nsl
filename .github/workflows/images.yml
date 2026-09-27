@@ -1,6 +1,16 @@
 name: Images
 on:
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Build/publish the matrix, refresh its catalogue, or withdraw images
+        type: choice
+        options: [publish, refresh, withdraw]
+        default: publish
+      revoke:
+        description: Manifest SHA256 digests to withdraw (space or comma separated)
+        type: string
+        default: ""
 permissions: {}
 concurrency:
   group: image-publication
@@ -25,13 +35,18 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Prepare pinned local tools
+        env:
+          OPERATION: ${{ inputs.operation }}
         run: |
-          scripts/bootstrap-poc.sh
+          if [ "$OPERATION" = publish ]; then scripts/bootstrap-poc.sh; fi
           python3 scripts/bootstrap-publisher.py
           echo "NSL_LIMACTL=$GITHUB_WORKSPACE/build/poc/tools/bin/limactl" >> "$GITHUB_ENV"
       - name: Build and validate all profiles
+        if: inputs.operation == 'publish'
         run: python3 scripts/publish-images.py build
       - name: Sign, publish and promote the complete catalogue
         env:
           GHCR_TOKEN: ${{ github.token }}
-        run: python3 scripts/publish-images.py publish
+          OPERATION: ${{ inputs.operation }}
+          REVOKE_DIGESTS: ${{ inputs.revoke }}
+        run: python3 scripts/publish-images.py "$OPERATION"

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shutil
 import subprocess
 import time
@@ -148,6 +149,10 @@ def build(base):
 def sign(tools, directory, stem):
     run([tools/'cosign', 'sign-blob', '--yes', '--oidc-provider', 'github-actions',
          '--bundle', directory/f'{stem}.sigstore.json', directory/f'{stem}.json'])
+    verify_signature(tools, directory, stem)
+
+
+def verify_signature(tools, directory, stem):
     run([tools/'cosign', 'verify-blob', '--bundle', directory/f'{stem}.sigstore.json',
          '--certificate-identity', PUBLISHER, '--certificate-oidc-issuer', ISSUER,
          '--trusted-root', ROOT/'trust/sigstore-root.json', directory/f'{stem}.json'])
@@ -162,40 +167,102 @@ def push(tools, auth, directory, kind, tag, files):
     return reference(manifest)['digest']
 
 
-def publish(base):
+def bounded_fetch(tools, auth, destination, reference, blob=False):
+    def limit_files():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (1 << 20, 1 << 20))
+    command = [tools/'oras', 'blob' if blob else 'manifest', 'fetch', '--registry-config', auth,
+               '--output', destination, reference]
+    return subprocess.run([str(x) for x in command], capture_output=True, text=True,
+                          preexec_fn=limit_files, timeout=60)
+
+
+def previous_catalogue(tools, auth, base, allow_missing=False):
+    directory = base/'previous'
+    directory.mkdir()
+    manifest = directory/'manifest.json'
+    result = bounded_fetch(tools, auth, manifest, REPOSITORY+':catalogue-v1')
+    if result.returncode:
+        if allow_missing and result.stderr.strip().endswith(REPOSITORY+':catalogue-v1: not found'):
+            return None
+        raise RuntimeError('cannot fetch previous catalogue: '+result.stderr)
+    m = json.loads(manifest.read_text())
+    if m.get('schemaVersion') != 2 or m.get('artifactType') != 'application/vnd.frostyard.nsl.catalogue.v1':
+        raise ValueError('invalid previous catalogue manifest')
+    expected = {'catalogue.json', 'catalogue.sigstore.json'}
+    layers = m.get('layers', [])
+    if len(layers) != 2 or {x.get('annotations', {}).get('org.opencontainers.image.title') for x in layers} != expected:
+        raise ValueError('invalid previous catalogue layers')
+    for layer in layers:
+        if not re.fullmatch(r'sha256:[a-f0-9]{64}', layer['digest']) or not 0 < layer['size'] <= 1 << 20:
+            raise ValueError('invalid previous catalogue blob bounds')
+        destination = directory/layer['annotations']['org.opencontainers.image.title']
+        result = bounded_fetch(tools, auth, destination, REPOSITORY+'@'+layer['digest'], blob=True)
+        if result.returncode or reference(destination) != {key: layer[key] for key in ('digest', 'size')}:
+            raise ValueError('previous catalogue blob failed verification')
+    verify_signature(tools, directory, 'catalogue')
+    previous = json.loads((directory/'catalogue.json').read_text())
+    if previous.get('schema') != 1 or previous.get('sequence', 0) >= int(os.environ['GITHUB_RUN_NUMBER']):
+        raise ValueError('refusing catalogue sequence rollback/equivocation')
+    return previous
+
+
+def next_catalogue(previous, sequence, now, entries=None, revoke=()):
+    if previous and previous['sequence'] >= sequence:
+        raise ValueError('new catalogue sequence must increase')
+    approved = previous['images'] if entries is None else entries
+    revoked = set(previous['revoked'] if previous else [])
+    advertised = {entry['manifest'] for entry in approved}
+    if not set(revoke) <= advertised | revoked:
+        raise ValueError('withdrawal digest must identify a currently approved or already revoked image')
+    revoked.update(revoke)
+    approved = [entry for entry in approved if entry['manifest'] not in revoked]
+    return dict(schema=1, sequence=sequence, created=now.isoformat().replace('+00:00', 'Z'),
+                expires=(now+timedelta(days=30)).isoformat().replace('+00:00', 'Z'),
+                images=approved, revoked=sorted(revoked))
+
+
+def publish(base, operation='publish'):
+    if operation != 'publish':
+        base.mkdir(parents=True)
+
     tools = ROOT/'build/publisher/tools'
     auth = base/'registry.json'
     run([tools/'oras', 'login', '--registry-config', auth, '--username', os.environ['GITHUB_ACTOR'], '--password-stdin', 'ghcr.io'],
         input=os.environ['GHCR_TOKEN'], text=True)
     auth.chmod(0o600)
     try:
-        built = json.loads((base/'built.json').read_text())
-        if {tuple(item['selectors']) for item in built} != {tuple(v) for v in ALIASES.values()} or len(built) != 7:
-            raise ValueError('cannot promote an incomplete image matrix')
-        entries = []
-        for item in built:
-            directory = base/item['name']/'public'
-            descriptor = json.loads((directory/'descriptor.json').read_text())
-            for field, name in [('compressed','disk.raw.zst'), ('packages','packages.json'), ('provenance','provenance.json'), ('acceptance','acceptance.json')]:
-                if reference(directory/name) != descriptor[field]:
-                    raise ValueError('prepared payload changed before signing')
-            sign(tools, directory, 'descriptor')
-            tag = f'{item["name"]}-run{os.environ["GITHUB_RUN_NUMBER"]}'
-            digest = push(tools, auth, directory, 'image', tag,
-                          ['descriptor.json:application/json', 'descriptor.sigstore.json:application/json',
-                           'disk.raw.zst:application/zstd', 'packages.json:application/json',
-                           'provenance.json:application/json', 'acceptance.json:application/json'])
-            entries.append(dict(selectors=item['selectors'], architecture=item['architecture'], manifest=digest, build_id=item['name']))
+        entries = None
+        if operation == 'publish':
+            built = json.loads((base/'built.json').read_text())
+            if {tuple(item['selectors']) for item in built} != {tuple(v) for v in ALIASES.values()} or len(built) != 7:
+                raise ValueError('cannot promote an incomplete image matrix')
+            entries = []
+            for item in built:
+                directory = base/item['name']/'public'
+                descriptor = json.loads((directory/'descriptor.json').read_text())
+                for field, name in [('compressed','disk.raw.zst'), ('packages','packages.json'), ('provenance','provenance.json'), ('acceptance','acceptance.json')]:
+                    if reference(directory/name) != descriptor[field]:
+                        raise ValueError('prepared payload changed before signing')
+                sign(tools, directory, 'descriptor')
+                tag = f'{item["name"]}-run{os.environ["GITHUB_RUN_NUMBER"]}'
+                digest = push(tools, auth, directory, 'image', tag,
+                              ['descriptor.json:application/json', 'descriptor.sigstore.json:application/json',
+                               'disk.raw.zst:application/zstd', 'packages.json:application/json',
+                               'provenance.json:application/json', 'acceptance.json:application/json'])
+                entries.append(dict(selectors=item['selectors'], architecture=item['architecture'], manifest=digest, build_id=item['name']))
         catalogue = base/'catalogue'
         catalogue.mkdir()
         now = datetime.now(timezone.utc).replace(microsecond=0)
-        write(catalogue/'catalogue.json', dict(schema=1, sequence=int(os.environ['GITHUB_RUN_NUMBER']),
-              created=now.isoformat().replace('+00:00','Z'), expires=(now+timedelta(days=30)).isoformat().replace('+00:00','Z'),
-              images=entries, revoked=[]))
+        previous = previous_catalogue(tools, auth, base, allow_missing=operation == 'publish')
+        revoke = os.environ.get('REVOKE_DIGESTS', '').replace(',', ' ').split() if operation == 'withdraw' else []
+        if operation == 'withdraw' and (not revoke or any(not re.fullmatch(r'sha256:[a-f0-9]{64}', d) for d in revoke)):
+            raise ValueError('withdraw requires one or more full SHA256 manifest digests')
+        document = next_catalogue(previous, int(os.environ['GITHUB_RUN_NUMBER']), now, entries, revoke)
+        write(catalogue/'catalogue.json', document)
         sign(tools, catalogue, 'catalogue')
         digest = push(tools, auth, catalogue, 'catalogue', 'catalogue-v1',
                       ['catalogue.json:application/json', 'catalogue.sigstore.json:application/json'])
-        write(base/'published.json', dict(catalogue_manifest=digest, images=entries))
+        write(base/'published.json', dict(catalogue_manifest=digest, images=document['images']))
         print('Published catalogue '+digest, flush=True)
     finally:
         auth.unlink(missing_ok=True)
@@ -203,12 +270,15 @@ def publish(base):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('phase', choices=['build', 'publish'])
+    p.add_argument('phase', choices=['build', 'publish', 'refresh', 'withdraw'])
     a = p.parse_args()
     os.chdir(ROOT)
     require_actions()
     base = ROOT/'build/publication'/os.environ['GITHUB_RUN_ID']
-    (build if a.phase == 'build' else publish)(base)
+    if a.phase == 'build':
+        build(base)
+    else:
+        publish(base, a.phase)
 
 
 if __name__ == '__main__':

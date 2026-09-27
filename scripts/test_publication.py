@@ -1,6 +1,7 @@
 """Public reports must prove every suite passed and exclude private test state."""
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -45,6 +46,26 @@ class Publication(unittest.TestCase):
                 self.assertNotIn(private, data)
             self.assertFalse(report['maintenance']['newer_kernel_upgrade_tested'])
             self.assertTrue(report['passed'])
+
+    def test_refresh_and_withdrawal_preserve_history(self):
+        now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+        first = {'manifest': 'sha256:'+'a'*64, 'selectors': ['debian:13']}
+        second = {'manifest': 'sha256:'+'b'*64, 'selectors': ['ubuntu:24.04']}
+        old_revocation = 'sha256:'+'c'*64
+        prior = dict(sequence=10, images=[first, second], revoked=[old_revocation])
+        fresh = pub.next_catalogue(prior, 11, now)
+        self.assertEqual(fresh['images'], prior['images'])
+        self.assertEqual(fresh['revoked'], [old_revocation])
+        self.assertEqual(fresh['expires'], '2026-10-27T00:00:00Z')
+        withdrawn = pub.next_catalogue(prior, 12, now, revoke=[first['manifest']])
+        self.assertEqual(withdrawn['images'], [second])
+        self.assertEqual(set(withdrawn['revoked']), {first['manifest'], old_revocation})
+        with self.assertRaises(ValueError):
+            pub.next_catalogue(prior, 10, now)
+        with self.assertRaises(ValueError):
+            pub.next_catalogue(prior, 11, now, revoke=['sha256:'+'d'*64])
+        rebuilt = pub.next_catalogue(withdrawn, 13, now, entries=[first, second])
+        self.assertEqual(rebuilt['images'], [second])
 
     def test_incomplete_failed_or_mismatched_reports_cannot_promote(self):
         for mode in ('hash', 'image', 'lifecycle', 'shutdown', 'maintenance', 'storage'):
