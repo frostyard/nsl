@@ -53,6 +53,10 @@ Setup explicitly requires `systemd-growfs-root.service` after repartitioning/rem
 
 Normal package/kernel updates use the guest package manager. New bases affect new VMs; updating the CLI never replaces a customized guest root. `scripts/probe-maintenance.py` selects command arrays from the image's distro profile, and `scripts/probe-distribution.py` runs common lifecycle/storage checks. A newer-kernel upgrade and an ordinary reinstall are recorded separately.
 
+## Planned cloud-init support
+
+Optional creation-time cloud-init will use a local NoCloud seed on images advertising a tested provisioning capability. Image profiles will own cloud-init installation, schema/module support and boot ordering; nsl will keep control of its management account, SSH identity, networking and root growth. User configuration runs as guest root, with separate status/wait/log commands and preserved provisioning identity on restore. The feature is planned, starting with Debian and Ubuntu. [Interface](../docs/specs/provisioning.md), [implementation plan](../docs/plans/cloud-init-provisioning.md), [ADR-0013](../docs/adr/0013-optional-cloud-init-provisioning.md).
+
 ## Earlier experimental images
 
 - v3 placed `/boot` on FAT and failed kernel replacement. The historical VMs were deleted with user authorization.

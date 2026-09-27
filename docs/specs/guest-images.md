@@ -35,6 +35,10 @@ The delivery mechanism in [ADR-0012](../adr/0012-signed-image-distribution.md) i
 
 Publication gates and client acceptance tests are in the [image delivery plan](../plans/image-distribution.md).
 
+## Planned provisioning capability
+
+Images may optionally advertise a tested `provisioning.cloud_init` capability with its interface version, installed cloud-init version, local NoCloud datasource and supported cloud-config keys. Omission means unsupported. The [provisioning interface](provisioning.md) reserves nsl account/SSH/network/storage bootstrap, orders user setup after management prerequisites, and defines persistent instance identity across restore. Capability negotiation and this provisioning feature remain planned. See [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md) and the [Debian/Ubuntu acceptance plan](../plans/cloud-init-provisioning.md).
+
 ## Acceptance levels
 
 1. **Recipe available:** upstream or local build definitions exist; no support claim.

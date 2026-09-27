@@ -83,6 +83,10 @@ A failed host bind is reported by `ports`, retried on subsequent polls and never
 
 The tested target is Snow Linux, x86_64, systemd 261. Another atomic distribution, host reboot/suspend, upgrades to a newer kernel, signed image delivery and broader desktop integration remain release gates; backup round trips, kernel reinstallation and rootless Podman passed as recorded in the [milestone report](../plans/backup-and-reliability.md). See the [implementation report](../plans/vmspawn-implementation.md) for exact validation and remaining work.
 
+## Planned provisioning lifecycle
+
+The proposed [cloud-init interface](../specs/provisioning.md) adds a separate provisioning state alongside VM readiness. User configuration is snapshotted at creation and executes on first boot through a local NoCloud seed; management access remains independent of completion. A dedicated persistent provisioning ID, input and guest execution markers survive restore even though runtime identity changes. Versioned archive support and per-image module/boot-order tests are required before enabling the feature. This is planned behavior under [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md); see the [implementation plan](../plans/cloud-init-provisioning.md).
+
 ## References
 
 - [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [CLI contract](../specs/cli.md).

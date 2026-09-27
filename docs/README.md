@@ -17,6 +17,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Decisions
 
+- [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md)
+
 - [0012 — Signed image distribution](adr/0012-signed-image-distribution.md)
 
 - [0011 — Image profiles and portable vsock](adr/0011-image-profiles-and-portable-vsock.md)
@@ -39,11 +41,15 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Specs
 
+- [Creation-time provisioning](specs/provisioning.md) — planned cloud-init interface and lifecycle.
+
 - [Guest image contract and acceptance levels](specs/guest-images.md)
 
 - [CLI contract](specs/cli.md)
 
 ### Plans
+
+- [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — planned project setup, status and restore support.
 
 - [Signed prebuilt image delivery](plans/image-distribution.md) — planned GHCR publication, catalogue, verification and downloads.
 

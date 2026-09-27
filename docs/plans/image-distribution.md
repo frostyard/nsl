@@ -32,6 +32,7 @@ The catalogue must advertise only published, tested combinations. These examples
 
 ## Phase 3 — Download and create
 
+- Publish optional provisioning capability metadata only after the image passes the [cloud-init acceptance plan](cloud-init-provisioning.md). Base-image delivery remains usable without provisioning; the proposed `--cloud-init` interface builds on verified selection and capability negotiation.
 - Add catalogue listing and distro selection after guest protocol compatibility checks are available. Keep explicit local-image creation for development and offline use.
 - Implement resumable downloads into private staging, bounded size/decompression checks, signature and digest verification, and atomic publication into a digest-addressed cache. Concurrent requests must not publish partial or conflicting entries.
 - Verify the decompressed disk against its recorded digest before handing it to the existing image-import/create path. Each environment receives its own writable disk and credentials.

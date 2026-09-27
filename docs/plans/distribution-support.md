@@ -48,6 +48,8 @@ Ubuntu noble is the first additional profile and exposes ext4/AppArmor differenc
 
 ## Phase 4 — Distribution and host release matrix
 
+Optional cloud-init is a planned per-image capability, with Debian and Ubuntu as its first validation targets. The [provisioning plan](cloud-init-provisioning.md) requires native package/schema tests, preserved security policy, management access during failures, and stable instance identity across restore. A distro booting successfully does not establish provisioning support.
+
 - Pin currently supported stable/LTS releases; pin rolling snapshots by immutable image build. Record upstream EOL and stop advertising unsupported releases.
 - Version guest integration independently of guest package state; test upgrades of customized environments without replacing their disks.
 - Publish signed bases and provenance through public GHCR OCI artifacts and a signed catalogue, following [ADR-0012](../adr/0012-signed-image-distribution.md) and the [image delivery plan](image-distribution.md). Promote tested digests only. Run the shared matrix in isolated KVM jobs, with lighter root-free tests for every change.

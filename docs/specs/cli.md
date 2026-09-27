@@ -56,6 +56,10 @@ Resize MUST require a prepared stopped standalone disk, refuse shrinking and inv
 
 Restore MUST allocate new runtime identity and reconstruct local configuration. Guest binding, SSH keys, pinned host trust, packages and disk contents MUST be preserved. Host project and desktop access MUST default to absent and require explicit restore flags. The original base-image cache MUST NOT be required. Checksums are not publisher authentication; archives contain unencrypted guest data and credentials.
 
+## Planned provisioning extension
+
+The separate [provisioning contract](provisioning.md) defines optional `create --cloud-init FILE`, explicit wait flags and `provision status|wait|logs`. These commands are not implemented and do not change the current interface above. The plan preserves lazy creation, separates provisioning from management readiness, and requires versioned backup support before enabling the feature. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md), [implementation plan](../plans/cloud-init-provisioning.md).
+
 ## Validation boundaries
 
 Unit tests use fake tools and local Python helper processes. Integration tests need disposable real VMs. They exercise first boot, growth, multiple identities, port conflicts and recovery; they do not establish arbitrary crash recovery or full desktop parity. Exact results: [implementation report](../plans/vmspawn-implementation.md).

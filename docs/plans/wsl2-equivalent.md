@@ -137,6 +137,12 @@ On this host `/usr/bin/systemd-vmspawn` belongs to `systemd-container` 261.2-1. 
 
 ## Target mechanisms
 
+### Optional project provisioning
+
+Plan `create --cloud-init FILE` with a local NoCloud seed, immutable private input and a persistent provisioning ID. Normal creation remains lazy; an explicit wait option starts and waits. Separate provisioning status/logs from VM readiness so users can diagnose failed setup through normal guest access. Preserve instance ID, seed and execution markers on backup/restore; recovery never forces a cloud-init reset.
+
+Image capability negotiation is the prerequisite. Start with Debian and Ubuntu, then validate each additional family. Schedule the public workflow after verified image downloads; local-image implementation can proceed earlier. The bounded cloud-config subset covers packages, files, commands, repositories and certificates, while image adapters retain nsl's account, SSH, network and root-growth bootstrap. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md), [planned CLI contract](../specs/provisioning.md), [phased implementation](cloud-init-provisioning.md). This feature is not implemented.
+
 ### Image delivery
 
 Planned delivery uses public GHCR OCI artifacts carrying compressed raw VM disks, image metadata, package inventory and build provenance. A signed catalogue resolves distro/release/architecture selections to tested immutable digests. The client verifies the designated Frostyard publishing workflow identity, issuer, digests and protocol compatibility before caching a base and creating an independent writable VM. Users should not need local image-building tools or a registry login for public images.
