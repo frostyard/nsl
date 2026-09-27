@@ -242,7 +242,7 @@ Provisional goals on a documented x86_64 SSD host, excluding image downloads/pro
 
 | Question | Default proposal | Resolve by |
 | --- | --- | --- |
-| VM topology? | One full distro VM per environment; a shared VM with one container per machine is under test. | [Shared-VM experiment](shared-vm-experiment.md) |
+| VM topology? | One full distro VM per environment today. The shared VM with one container per machine met the experiment's adoption rule: 41% of the idle memory for four machines, 0.84 s p95 to start another. | Adoption ADR; [shared-VM experiment](shared-vm-experiment.md) |
 | vmspawn, Lima or direct QEMU? | vmspawn is the implemented runtime after workflow and resource measurements. | Selected in ADR-0005 |
 | Image recipes, cloud images or OCI conversion? | nspawn disk recipes selected; cloud-image comparison complete. | ADR-0005 |
 | Fork nspawn? | Only if reusable image/service code saves net work; no fork required to use recipes. | Phase 1 source review |

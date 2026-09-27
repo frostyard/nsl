@@ -1,6 +1,6 @@
 # Experiment: machines as containers in one shared VM
 
-**Status: Phases 1–3 passed, 2026-09-27; Phase 4 next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
+**Status: all four phases complete, 2026-09-27. The decision rule is met: adopt the shared VM. The adoption ADR is next.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
 [ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/machine-cli.md) now makes several running machines a primary workflow, which changes that trade.
 
@@ -182,6 +182,19 @@ In favor of hub images so far:
 - Signed with both a project key and a keyless Sigstore identity, discoverable through the OCI referrers API.
 - The recipes are the ones nsl already pins, so rebuilding our own is the same Lima/mkosi pipeline without the disk profile.
 
+### Assessment: publish Frostyard machine images
+
+After four phases the tally holds 13 pain points, and every one was worked around at creation time; none blocked a workload. The case for our own images rests on four of them:
+
+- **Trust (item 7).** Hub images meet neither the signing identity nor the catalogue rollback and freshness policy of [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md). Pinning a third-party key does not change that.
+- **Security hygiene (items 1 and 11).** Every image ships a root password of `root`, and Arch ships its pacman master private key. Correcting another publisher's defaults on every creation is a standing obligation.
+- **Offline, reproducible creation (item 8).** The per-distro bootstrap needs live repositories, adds 4–7 s and makes each machine depend on repository state at creation time.
+- **One integration layer at build time.** Items 2–6, 9, 10, 12 and 13, the nesting mount, the presets and the Podman drop-in currently run as fragile per-distro steps on every creation. Built once and tested with the image, they become the image contract.
+
+The cost is small. The images come from the same pinned `mkosi-definitions` recipes without the disk profile, so they need no bootloader, UKI, root-growth or kernel adapter per distro. They would be published through the existing signed pipeline, and should stay close to the hub's sizes: about a fifth of the bootable disks. The hub remains the upstream reference, and a fallback for distributions we do not build.
+
+**Proposal:** build and sign Frostyard machine images from the same recipes, starting with the four distros tested here. Settle it in the adoption ADR.
+
 ## Phase 4 — Measurements against one VM per machine
 
 Use the same host (Snow 13), distros and guest memory ceiling for both topologies. Record versions and configuration.
@@ -191,6 +204,42 @@ Use the same host (Snow 13), distros and guest memory ceiling for both topologie
 - Warm no-op `run` latency: 50 trials.
 - Compressed artifact size per distro: root filesystem compared with bootable disk.
 - **Done when:** a JSON evidence file under `build/` and a summary table in this plan cover both topologies.
+
+**Result, 2026-09-27: complete.** [`measure.py`](../../experiments/shared-vm/README.md#measurements) ran both topologies on Snow 13 (32 host CPUs, 60 GiB, KSM off, THP `always`), never both at once.
+- **Shared VM:** 4 vCPUs and 8 GiB, running the four Phase 3 machines.
+- **One VM per machine:** the nsl CLI (`v0.3.0-5-gcd2891f`) in its own `NSL_HOME`, with four signed catalogue images at the default 2 vCPUs and 2 GiB each.
+
+Memory is the PSS of every process in the VM units, taken as the median of three samples after 30 s of settling. The build is nsl itself: `go build -p 2`, offline, from one staged toolchain, module cache and source tree shared read-only. That is `/work` for the separate VMs and `/mnt/host` for the machines.
+
+| Measurement | Shared VM | One VM per machine | Shared ÷ per-VM |
+| --- | --- | --- | --- |
+| Idle, 1 machine | 723 MiB | 355 MiB | 2.04 |
+| Idle, 2 machines | 802 MiB | 795 MiB | 1.01 |
+| Idle, 4 machines | **950 MiB** | 2,328 MiB | **0.41** |
+| After one build in each of 4 | 2,612 MiB | 5,586 MiB | 0.47 |
+| After dropping guest caches | 1,442 MiB | 3,871 MiB | 0.37 |
+| Cost of each additional idle machine | about 75 MiB | 440–770 MiB | |
+| Cold start of the first machine, median / p95 | 7.97 / 8.33 s | 7.05 / 7.40 s | 1.13 |
+| Start of an additional machine, median / p95 | **0.63 / 0.84 s** | 7.58 / 7.79 s | 0.08 |
+| No-op round trip over SSH, median | 65 ms | 17 ms | |
+| No-op command, median (per-VM through `nsl exec`) | 66 ms | 74 ms | |
+| Build, seconds per machine | 21–23 | 30–34 | |
+| Compressed download, four distros | 464 MB (rootfs) | 2,336 MB (disks) | 0.20 |
+
+Per distro, the compressed downloads are Debian 76 against 508 MB, Fedora 112 against 409 MB, Arch 203 against 847 MB, and Tumbleweed 74 against 572 MB. The separate VMs also ran four forwarder services, 51–56 MiB in total, which are not included above.
+
+**Decision rule.** Phase 3 passed on all four distros with the weakened controls documented. Four idle machines used 41% of the memory of four VMs, within the 50% threshold. An additional machine started at p95 0.84 s, within 2 s. **All three criteria are met: adopt the shared VM.**
+
+Caveats the adoption ADR must carry:
+
+- **A single machine costs twice as much.** The shared VM idled at 723 MiB with one machine, against 355 MiB for one VM, and broke even at two. Its 8 GiB memory map, nspawn and a second systemd, the btrfs data disk and caches from Phase 3 all contribute; the split is unmeasured. Sizing the VM to its running machines (virtio-mem or balloon targets) is follow-up work.
+- **The first cold start is 0.9 s slower,** because the VM boots and then the machine does. Neither topology meets the roadmap's provisional 5 s cold-shell goal.
+- **Commands pay about 48 ms more in transport** for `sudo`, `systemd-run` and a PAM session per command. Per-VM `nsl exec` spends similar time on Go startup and readiness, so the CLI-level medians are close. A VM-side agent could reuse sessions.
+- **Build times are confounded.** Both used `-p 2`, but the shared VM had 4 vCPUs against 2 per VM. It also served every build's toolchain and module reads from one guest page cache, where each separate VM cached its own copy.
+- **virtiofsd memory is significant under file load in both topologies:** 769 MiB shared and 1,287 MiB per-VM after the builds, with 229 and 716 MiB still held after dropping guest caches. It deserves its own measurement.
+- **KSM was off.** Enabling it would narrow the per-VM gap somewhat, at a CPU and side-channel cost.
+
+Raw evidence is in ignored `build/shared-vm/evidence/phase4-2026-09-27T231157+0000.json`.
 
 ## Decision rule
 

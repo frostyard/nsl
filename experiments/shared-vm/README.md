@@ -9,6 +9,7 @@ Experiment code for the [shared-VM plan](../../docs/plans/shared-vm-experiment.m
 - `driver.py`: lifecycle, authenticated readiness and acceptance checks for the shared VM. It shares the [ADR-0016](../../docs/adr/0016-wsl-style-machines.md) allowlist (home, `/run/media/USER`, `/mnt`, whichever exist) at canonical paths under `/mnt/host`.
 - `machines.py`: Phase 2 machines as systemd-nspawn containers inside the VM, and the entry-method comparison.
 - `workloads.py`: Phase 3 workload acceptance across machines.
+- `measure.py`: Phase 4 memory and start-time comparison against one nsl VM per machine.
 - `nspawn-hub-cosign.pub`: the hub's project signing key, copied from `nspawn/mkosi-definitions` at `68263d05169784f44168ca65241d989865ed011b`, the commit the image recipes are pinned to.
 
 ## Requirements
@@ -68,10 +69,22 @@ Creation applies the machine layer to every distro:
 - `run-nsl-proc.mount` with its preset;
 - a Podman drop-in in `/etc/containers/containers.conf.d/`.
 
+## Measurements
+
+```sh
+make build
+experiments/shared-vm/measure.py setup   # stage build inputs; create four per-VM environments
+experiments/shared-vm/measure.py run     # about 21 minutes; stops everything it started
+```
+
+`setup` copies the host Go toolchain, a module cache for nsl and a snapshot of the source into `~/.cache/nsl-phase4/work`. It then uses `build/nsl` with `NSL_HOME=~/.local/share/nsl-phase4` to create `p4-debian`, `p4-fedora`, `p4-arch` and `p4-tumbleweed` from the signed catalogue, sharing that directory at `/work`. Your own nsl environments are untouched. `run` measures the shared VM first, then the separate VMs, and never runs both at once.
+
 ## Clean up
 
 ```sh
 experiments/shared-vm/driver.py stop
 rm -rf ~/.local/share/nsl-shared-vm ~/.cache/nsl-shared-vm
+for n in debian fedora arch tumbleweed; do NSL_HOME=~/.local/share/nsl-phase4 build/nsl remove p4-$n --yes; done
+rm -rf ~/.local/share/nsl-phase4 ~/.cache/nsl-phase4
 LIMA_HOME=~/.local/share/nsl-shared-vm-build "$NSL_LIMACTL" delete nsl-shared-vm-builder
 ```
