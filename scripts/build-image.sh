@@ -8,7 +8,7 @@ limactl="${NSL_LIMACTL:-limactl}"
 export LIMA_HOME="$work/lima"
 recipes=68263d05169784f44168ca65241d989865ed011b
 mkosi=4736cd836108a97772142c461c49f1ddb4172348
-output=nsl-debian-v4.raw
+output=nsl-debian-v5.raw
 mkdir -p "$work/src" "$work/share" "$work/evidence"
 [[ ! -e $work/share/$output ]] || { echo 'Image exists; refusing to overwrite.' >&2; exit 1; }
 for item in mkosi-definitions mkosi; do
@@ -68,10 +68,10 @@ tar -xf "$1/sources.tar" -C "$build_dir"
 cp -a "$1/." "$build_dir/mkosi-definitions/"
 cd "$build_dir/mkosi-definitions"
 PYTHONPATH="$build_dir/mkosi" python3 -m mkosi --profile=disk -d debian -r trixie build
-cp --sparse=always mkosi.output/nsl-debian-v4.raw /home/nsl/nsl-debian-v4.raw
-chown nsl:nsl /home/nsl/nsl-debian-v4.raw
+cp --sparse=always mkosi.output/nsl-debian-v5.raw /home/nsl/nsl-debian-v5.raw
+chown nsl:nsl /home/nsl/nsl-debian-v5.raw
 rm -rf "$build_dir"
 ' sh "/work/$(basename "$integration")"
-"$limactl" shell --workdir / nsl-image-builder cp --sparse=always /home/nsl/nsl-debian-v4.raw /work/nsl-debian-v4.raw
+"$limactl" shell --workdir / nsl-image-builder cp --sparse=always /home/nsl/nsl-debian-v5.raw /work/nsl-debian-v5.raw
 sha256sum "$work/share/$output" > "$work/evidence/image.sha256"
 printf 'Built %s\n' "$work/share/$output"

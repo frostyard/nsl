@@ -43,7 +43,7 @@ func (a *app) init() error {
 	if a.uid == 0 {
 		return errors.New("run nsl as your normal host user")
 	}
-	for _, p := range []string{a.home, filepath.Join(a.home, "environments"), filepath.Join(a.home, "images"), a.runtimeDir} {
+	for _, p := range []string{a.home, filepath.Join(a.home, "environments"), filepath.Join(a.home, "images"), filepath.Join(a.home, "removing"), a.runtimeDir} {
 		if err := os.MkdirAll(p, 0700); err != nil {
 			return err
 		}
@@ -60,10 +60,13 @@ func (a *app) owned(name string) (*environment, error) {
 	if err := a.init(); err != nil {
 		return nil, err
 	}
-	if err := checkPrivateDir(a.dir(name), a.uid); err != nil {
+	return a.ownedAt(name, a.dir(name))
+}
+func (a *app) ownedAt(name, dir string) (*environment, error) {
+	if err := checkPrivateDir(dir, a.uid); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(a.dir(name), "environment.json")
+	path := filepath.Join(dir, "environment.json")
 	if err := privateFile(path, a.uid, 0077); err != nil {
 		return nil, err
 	}
@@ -84,6 +87,9 @@ func (a *app) owned(name string) (*environment, error) {
 	if e.GuestID != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(e.GuestID) {
 		return nil, errors.New("invalid guest binding in metadata")
 	}
+	if e.ResizeTarget != 0 && (!e.Prepared || e.ResizeTarget <= e.Disk || e.ResizeTarget > 4096) {
+		return nil, errors.New("invalid pending disk growth")
+	}
 	return &e, nil
 }
 func fileLock(path string) (*os.File, error) {
@@ -99,6 +105,23 @@ func fileLock(path string) (*os.File, error) {
 }
 func (a *app) lock(name string) (*os.File, error) {
 	return fileLock(filepath.Join(a.dir(name), "lock"))
+}
+
+// A waiter must not act on a new environment created under the old name.
+func (a *app) lockOwned(expected *environment) (*os.File, *environment, error) {
+	l, err := a.lock(expected.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	e, err := a.owned(expected.Name)
+	if err == nil && e.ID != expected.ID {
+		err = errors.New("environment was replaced while waiting; retry explicitly")
+	}
+	if err != nil {
+		unlock(l)
+		return nil, nil, err
+	}
+	return l, e, nil
 }
 func unlock(f *os.File) { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
@@ -230,8 +253,8 @@ func (a *app) create(name string, args []string) error {
 		return err
 	}
 	defer unlock(manager)
-	if _, err = os.Lstat(a.dir(name)); !os.IsNotExist(err) {
-		return errors.New("environment already exists; use recover for interrupted setup")
+	if err = a.nameAvailable(name); err != nil {
+		return err
 	}
 	if err = a.importImage(*image, strings.TrimPrefix(*digest, "sha256:")); err != nil {
 		return err

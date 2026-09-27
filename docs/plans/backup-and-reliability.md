@@ -55,17 +55,17 @@ Use disposable guests for the probes. `probe-backup.py` briefly stops the source
 
 ```sh
 python3 scripts/probe-backup.py --nsl build/nsl \
-  --source-home "$HOME/.local/share/nsl-maintenance-eval" --source dev \
+  --source-home "$HOME/.local/share/nsl-v5-eval" --source dev \
   --restore-home "$HOME/.local/share/nsl-another-restore-test" \
   --archive build/native/backups/another-test.nsl \
   --output build/native/evidence/another-backup.json
 
 python3 scripts/probe-maintenance.py --nsl build/nsl \
-  --home "$HOME/.local/share/nsl-maintenance-eval" --environment dev \
+  --home "$HOME/.local/share/nsl-v5-eval" --environment dev \
   --output build/native/evidence/another-maintenance.json
 ```
 
-After the user-authorized cleanup, the retained v4 fixture is at `~/.local/share/nsl-maintenance-eval` (`dev`, Podman installed). The duplicate restored guest and all older nsl VM/container test guests were deleted; their measurement logs remain. The stopped image builder is retained for future image work. The maintained v4 backup is `build/native/backups/dev-v4.nsl`. These artifacts are private local state, excluded from Git.
+The v4 fixture was retained through the initial cleanup, then replaced by the v5 validation guest during the [storage milestone](storage-management.md). All historical nsl VM/container test guests were deleted; their measurement logs remain. The stopped current image builder is retained for future image work. The maintained v4 backup remains at `build/native/backups/dev-v4.nsl` for reproducing the root-growth regression. These artifacts are private local state, excluded from Git.
 
 Local evidence:
 
@@ -76,8 +76,8 @@ Local evidence:
 
 ## Next work
 
-1. Safe environment removal and growth of existing disks, with backup as a prerequisite for destructive experiments.
-2. Host reboot/suspend, VPN/DNS changes, disk-full/interrupted-write trials and another atomic distribution.
+1. Safe environment removal and offline growth are now implemented in the [storage milestone](storage-management.md); it also records the v5 filesystem-growth fix.
+2. [Broad guest distribution support](distribution-support.md): Ubuntu/Fedora next, then CentOS Stream and openSUSE. Host reboot/suspend, VPN/DNS changes, disk-full/interrupted-write trials and another atomic host remain reliability gates.
 3. Default VM, cwd mapping, editor setup and command exports.
 4. Signed prebuilt images, versioned host prerequisites and integration update policy.
 5. Desktop launchers, visual/input validation, clipboard, audio, portals and graphics.

@@ -37,7 +37,7 @@ Image v4 keeps `/boot` on btrfs and mounts a 1 GiB EFI partition at `/efi`. Debi
 
 The generic image contains no fixed development account or client key. vmspawn supplies a boot credential containing the environment ID, host UID/primary GID and public SSH key. The guest's `nsl-setup.service` validates the credential and configures the `nsl` account, home and guest sudo. It records the binding on disk and rejects a different identity on subsequent boots. Setup is idempotent, recovers partial account/home creation and preserves later authorized-key additions. Guest setup syncs its changes; first-use readiness also flushes guest storage before recording initialization, including generated SSH host keys. Client private keys remain on the host; Debian generates guest host keys at first boot.
 
-`systemd-repart` grows the root partition and btrfs filesystem to the virtual disk capacity. The guest image includes the Debian `systemd-repart` package explicitly. This step is independent of account setup. Disk shrinking and resizing existing environments through the CLI are not implemented.
+`systemd-repart` grows the root partition and btrfs filesystem to the virtual disk capacity. The guest image includes the Debian `systemd-repart` package explicitly. This step is independent of account setup. Debian v5 explicitly makes setup require `systemd-growfs-root.service` after repart/remount; kernel regeneration can bypass the automatic root discovery that previously scheduled this service. Earlier v4 guests need an explicit integration update. See [ADR-0010](../adr/0010-explicit-guest-root-growth.md).
 
 ## Launch and readiness
 
@@ -49,6 +49,12 @@ Every `start`, `exec`, `shell`, `gui` or `ssh-config` checks authenticated guest
 
 `recover` stops the owned runtime, resumes missing preparation artifacts, checks an existing qcow2 disk without automatic repair, and starts it again. It preserves keys, pinned host trust and existing disk contents. It cannot reconstruct deleted keys, repair filesystem corruption or recover an orphan directory lacking valid metadata. Recovery is not backup/restore.
 
+## Offline storage changes
+
+`remove` previews deletion; `--yes` requires both owned units stopped. Manager and environment locks protect a rename into `removing/NAME`. Deletion preserves metadata until the final step so it can resume safely; name reuse remains blocked until the tombstone is gone. External projects, cached images and backups survive. Lifecycle calls reload metadata after acquiring the lock and reject replacement IDs.
+
+`resize --disk GiB` records `resize_target_gib` before growing a stopped qcow2 disk, syncs and verifies the disk, then commits `disk_gib` and clears the target. Recovery accepts either the old or target capacity; other capacities fail inspection. Start/export refuse pending growth; `recover` or a repeated resize completes it. Guest root growth happens on boot. Shrinking is unsupported. [Storage decision](../adr/0008-offline-storage-management.md), [validation](../plans/storage-management.md).
+
 ## Backup and restore
 
 [ADR-0006](../adr/0006-stopped-vm-backups.md) defines whole-system backups. `export` locks a stopped environment, checks the standalone qcow2 disk and compacts it into private staging. A version-1 tar archive carries a bounded manifest, hashes/sizes, disk, client keypair and optional pinned trust. Atomic hard-link publication refuses an existing destination. Shared project files remain on the host and are excluded. Archives are unencrypted and include credentials.
@@ -57,7 +63,7 @@ Every `start`, `exec`, `shell`, `gui` or `ssh-config` checks authenticated guest
 
 Schema-2 metadata has an optional `guest_id`: fresh environments use their runtime `id` as the guest binding; restored environments keep the backed-up binding and get a fresh runtime `id`. Readiness, boot credentials and SSH host-key aliases use the guest binding; units, sockets and CIDs use runtime identity. Restored copies preserve machine ID and SSH identities, so they are not independently authenticated clones. Version 1 requires matching UID/primary GID. Project sharing and desktop opt-in must be selected again. The independent restored disk does not need the base-image cache.
 
-The [active milestone](../plans/backup-and-reliability.md) records acceptance results and remaining storage work.
+The [backup milestone](../plans/backup-and-reliability.md) and [storage milestone](../plans/storage-management.md) record acceptance results. The [distribution plan](../plans/distribution-support.md) moves package, boot and filesystem differences into image adapters under a common [guest contract](../specs/guest-images.md); only Debian has been validated so far.
 
 ## Commands, files and GUI
 

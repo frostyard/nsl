@@ -11,11 +11,15 @@
 
 The main Go CLI launches full Debian VMs using systemd-vmspawn/QEMU and nspawn-derived bootable images. Lima is the image builder and historical runtime baseline. Read the [user guide](../README.md), [measured vmspawn results](plans/vmspawn-implementation.md) and [prioritized roadmap](plans/wsl2-equivalent.md).
 
-The latest completed increment is [backup/restore and guest reliability](plans/backup-and-reliability.md). The contracts describe implemented behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
+The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Broad distribution support](plans/distribution-support.md) is the next architectural increment. The contracts describe implemented behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
 
 ## Index
 
 ### Decisions
+
+- [0010 — Explicit guest root growth](adr/0010-explicit-guest-root-growth.md)
+- [0009 — Distribution-neutral guest contract](adr/0009-distribution-neutral-guest-contract.md)
+- [0008 — Offline storage management](adr/0008-offline-storage-management.md)
 
 - [0007 — Maintainable Debian guest boot layout](adr/0007-maintainable-guest-boot.md)
 - [0006 — Self-contained backups of stopped VMs](adr/0006-stopped-vm-backups.md)
@@ -31,9 +35,14 @@ The latest completed increment is [backup/restore and guest reliability](plans/b
 
 ### Specs
 
+- [Guest image contract and acceptance levels](specs/guest-images.md)
+
 - [CLI contract](specs/cli.md)
 
 ### Plans
+
+- [Broad distribution support](plans/distribution-support.md)
+- [Safe removal and disk growth](plans/storage-management.md)
 
 - [Backup/restore and daily-work reliability](plans/backup-and-reliability.md)
 - [vmspawn Go implementation and validation](plans/vmspawn-implementation.md)

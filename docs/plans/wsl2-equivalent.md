@@ -10,15 +10,18 @@ On Snow Linux 13 x86_64, the current runtime passed two-VM isolation, disk growt
 
 The next increment added stopped-VM export/restore and tested independent recovery with no image cache. A kernel reinstall exposed a v3 boot-layout defect; image v4 fixes it and passed regenerated-kernel boots plus a rootless Podman build/network/volume workflow. An actual newer-kernel upgrade is still untested. [Backup and maintenance results](backup-and-reliability.md).
 
+The storage increment added explicit removal and resumable offline growth. A maintained v4 guest exposed a missing filesystem-growth service; v5 fixes it and passed an exact 8 GiB root increase plus a grown-disk backup/restore and peer-safe removal. [Storage results](storage-management.md).
+
 Priority order:
 
-1. **Protect guest work:** export and independent restore are complete for the tested cases; next add safe removal and existing-disk growth. [Completed increment](backup-and-reliability.md).
-2. **Prove daily reliability:** kernel reinstallation and rootless Podman passed; next test newer-kernel upgrades, host reboot/suspend, network changes, disk-full behavior and another atomic host.
-3. **Reduce routine commands:** default environment, host cwd mapping, editor setup and selected command exports.
-4. **Make installation practical:** signed prebuilt images, versioned dependencies, protocol/update policy, Snow plus Fedora Atomic validation.
-5. **Complete desktop workflows:** application launchers, visual/input checks, clipboard, audio, portals and measured GPU support.
+1. **Protect guest work:** export/restore, safe removal and resumable offline growth are implemented. [Storage acceptance](storage-management.md).
+2. **Support distro choice early:** common guest contract and separate image adapters; Ubuntu LTS and Fedora next, then CentOS Stream and openSUSE Leap/Tumbleweed. Research SUSE Enterprise separately. [Plan and matrix](distribution-support.md).
+3. **Prove daily reliability:** kernel reinstallation and rootless Podman passed; next test newer-kernel upgrades, host reboot/suspend, network changes, disk-full behavior and another atomic host.
+4. **Reduce routine commands:** default environment, host cwd mapping, editor setup and selected command exports.
+5. **Make installation practical:** signed prebuilt images, versioned dependencies, protocol/update policy, Snow plus Fedora Atomic validation.
+6. **Complete desktop workflows:** application launchers, visual/input checks, clipboard, audio, portals and measured GPU support.
 
-No release date is inferred from the prototype's development speed. Re-estimate each milestone after its acceptance checks. The user permits a complete rewrite, but the current Go implementation now has useful measured behavior; change language or runtime when it resolves a demonstrated problem. Existing experimental environments remain user data.
+No release date is inferred from the prototype's development speed. Re-estimate each milestone after its acceptance checks. The user permits a complete rewrite, but the current Go implementation now has useful measured behavior; change language or runtime when it resolves a demonstrated problem. Unused historical guests were deleted with user authorization; the maintained validation guest and backup remain available.
 
 ## Research: what WSL2 actually supplies
 
@@ -189,7 +192,8 @@ Each VM provides a separate kernel boundary, but shared files, clipboard, graphi
 | Milestone | Current state | Remaining acceptance work |
 | --- | --- | --- |
 | Runtime and image choice | Complete for the prototype: Go, vmspawn/QEMU, nspawn disk recipes; ADR-0005. | Revisit only for measured limitations. |
-| Persistent VM CLI | Implemented: owned state, independent disks/keys, boot setup, growth at creation, lifecycle, readiness, recovery, port reporting and verified backup/restore. | Safe removal, existing-disk growth and broader failure tests. |
+| Persistent VM CLI | Implemented: owned state, independent disks/keys, boot setup, growth at creation, lifecycle, readiness, recovery, port reporting, verified backup/restore, safe removal and resumable offline growth. | Broader failure tests and filesystem/distro coverage. |
+| Distribution choice | Common contract and per-family plan recorded; Debian is the verified family. | Ubuntu/Fedora vertical tests, then CentOS Stream and SUSE-family tests; negotiated image capabilities. |
 | Daily development | Shared and guest-owned files, SSH editor access, localhost, two VMs, polling live reload, kernel reinstall and rootless Podman verified. | Newer-kernel upgrades, defaults/cwd/export conveniences, network transitions. |
 | Atomic-host delivery | Local build and Snow launch proven. | Signed image distribution, integration updates, clean installation on a second host and minimum dependency versions. |
 | Integrated desktop | Software Waypipe transport and one application protocol check proven. | Launcher exports; visual/input, clipboard, audio, session recovery, GPU and portal matrix. |

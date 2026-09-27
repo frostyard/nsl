@@ -24,9 +24,9 @@ build/nsl doctor
 
 # Build once inside a disposable VM; dependencies stay inside that VM.
 scripts/build-image.sh
-image_sha=$(sha256sum build/image/share/nsl-debian-v4.raw)
+image_sha=$(sha256sum build/image/share/nsl-debian-v5.raw)
 build/nsl create dev \
-  --image "$PWD/build/image/share/nsl-debian-v4.raw" \
+  --image "$PWD/build/image/share/nsl-debian-v5.raw" \
   --digest "sha256:${image_sha%% *}" \
   --project "$PWD" --desktop --cpus 2 --memory 2 --disk 16
 build/nsl shell dev
@@ -63,7 +63,23 @@ build/nsl logs dev
 build/nsl recover dev
 ```
 
-`recover` restarts the environment and resumes interrupted preparation while preserving an existing disk and its keys. It checks qcow2 metadata without automatic repair. Lost keys, filesystem corruption and directories without valid metadata require manual diagnosis. Safe deletion and resizing existing disks remain planned.
+`recover` restarts the environment and resumes interrupted preparation while preserving an existing disk and its keys. It checks qcow2 metadata without automatic repair. Lost keys, filesystem corruption and directories without valid metadata require manual diagnosis. It also completes pending disk growth. `list` reports interrupted storage work as `Resizing` or `Removing`.
+
+## Grow or remove an environment
+
+```sh
+build/nsl stop dev
+build/nsl resize dev --disk 24
+build/nsl exec dev -- df -h /
+# Preview deletion, then explicitly remove the stopped VM:
+build/nsl stop dev
+build/nsl remove dev
+build/nsl remove dev --yes
+```
+
+Resize grows virtual capacity only; the image grows its root filesystem on the next boot. Use Debian v5 for this workflow; maintained v4 guests can require a guest integration update. Shrinking is refused. If growth is interrupted, repeat the same resize command or use `recover`. Take a stopped backup before changing important storage.
+
+Removal permanently deletes the guest disk, credentials and configuration. It preserves external host projects, cached images and exported backups. A running VM must be stopped explicitly. Interrupted deletion reserves the name and resumes with `remove NAME --yes`.
 
 ## Back up and restore
 
@@ -82,17 +98,17 @@ Restore checks the archive and creates a new independent disk without the origin
 
 ## Roadmap
 
-[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. Next are safe removal/disk growth, broader reliability tests, defaults/cwd/editor conveniences, signed prebuilt images and desktop integration. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
+[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. [Safe removal and disk growth](docs/plans/storage-management.md) are implemented. Next, separate common image integration from distro-specific packaging and boot hooks, then validate Ubuntu LTS and Fedora, followed by CentOS Stream and openSUSE Leap/Tumbleweed. SUSE Linux Enterprise needs separate source/entitlement research. [Distribution plan and support matrix](docs/plans/distribution-support.md). Broader reliability, defaults/cwd/editor conveniences, signed images and desktop integration follow. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
 
 ## Existing prototype VMs
 
-Use image v4 for new environments. Earlier v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh v4 environment for kernel maintenance until a tested migration is available. [Image details](image/README.md).
+Use image v5 for new environments. It retains the v4 kernel-maintenance layout and explicitly grows the root filesystem before readiness. Earlier v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh v5 environment for kernel maintenance until a tested migration is available. [Image details](image/README.md).
 
 ## Current limits
 
 - Host file changes through virtiofs do not produce reliable guest inotify events. Use polling for live reload, or keep source in the guest home and use a remote editor.
 - Clipboard, audio, accelerated graphics, portals and application launcher export are unfinished. One working Wayland application is not full desktop integration.
-- Host suspend/reboot, upgrades to a newer kernel, alternate distributions and signed image delivery remain release gates. Kernel reinstallation and rootless Podman passed on image v4.
+- Host suspend/reboot, upgrades to a newer kernel, alternate distributions and signed image delivery remain release gates. Kernel reinstallation and rootless Podman passed on images v4 and v5.
 - Writable shares are accessible to guest processes, including guest root. `--root` is a convenience for administration inside the VM.
 
 ## Validate

@@ -16,6 +16,8 @@ Contract for the binary and tests. Rationale: [ADR-0005](../adr/0005-vmspawn-and
 | `recover NAME` | Stop, resume preparation/check existing disk and restart; preserve identity and data. |
 | `export NAME FILE.nsl` | Export a stopped prepared VM as a private self-contained backup; never overwrite. |
 | `restore NAME FILE.nsl [--project DIR] [--desktop]` | Verify and restore under an unused name; new runtime identity, preserved guest identity, no image-cache dependency. |
+| `remove NAME [--yes]` | Preview permanent deletion; `--yes` removes a stopped owned VM and resumes interrupted deletion. |
+| `resize NAME --disk GiB` | Grow a stopped prepared disk; retain identity, refuse shrinking, resume pending growth. |
 | `ports NAME` | Show timestamped loopback forwarding status and bind conflicts. |
 | `logs NAME` | Show the last 100 journal entries for the VM and forwarding units. |
 | `ssh-config NAME` | Start if needed; print the owned SSH config path (alias `guest`). |
@@ -39,6 +41,12 @@ Names start with a lowercase ASCII letter, contain lowercase letters/digits/inte
 - GUI MUST require desktop opt-in and a host Wayland session. It MUST NOT change the persistent share.
 - Automatic service forwards MUST bind host loopback, report/retry conflicts and never evict an existing host listener.
 - Stop MUST preserve guest data and configuration and terminate that environment's forwarding service.
+
+## Offline storage management
+
+Removal MUST require stopped owned VM and forwarding units, explicit `--yes`, and manager/environment locks. It MUST preserve external host projects, cached images and external archives. Projects inside the environment state MUST block removal. Interrupted removal MUST reserve the name under `removing/NAME`, appear as `Removing` in `list`, and resume only from validated metadata or an empty final directory. Waiting lifecycle calls MUST reject a newly allocated environment under the same name.
+
+Resize MUST require a prepared stopped standalone disk, refuse shrinking and invalid capacities, and persist the pending target before disk mutation. It MUST sync and validate the resulting disk before committing capacity. Pending growth MUST appear as `Resizing`, block start/export, and resume through the same resize target or `recover`. Capacity inconsistent with both committed and pending sizes MUST be refused. Guest filesystem growth is a separate boot operation supplied by the image; Debian v5 explicitly requires it before readiness. See [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0010](../adr/0010-explicit-guest-root-growth.md), and the [guest contract](guest-images.md).
 
 ## Backup version 1
 

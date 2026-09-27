@@ -26,20 +26,21 @@ var guestHelper string
 var validName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
 
 type environment struct {
-	Schema      int    `json:"schema"`
-	Name        string `json:"name"`
-	ID          string `json:"id"`
-	GuestID     string `json:"guest_id,omitempty"`
-	Owner       int    `json:"owner"`
-	GID         int    `json:"gid"`
-	Project     string `json:"project,omitempty"`
-	Desktop     bool   `json:"desktop"`
-	CPUs        int    `json:"cpus"`
-	Memory      int    `json:"memory"`
-	Disk        int    `json:"disk_gib"`
-	Digest      string `json:"image_sha256"`
-	Prepared    bool   `json:"prepared"`
-	Initialized bool   `json:"initialized"`
+	Schema       int    `json:"schema"`
+	Name         string `json:"name"`
+	ID           string `json:"id"`
+	GuestID      string `json:"guest_id,omitempty"`
+	Owner        int    `json:"owner"`
+	GID          int    `json:"gid"`
+	Project      string `json:"project,omitempty"`
+	Desktop      bool   `json:"desktop"`
+	CPUs         int    `json:"cpus"`
+	Memory       int    `json:"memory"`
+	Disk         int    `json:"disk_gib"`
+	ResizeTarget int    `json:"resize_target_gib,omitempty"`
+	Digest       string `json:"image_sha256"`
+	Prepared     bool   `json:"prepared"`
+	Initialized  bool   `json:"initialized"`
 }
 
 type guestRequest struct {
@@ -221,7 +222,7 @@ func (a *app) list() error {
 		}
 		fmt.Fprintf(a.out, "%s\t%s\t%s\n", e.Name, status, e.Project)
 	}
-	return nil
+	return a.listRemoving()
 }
 func usage(w io.Writer) {
 	fmt.Fprintln(w, `nsl — persistent development VMs (experimental)
@@ -237,6 +238,8 @@ func usage(w io.Writer) {
   recover NAME
   export NAME FILE.nsl
   restore NAME FILE.nsl [--project DIR] [--desktop]
+  resize NAME --disk GiB
+  remove NAME [--yes]
   ports NAME
   logs NAME
   ssh-config NAME
@@ -275,6 +278,12 @@ func (a *app) execute(args []string) error {
 	}
 	if args[0] == "restore" {
 		return a.restore(name, args[2:])
+	}
+	if args[0] == "remove" {
+		return a.remove(name, args[2:])
+	}
+	if args[0] == "resize" {
+		return a.resize(name, args[2:])
 	}
 	if args[0] == "export" {
 		if len(args) != 3 {

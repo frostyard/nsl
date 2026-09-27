@@ -124,14 +124,13 @@ func (a *app) export(name, destination string) error {
 	if err != nil {
 		return err
 	}
-	l, err := a.lock(name)
+	l, e, err := a.lockOwned(e)
 	if err != nil {
 		return err
 	}
 	defer unlock(l)
-	e, err = a.owned(name)
-	if err != nil {
-		return err
+	if e.ResizeTarget != 0 {
+		return errors.New("complete pending disk growth before export")
 	}
 	if !e.Prepared {
 		return errors.New("cannot export incomplete preparation; use recover first")
@@ -399,8 +398,8 @@ func (a *app) restore(name string, args []string) error {
 		return err
 	}
 	defer unlock(manager)
-	if _, err = os.Lstat(a.dir(name)); !os.IsNotExist(err) {
-		return errors.New("environment already exists or cannot be inspected")
+	if err = a.nameAvailable(name); err != nil {
+		return err
 	}
 	input, err := os.Open(args[0])
 	if err != nil {

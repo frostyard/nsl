@@ -82,7 +82,7 @@ The main Go runtime has replaced the experiment adapter for new environments. Th
 
 ## Reproduce and inspect
 
-The measured v3 environments were `dev` and `peer` under `~/.local/share/nsl-vm`; the user subsequently authorized their deletion. The commands below illustrate the historical setup and require recreating a suitable environment. `build/native/env.sh` now selects the retained v4 maintenance fixture; see the [latest report](backup-and-reliability.md).
+The measured v3 environments were `dev` and `peer` under `~/.local/share/nsl-vm`; the user subsequently authorized their deletion. The commands below illustrate the historical setup and require recreating a suitable environment. `build/native/env.sh` now selects the retained v5 maintenance fixture; see the [storage report](storage-management.md).
 
 ```sh
 source build/native/env.sh

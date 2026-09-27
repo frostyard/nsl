@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,6 +29,7 @@ type fakeRunner struct {
 	states, descriptions map[string]string
 	failConvert          bool
 	failCheck            bool
+	failResize           bool
 	wrongKey             bool
 	wrongIdentity        bool
 }
@@ -50,6 +53,24 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 	}
 	if bin == "qemu-img" && args[0] == "check" && f.failCheck {
 		return errors.New("injected disk check failure")
+	}
+	if bin == "qemu-img" && args[0] == "resize" {
+		if f.failResize {
+			return errors.New("injected resize failure")
+		}
+		path := args[len(args)-2]
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if len(b) >= 32 && string(b[:4]) == "QFI\xfb" {
+			size, err := strconv.Atoi(strings.TrimSuffix(args[len(args)-1], "G"))
+			if err != nil {
+				return err
+			}
+			binary.BigEndian.PutUint64(b[24:], uint64(int64(size)*gib))
+			return os.WriteFile(path, b, 0600)
+		}
 	}
 	if bin == "qemu-img" && args[0] == "convert" {
 		if f.failConvert {

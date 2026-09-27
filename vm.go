@@ -55,6 +55,9 @@ func (a *app) unitState(e *environment, name string) (string, error) {
 	return values["ActiveState"], nil
 }
 func (a *app) status(e *environment) (string, error) {
+	if e.ResizeTarget != 0 {
+		return "Resizing", nil
+	}
 	if !e.Prepared {
 		return "Incomplete", nil
 	}
@@ -109,19 +112,17 @@ func (a *app) ready(e *environment) error {
 	return nil
 }
 func (a *app) start(e *environment) error {
-	l, err := a.lock(e.Name)
+	l, e, err := a.lockOwned(e)
 	if err != nil {
 		return err
 	}
 	defer unlock(l)
-	// Reload after waiting: another command may have completed recovery.
-	e, err = a.owned(e.Name)
-	if err != nil {
-		return err
-	}
 	return a.startLocked(e)
 }
 func (a *app) startLocked(e *environment) error {
+	if e.ResizeTarget != 0 {
+		return fmt.Errorf("disk growth incomplete; run nsl recover %s", e.Name)
+	}
 	if !e.Prepared {
 		return fmt.Errorf("creation incomplete; run nsl recover %s", e.Name)
 	}
@@ -201,7 +202,7 @@ func (a *app) startForwarder(e *environment) error {
 	return a.call(nil, a.err, "systemd-run", "--user", "--unit="+portUnit(e), "--description="+description(e), "--collect", "--property=Type=exec", "--property=BindsTo="+unit(e), "--property=After="+unit(e), "--setenv=NSL_HOME="+a.home, "--", a.self, "_forward", e.Name)
 }
 func (a *app) stop(e *environment) error {
-	l, err := a.lock(e.Name)
+	l, e, err := a.lockOwned(e)
 	if err != nil {
 		return err
 	}
@@ -248,17 +249,18 @@ func (a *app) stopLocked(e *environment) error {
 	return nil
 }
 func (a *app) recover(e *environment) error {
-	l, err := a.lock(e.Name)
+	l, e, err := a.lockOwned(e)
 	if err != nil {
 		return err
 	}
 	defer unlock(l)
-	e, err = a.owned(e.Name)
-	if err != nil {
-		return err
-	}
 	if err = a.stopLocked(e); err != nil {
 		return err
+	}
+	if e.ResizeTarget != 0 {
+		if err = a.finishGrowth(e); err != nil {
+			return err
+		}
 	}
 	if err = a.prepare(e); err != nil {
 		return err
