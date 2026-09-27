@@ -8,7 +8,7 @@ This is a development prototype. The tested host is **Snow Linux 13, x86_64, sys
 
 - systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` and util-linux `unshare`.
 - Existing membership in `kvm`, with access to `/dev/kvm` and `/dev/vhost-vsock`; unprivileged user namespaces must work.
-- Go 1.23+ to build the CLI. Waypipe and a Wayland session for GUI applications.
+- Go 1.25.8+ to build the CLI. Waypipe and a Wayland session for GUI applications.
 - Lima 2.2.0, Git and Python 3 to build the guest image locally. Lima is used only by the image builder.
 
 nsl does not install host packages or change device permissions, groups or sudoers. `doctor` checks the local prerequisites. arm64 cross-compiles; creating arm64 guests is not implemented.
@@ -36,6 +36,28 @@ build/nsl shell dev
 The image builder refuses to overwrite an existing output. See [image build details](image/README.md). `create` verifies the image and prepares an independent disk and keypair. First entry boots and configures the guest; later commands start a stopped VM automatically.
 
 The guest user is `nsl`, with your numeric UID/primary GID, persistent `/home/nsl`, and guest sudo. The selected host project is at `/work`. It is fixed at creation; no host home, agent, D-Bus or GPU socket is implicitly shared. Omitting `--project` creates a VM with no host project share.
+
+## Prebuilt images (in development)
+
+The development CLI implements signed catalogue selection. Public GHCR image
+publication is still pending; use the local build above until it is available.
+The planned download path requires the host VM prerequisites, but no image builder:
+
+```sh
+build/nsl images
+build/nsl pull debian:trixie
+build/nsl create dev --distro debian:trixie --project "$PWD"
+```
+
+Use the selectors advertised by `images`. `pull` verifies and caches a base without
+creating a VM. Interrupted transfers resume on retry. `--offline` on `images`,
+`pull` or `create --distro` requires a still-valid signed catalogue and the complete
+verified cache. Online errors never silently select cached metadata. The optional
+`DISTRO:RELEASE@sha256:HEX` suffix pins the catalogue's current OCI manifest.
+
+Catalogue changes affect new creations; existing VMs keep their own disks.
+Local `--image`/`--digest` checks bytes without authenticating a publisher.
+[Trust policy and limits](docs/specs/image-delivery.md).
 
 ## Use
 

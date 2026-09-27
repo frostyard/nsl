@@ -7,6 +7,9 @@ Contract for the binary and tests. Rationale: [ADR-0005](../adr/0005-vmspawn-and
 | Command | Behavior |
 | --- | --- |
 | `create NAME --image FILE --digest sha256:HEX [--project DIR] [--desktop] [--cpus N] [--memory GiB] [--disk GiB]` | Verify a local raw image and prepare an independent persistent VM. |
+| `images [--offline]` | List authenticated catalogue selections; public publication pending. |
+| `pull DISTRO:RELEASE [--offline]` | Verify and cache a selected base without creating a VM. |
+| `create NAME --distro DISTRO:RELEASE [--offline] [resource/project flags]` | Prepare a VM from a verified catalogue selection. |
 | `list` | List owned environments and runtime state. |
 | `start NAME` | Launch if stopped; verify authenticated guest identity and restore forwarding. |
 | `shell NAME` | Start if needed; interactive Bash login shell in guest home. |
@@ -24,7 +27,7 @@ Contract for the binary and tests. Rationale: [ADR-0005](../adr/0005-vmspawn-and
 | `doctor` | Check executables, group-based device access, user namespaces and the user systemd manager. |
 | `version`, `help` | Print build version or usage. |
 
-Names start with a lowercase ASCII letter, contain lowercase letters/digits/interior hyphens and have at most 24 characters. Flags follow the name. CPUs: 1–64 (default 2); RAM: 1–128 GiB (default 2); disk: 4–4096 GiB (default 16), never smaller than the raw image. Creation requires x86_64. Images must implement the nsl boot-credential/command protocol; a digest verifies selected bytes, not publisher identity.
+Names start with a lowercase ASCII letter, contain lowercase letters/digits/interior hyphens and have at most 24 characters. Flags follow the name. CPUs: 1–64 (default 2); RAM: 1–128 GiB (default 2); disk: 4–4096 GiB (default 16), never smaller than the raw image. Creation requires x86_64. Images must implement the nsl boot-credential/command protocol; a local-image digest verifies selected bytes without publisher identity. Catalogue selection follows the [signed delivery contract](image-delivery.md).
 
 ## Rules
 
@@ -33,7 +36,7 @@ Names start with a lowercase ASCII letter, contain lowercase letters/digits/inte
 - Lifecycle changes MUST serialize per environment; command sessions MAY run concurrently after readiness.
 - Freshly created environments MUST have independent disks and client keys. All environments MUST have distinct runtime units and CIDs within a state directory. Restored copies preserve their backup's guest identity/keypair and have independent disk files ([ADR-0006](../adr/0006-stopped-vm-backups.md)).
 - Images MUST supply a vsock SSH listener independently of early automatic detection. V6 uses an nsl-owned socket; launch retains explicit listener arguments for earlier images.
-- Readiness MUST verify the guest ID, UID, GID and protocol even for an already running unit.
+- Readiness MUST verify the guest ID, UID, GID and image descriptor even for an already running unit. Reject incompatible schema, architecture, transport or command-protocol range before forwarding or executing user commands.
 - Interrupted preparation MUST retain state. Recovery MUST preserve an existing disk, private key and host-key trust; it MUST NOT silently repair corruption or regenerate lost keys.
 - Normal guest work MUST use the host numeric UID and primary GID. `--root` selects guest root, never host root.
 - Guest argv MUST retain spaces, quotes and metacharacters literally. Binary streams and exit status MUST survive non-PTY execution.

@@ -91,3 +91,20 @@ The proposed [cloud-init interface](../specs/provisioning.md) adds a separate pr
 
 - [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [CLI contract](../specs/cli.md).
 - [Comparison experiment](../plans/vmspawn-comparison.md), [roadmap](../plans/wsl2-equivalent.md).
+
+## Signed base selection
+
+`images`, `pull` and `create --distro` use the [signed delivery contract](../specs/image-delivery.md).
+The CLI verifies the catalogue and image descriptor against the embedded Sigstore
+root and exact Frostyard workflow identity. It stores authenticated catalogue
+history under `delivery/`, downloads by immutable digest, validates resumed bytes,
+and bounds decompression before publishing a raw image into `images/`. Existing
+local imports and downloads share the manager lock for final cache publication.
+Per-artifact locks serialize transfers. Readiness checks the authenticated guest's
+image descriptor as well as the per-environment identity.
+
+A final check of locally authenticated catalogue state rejects an expired or
+concurrently withdrawn selection before a pull returns. A catalogue refresh that
+occurs after this decision applies to later selections. Explicit offline use
+requires fresh metadata, a signed receipt, evidence files and a rehashed raw image.
+Public image publication is pending; the local-image path remains usable.

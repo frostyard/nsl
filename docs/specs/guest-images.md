@@ -1,6 +1,6 @@
 # Spec: Cross-distribution guest images
 
-Target contract under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md). The seven validated Debian, Ubuntu, Fedora, CentOS Stream, openSUSE and Arch profiles implement credential/command protocol 1 and carry a build descriptor. Host capability negotiation is planned. The [Debian/Ubuntu report](../plans/image-profiles-and-ubuntu.md), [RPM report](../plans/rpm-guests.md) and [SUSE/Arch report](../plans/suse-and-arch.md) define measured coverage.
+Target contract under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md). The seven validated Debian, Ubuntu, Fedora, CentOS Stream, openSUSE and Arch profiles implement credential/command protocol 1 and carry a build descriptor. The development CLI checks schema, architecture, transport and protocol compatibility during readiness. Optional capability negotiation remains planned. The [Debian/Ubuntu report](../plans/image-profiles-and-ubuntu.md), [RPM report](../plans/rpm-guests.md) and [SUSE/Arch report](../plans/suse-and-arch.md) define measured coverage.
 
 ## Shared behavior
 
@@ -21,7 +21,7 @@ Image adapters MUST own package names, SSH unit names, account tools, network co
 
 Before introducing an image catalogue, add a versioned descriptor containing image build ID, distro `ID` and `VERSION_ID`, architecture, integration protocol range, recipe/integration revisions, root-growth capability, command/PTY transport and optional desktop capabilities. Artifact digest/signature and package provenance belong in the published manifest. Read guest identity/capabilities through the authenticated channel and validate required features before claiming readiness.
 
-A first build descriptor is implemented at `/usr/lib/nsl/image.json`: schema, build ID, distro/release/architecture, family/revision, root filesystem, protocol minimum/maximum, transport and source pins/checksum. A sibling artifact JSON and mkosi package manifest record inputs. Optional capability discovery, signature metadata and host-side negotiation remain planned. Environment metadata records the raw image digest and guest binding; archives preserve the descriptor as guest disk content without an image catalogue.
+A first build descriptor is implemented at `/usr/lib/nsl/image.json`: schema, build ID, distro/release/architecture, family/revision, root filesystem, protocol minimum/maximum, transport and source pins/checksum. A sibling artifact JSON and mkosi package manifest record inputs. The host now reads this descriptor over authenticated SSH and rejects incompatible core protocols. Signed artifact metadata follows the [delivery contract](image-delivery.md); public image publication and optional capability discovery remain pending. Environment metadata records the raw image digest and guest binding; archives preserve the descriptor as guest disk content without an image catalogue.
 
 ## Planned distribution contract
 

@@ -1,10 +1,12 @@
 # Plan: Signed prebuilt image delivery
 
-**Status: planned; catalogue, registry downloads and signature verification are not implemented.**
+**Status: implementation in progress; public image delivery has not shipped.**
+
+[ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md) and the [delivery contract](../specs/image-delivery.md) settle the verifier, formats, expiry, rollback, revocation and offline policy.
 
 Let users select a supported distribution and create a VM without building its image locally. [ADR-0012](../adr/0012-signed-image-distribution.md) selects public GHCR OCI artifacts, a signed catalogue and verification tied to the Frostyard publishing workflow. This builds on [image profiles](image-profiles-and-ubuntu.md) and the [distribution support matrix](distribution-support.md).
 
-Proposed user experience, not current CLI syntax:
+Implemented development CLI syntax; public catalogue publication is pending:
 
 ```sh
 nsl images
@@ -12,7 +14,7 @@ nsl create dev --distro ubuntu:24.04
 nsl create work --distro fedora:44
 ```
 
-The catalogue must advertise only published, tested combinations. These examples do not establish support for either release. nsl selects the architecture, resolves a compatible digest, downloads and verifies the base, and creates an independent writable environment. Public downloads should require neither a registry login nor Lima/mkosi; host VM prerequisites still apply.
+The catalogue must advertise only published, tested combinations. These selectors become usable after publication. nsl selects the architecture, resolves a compatible digest, downloads and verifies the base, and creates an independent writable environment. Public downloads should require neither a registry login nor Lima/mkosi; host VM prerequisites still apply.
 
 ## Phase 1 — Artifact and trust contract
 
@@ -53,12 +55,19 @@ The catalogue must advertise only published, tested combinations. These examples
 - Export/import bundles carrying enough metadata and signatures for the agreed offline trust policy.
 - Additional architectures after real boot and workflow validation.
 
-## Open questions
+## Current implementation and remaining work
 
-- Exact catalogue schema, channel names and optional digest-pinning CLI syntax: phase 1/3.
-- Verification library/tool packaging on atomic hosts and offline trust-root handling: phase 1.
-- Workflow identity, metadata expiry/rollback policy, revocation and rotation: phase 1.
-- Rebuild cadence, retention, quotas and emergency withdrawal procedure: phase 2.
+The CLI implements catalogue listing, verified/resumable pulls, explicit offline
+selection and `create --distro`. Unit tests cover real Sigstore verification,
+identity/payload/log tampering, catalogue expiry and rollback, concurrent pulls,
+interruption/range checks, corrupt compression/raw images, unsafe cache paths and
+readiness incompatibility. These tests use local registry fixtures; they do not
+establish public delivery or replace the real VM acceptance gate.
+
+Next: build/test/sign/publish all seven profiles in the main-branch workflow,
+verify anonymous GHCR access, exercise CLI creation from published artifacts, and
+record download measurements. Finish the rebuild/withdrawal runbook before the
+v0.3.0 tag. The trust/format questions are settled in ADR-0015 and the delivery spec.
 
 ## References
 

@@ -17,6 +17,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Decisions
 
+- [0015 — Image verification and catalogue policy](adr/0015-image-verification-and-catalogue-policy.md)
+
 - [0014 — Arch kernel maintenance](adr/0014-arch-kernel-maintenance.md)
 
 - [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md)
@@ -42,6 +44,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 - [Lifecycle and mounts](design/lifecycle.md)
 
 ### Specs
+
+- [Signed image delivery](specs/image-delivery.md) — implementation in progress.
 
 - [Creation-time provisioning](specs/provisioning.md) — planned cloud-init interface and lifecycle.
 
