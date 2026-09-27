@@ -1,6 +1,6 @@
 # 0006 — Self-contained backups of stopped VMs
 
-- **Status:** Accepted
+- **Status:** Accepted; project and desktop restore grants superseded by [ADR-0016](0016-wsl-style-machines.md)
 - **Date:** 2026-09-26
 
 ## Context

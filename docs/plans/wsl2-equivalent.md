@@ -4,6 +4,8 @@ Deliver persistent Linux VMs that open from a terminal or application launcher, 
 
 **Status: seven validated x86-64 distribution profiles and public signed images, 2026-09-27.** The Go CLI manages one full distro VM per environment through systemd-vmspawn/QEMU/KVM. Images use pinned nspawn mkosi disk recipes. Lima supplies the disposable image builder and remains a historical runtime baseline. No nspawn container runs inside the development VM. Decisions: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md); current behavior: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md).
 
+**Direction, 2026-09-27:** [ADR-0016](../adr/0016-wsl-style-machines.md) defines nsl as WSL-style machines trusted as the user, with host storage at `/mnt/host` and a default machine. The [machine CLI](../specs/machine-cli.md) is planned; the [shared-VM experiment](shared-vm-experiment.md) decides topology.
+
 ## Current evidence and next work
 
 On Snow Linux 13 x86_64, the current runtime passed two-VM isolation, disk growth, forwarding conflicts, controlled forced-exit recovery, guest build/test, PTY and basic Wayland checks. Warm commands passed 50/50 (median 63.37 ms); cold starts passed 20/20 (median 7.44 s, p95 7.94 s). Polling-based edit/build/HTTP reload took 0.416 s in one trial. Native host-to-guest inotify remains unavailable. These are one-host observations, not a support matrix. [Exact results and limits](vmspawn-implementation.md).
@@ -240,7 +242,7 @@ Provisional goals on a documented x86_64 SSD host, excluding image downloads/pro
 
 | Question | Default proposal | Resolve by |
 | --- | --- | --- |
-| VM topology? | One full distro VM per environment. | Phase 1; revisit only on resource evidence |
+| VM topology? | One full distro VM per environment; a shared VM with one container per machine is under test. | [Shared-VM experiment](shared-vm-experiment.md) |
 | vmspawn, Lima or direct QEMU? | vmspawn is the implemented runtime after workflow and resource measurements. | Selected in ADR-0005 |
 | Image recipes, cloud images or OCI conversion? | nspawn disk recipes selected; cloud-image comparison complete. | ADR-0005 |
 | Fork nspawn? | Only if reusable image/service code saves net work; no fork required to use recipes. | Phase 1 source review |

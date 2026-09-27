@@ -102,3 +102,4 @@ Errors retain the environment and input. `recover` may resume unfinished work un
 - Rationale: [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md).
 - Implementation and acceptance: [cloud-init plan](../plans/cloud-init-provisioning.md).
 - Related: [current CLI](cli.md), [guest images](guest-images.md), [lifecycle](../design/lifecycle.md), [image delivery](../plans/image-distribution.md).
+- Planned direction: machine bootstrap under [ADR-0016](../adr/0016-wsl-style-machines.md); container support is an open question in the [shared-VM experiment](../plans/shared-vm-experiment.md).

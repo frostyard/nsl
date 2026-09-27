@@ -2,6 +2,8 @@
 
 Contract for the binary and tests. Rationale: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md). Mechanisms: [lifecycle](../design/lifecycle.md).
 
+The planned [machine CLI](machine-cli.md) replaces this contract under [ADR-0016](../adr/0016-wsl-style-machines.md). This document describes the implemented binary until then.
+
 ## Interface
 
 | Command | Behavior |
