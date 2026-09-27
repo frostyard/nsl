@@ -10,12 +10,12 @@ test:
 	go test ./...
 
 fmt:
-	gofmt -w main.go main_test.go
+	gofmt -w *.go
 
 verify:
 	go mod tidy -diff
 	go vet ./...
-	test -z "$$(gofmt -l main.go main_test.go)"
+	test -z "$$(gofmt -l *.go)"
 	go test ./...
 
 ci: verify

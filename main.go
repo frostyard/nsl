@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -10,469 +14,337 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 )
 
-var version = "dev"
+var version = "vmspawn-dev"
 
-const base = "nsl-base-debian-13"
-const label = "nsl.owner"
+//go:embed guest/exec.py
+var guestHelper string
 
-type machine struct {
-	Name    string            `json:"name"`
-	State   string            `json:"state"`
-	Mode    string            `json:"mode"`
-	Origin  string            `json:"origin"`
-	Labels  map[string]string `json:"labels"`
-	Volumes []string          `json:"volumes"`
+var validName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
+
+type environment struct {
+	Schema      int    `json:"schema"`
+	Name        string `json:"name"`
+	ID          string `json:"id"`
+	GuestID     string `json:"guest_id,omitempty"`
+	Owner       int    `json:"owner"`
+	GID         int    `json:"gid"`
+	Project     string `json:"project,omitempty"`
+	Desktop     bool   `json:"desktop"`
+	CPUs        int    `json:"cpus"`
+	Memory      int    `json:"memory"`
+	Disk        int    `json:"disk_gib"`
+	Digest      string `json:"image_sha256"`
+	Prepared    bool   `json:"prepared"`
+	Initialized bool   `json:"initialized"`
+}
+
+type guestRequest struct {
+	Version   int      `json:"version"`
+	Argv      []string `json:"argv"`
+	Directory string   `json:"directory,omitempty"`
 }
 
 type runner interface {
-	run(capture bool, args ...string) (string, error)
+	run(ctx context.Context, input io.Reader, output, stderr io.Writer, env []string, bin string, args ...string) error
 }
+
 type processRunner struct{}
 
-func (processRunner) run(capture bool, args ...string) (string, error) {
-	bin := os.Getenv("NSL_NSPAWN")
-	if bin == "" {
-		bin = "nspawn"
-	}
-	cmdArgs := args
-	if os.Geteuid() != 0 {
-		cmdArgs = append([]string{"-n", bin}, args...)
-		bin = "sudo"
-	}
-	cmd := exec.Command(bin, cmdArgs...)
-	cmd.Stdin = os.Stdin
-	if !capture {
-		cmd.Stdout = os.Stdout
-	}
-	cmd.Stderr = os.Stderr
-	if capture {
-		out, err := cmd.Output()
-		return string(out), err
-	}
-	return "", cmd.Run()
+func (processRunner) run(ctx context.Context, in io.Reader, out, stderr io.Writer, env []string, bin string, args ...string) error {
+	c := exec.CommandContext(ctx, bin, args...)
+	c.Env = env
+	c.Stdin, c.Stdout, c.Stderr = in, out, stderr
+	return c.Run()
 }
 
 type app struct {
-	r                  runner
-	uid, gid, username string
-	out                io.Writer
+	home, waypipe, self, runtimeDir string
+	uid, gid                        int
+	r                               runner
+	in                              io.Reader
+	out, err                        io.Writer
 }
 
-func currentApp(r runner, out io.Writer) (*app, error) {
-	u, err := user.Current()
-	if err != nil {
-		return nil, err
-	}
-	if u.Uid == "0" {
-		if sudoUID := os.Getenv("SUDO_UID"); sudoUID != "" {
-			u, err = user.LookupId(sudoUID)
+func newApp() (*app, error) {
+	home := os.Getenv("NSL_HOME")
+	if home == "" {
+		data := os.Getenv("XDG_DATA_HOME")
+		if data == "" {
+			u, err := os.UserHomeDir()
 			if err != nil {
 				return nil, err
 			}
+			data = filepath.Join(u, ".local", "share")
 		}
+		home = filepath.Join(data, "nsl")
 	}
-	if !regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`).MatchString(u.Username) || strings.HasPrefix(u.Username, "-") {
-		return nil, fmt.Errorf("unsupported host username %q", u.Username)
-	}
-	return &app{r: r, uid: u.Uid, gid: u.Gid, username: u.Username, out: out}, nil
-}
-
-var validName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
-
-func machineName(name string) (string, error) {
-	if !validName.MatchString(name) || strings.HasSuffix(name, "-") {
-		return "", fmt.Errorf("invalid environment name %q: use lowercase letters, digits and interior hyphens", name)
-	}
-	return "nsl-" + name, nil
-}
-func (a *app) inspect(name string) (*machine, error) {
-	out, err := a.r.run(true, "inspect", name)
-	if err != nil {
-		return nil, fmt.Errorf("inspect %s: %w", name, err)
-	}
-	var list []machine
-	if err = json.Unmarshal([]byte(out), &list); err != nil || len(list) != 1 || list[0].Name != name {
-		return nil, fmt.Errorf("invalid inspect response for %s: %v", name, err)
-	}
-	return &list[0], nil
-}
-func (a *app) owned(name string) (*machine, error) {
-	n, err := a.inspect(name)
+	home, err := filepath.Abs(home)
 	if err != nil {
 		return nil, err
 	}
-	if n.Labels[label] != a.uid || n.Origin != "create" || n.Mode != "boot" {
-		return nil, fmt.Errorf("%s is not an nsl environment owned by UID %s", name, a.uid)
-	}
-	return n, nil
-}
-func (a *app) nspawn(args ...string) error { _, err := a.r.run(false, args...); return err }
-func (a *app) start(n *machine, volume string) error {
-	want := []string{}
-	if volume != "" {
-		want = []string{volume}
-	}
-	if n.State == "running" {
-		if !slices.Equal(n.Volumes, want) {
-			return fmt.Errorf("%s is running with different mounts %v; run 'nsl stop %s' before switching context", n.Name, n.Volumes, strings.TrimPrefix(n.Name, "nsl-"))
+	tool := func(key, fallback string) string {
+		if v := os.Getenv(key); v != "" {
+			return v
 		}
-		return nil
+		return fallback
 	}
-	if n.State != "stopped" {
-		return fmt.Errorf("%s is %s; stop it first", n.Name, n.State)
-	}
-	// nspawn rejects 'none' and a mount in the same start invocation.
-	// Clear a saved mount in a separate short boot before attaching a new one.
-	if len(n.Volumes) != 0 && !slices.Equal(n.Volumes, want) {
-		if err := a.nspawn("start", n.Name, "-v", "none"); err != nil {
-			return err
-		}
-		if volume == "" {
-			return nil
-		}
-		if err := a.nspawn("stop", n.Name); err != nil {
-			return err
-		}
-	}
-	if volume == "" {
-		return a.nspawn("start", n.Name, "-v", "none")
-	}
-	return a.nspawn("start", n.Name, "-v", volume)
-}
-func (a *app) guest(n *machine, root, detach bool, dir string, env []string, command []string) error {
-	args := []string{"exec", n.Name}
-	if !root {
-		args = append(args, "-u", a.uid)
-	}
-	if detach {
-		args = append(args, "-d")
-	}
-	if dir != "" {
-		args = append(args, "-w", dir)
-	}
-	if !root {
-		env = append(env, "HOME=/home/"+a.username, "USER="+a.username, "LOGNAME="+a.username)
-	}
-	// Avoid a pseudo-terminal for noninteractive pipelines; nspawn still passes stdin.
-	if len(command) == 0 {
-		command = []string{"/bin/sh"}
-		args = append(args, "-t")
-	}
-	// nspawn exec -e does not override HOME set by its user lookup; env does.
-	if len(env) != 0 {
-		command = append(append([]string{"env", "--"}, env...), command...)
-	}
-	args = append(args, command...)
-	return a.nspawn(args...)
-}
-func (a *app) newEnv(name string) error {
-	full, err := machineName(name)
+	self, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// Never claim/replace any preexisting machine, even one without our label.
-	out, err := a.r.run(true, "images", "ls", "--json")
+	if strings.ContainsAny(home, "\n\r\x00:") {
+		return nil, errors.New("unsupported state path")
+	}
+	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var images []struct {
-		Name string `json:"name"`
-	}
-	if err = json.Unmarshal([]byte(out), &images); err != nil {
-		return err
-	}
-	for _, im := range images {
-		if im.Name == full {
-			return fmt.Errorf("machine %s already exists", full)
-		}
-	}
-	// Pull to a private cache name. Do not trust a preexisting image with that name.
-	found := false
-	for _, im := range images {
-		if im.Name == base {
-			found = true
-		}
-	}
-	if !found {
-		if err = a.nspawn("pull", "debian:13", "--name", base); err != nil {
-			return err
-		}
-	}
-	// A user-defined image at the cache name must still be signed and reference the right hub image.
-	info, err := a.r.run(true, "images", "ls", "--json")
+	gid, err := strconv.Atoi(account.Gid)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var sources []struct {
-		Name      string `json:"name"`
-		Reference string `json:"reference"`
-		SignedBy  string `json:"signed_by"`
-	}
-	if err = json.Unmarshal([]byte(info), &sources); err != nil {
-		return err
-	}
-	trusted := false
-	for _, s := range sources {
-		if s.Name == base && s.Reference == "hub.nspawn.org/debian:13" && s.SignedBy != "" {
-			trusted = true
-		}
-	}
-	if !trusted {
-		return fmt.Errorf("%s is not a signed Debian 13 hub image", base)
-	}
-	if err = a.nspawn("create", base, full, "-l", label+"="+a.uid); err != nil {
-		return err
-	}
-	n, err := a.owned(full)
-	if err != nil {
-		return err
-	}
-	if err = a.start(n, ""); err != nil {
-		return err
-	}
-	// Group name uses numeric UID to avoid collisions with image-provided groups.
-	if err = a.guest(n, true, false, "", nil, []string{"groupadd", "-g", a.gid, "nsluser"}); err != nil {
-		return fmt.Errorf("group bootstrap: %w", err)
-	}
-	if err = a.guest(n, true, false, "", nil, []string{"useradd", "-m", "-u", a.uid, "-g", a.gid, "-s", "/bin/sh", a.username}); err != nil {
-		return fmt.Errorf("user bootstrap: %w", err)
-	}
-	if err = a.guest(n, true, false, "", nil, []string{"install", "-d", "-m", "0700", "-o", a.uid, "-g", a.gid, "/home/" + a.username + "/.nsl-runtime", "/home/" + a.username + "/.config"}); err != nil {
-		return fmt.Errorf("GUI runtime bootstrap: %w", err)
-	}
-	if err = a.guest(n, true, false, "", nil, []string{"touch", "/etc/nsl-ready"}); err != nil {
-		return fmt.Errorf("bootstrap marker: %w", err)
-	}
-	fmt.Fprintf(a.out, "Created %s (Debian 13); use nsl enter %s\n", name, name)
-	return nil
-}
-func projectVolume(path string) (string, error) {
-	p, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	p, err = filepath.EvalSymlinks(p)
-	if err != nil {
-		return "", err
-	}
-	st, err := os.Stat(p)
-	if err != nil {
-		return "", err
-	}
-	if !st.IsDir() {
-		return "", fmt.Errorf("%s is not a directory", p)
-	}
-	if strings.ContainsAny(p, ":\n\r\t ") {
-		return "", errors.New("project path cannot contain colons or whitespace (nspawn volume limitation)")
-	}
-	if p == "/" {
-		return "", errors.New("refusing to mount the host filesystem root")
-	}
-	return p + ":/work", nil
-}
-func waylandVolume(username string) (string, []string, error) {
-	runtime := os.Getenv("XDG_RUNTIME_DIR")
-	display := os.Getenv("WAYLAND_DISPLAY")
-	if runtime == "" || display == "" || strings.Contains(display, "/") {
-		return "", nil, errors.New("active Wayland session required (XDG_RUNTIME_DIR and WAYLAND_DISPLAY)")
-	}
-	uid := strconv.Itoa(os.Getuid())
-	if runtime != "/run/user/"+uid {
-		return "", nil, fmt.Errorf("unexpected runtime dir %q", runtime)
-	}
-	sock := filepath.Join(runtime, display)
-	st, err := os.Lstat(sock)
-	if err != nil {
-		return "", nil, err
-	}
-	if st.Mode()&os.ModeSocket == 0 {
-		return "", nil, fmt.Errorf("%s is not a socket", sock)
-	}
-	if strings.ContainsAny(sock, ": \n\t") {
-		return "", nil, errors.New("unsupported Wayland socket path")
-	}
-	guestRuntime := "/home/" + username + "/.nsl-runtime"
-	return sock + ":" + guestRuntime + "/wayland-0", []string{"XDG_RUNTIME_DIR=" + guestRuntime, "WAYLAND_DISPLAY=wayland-0", "GDK_BACKEND=wayland"}, nil
+	return &app{home: home, waypipe: tool("NSL_WAYPIPE", "waypipe"), self: self, runtimeDir: filepath.Join("/run/user", fmt.Sprint(os.Getuid()), "nsl"), uid: os.Getuid(), gid: gid, r: processRunner{}, in: os.Stdin, out: os.Stdout, err: os.Stderr}, nil
 }
 
-func (a *app) execute(args []string) error {
+func checkName(name string) error {
+	if !validName.MatchString(name) || strings.HasSuffix(name, "-") {
+		return errors.New("name must be 1–24 lowercase letters, digits or interior hyphens, starting with a letter")
+	}
+	return nil
+}
+
+func (a *app) call(in io.Reader, out io.Writer, bin string, args ...string) error {
+	return a.r.run(context.Background(), in, out, a.err, os.Environ(), bin, args...)
+}
+func (a *app) dir(name string) string { return filepath.Join(a.home, "environments", name) }
+
+func projectPath(p string) (string, error) {
+	if p == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if !st.IsDir() || abs == "/" || strings.ContainsAny(abs, "\n\r\x00:") || strings.Contains(abs, "{{") {
+		return "", errors.New("project must be an existing directory other than /")
+	}
+	return abs, nil
+}
+
+func encodeRequest(args []string, dir string) (string, error) {
 	if len(args) == 0 {
-		usage(a.out)
-		return errors.New("missing command")
+		return "", errors.New("expected command")
 	}
-	if args[0] == "version" {
-		fmt.Fprintln(a.out, "nsl "+version)
-		return nil
+	if dir != "" && (!filepath.IsAbs(dir) || strings.ContainsRune(dir, 0)) {
+		return "", errors.New("guest working directory must be absolute")
 	}
-	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		usage(a.out)
-		return nil
-	}
-	if args[0] == "ls" {
-		if len(args) != 1 {
-			return errors.New("usage: nsl ls")
+	for _, s := range args {
+		if strings.ContainsRune(s, 0) {
+			return "", errors.New("NUL in argument")
 		}
-		out, err := a.r.run(true, "ps", "-a", "--json")
+	}
+	b, err := json.Marshal(guestRequest{Version: 1, Argv: args, Directory: dir})
+	if err != nil {
+		return "", err
+	}
+	if len(b) > 64000 {
+		return "", errors.New("command request too large")
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+func (a *app) sshArgs(e *environment, tty bool) []string {
+	mode := "-T"
+	if tty {
+		mode = "-tt"
+	}
+	return []string{"-F", filepath.Join(a.dir(e.Name), "ssh.config"), mode, "guest"}
+}
+func (a *app) executeGuest(e *environment, args []string, root, tty, gui bool, dir string) error {
+	if gui && !e.Desktop {
+		return errors.New("environment was created without --desktop")
+	}
+	payload, err := encodeRequest(args, dir)
+	if err != nil {
+		return err
+	}
+	if gui && (os.Getenv("WAYLAND_DISPLAY") == "" || os.Getenv("XDG_RUNTIME_DIR") == "") {
+		return errors.New("an active Wayland session is required")
+	}
+	if err = a.start(e); err != nil {
+		return err
+	}
+	ssh := a.sshArgs(e, tty)
+	remote := []string{"/usr/local/libexec/nsl-exec", payload}
+	if root {
+		remote = append([]string{"sudo", "-n", "--"}, remote...)
+	}
+	if gui {
+		if os.Getenv("WAYLAND_DISPLAY") == "" || os.Getenv("XDG_RUNTIME_DIR") == "" {
+			return errors.New("an active Wayland session is required")
+		}
+		wp := []string{"--no-gpu", "--title-prefix=nsl " + e.Name + ": ", "ssh"}
+		wp = append(wp, ssh...)
+		wp = append(wp, remote...)
+		return a.call(a.in, a.out, a.waypipe, wp...)
+	}
+	return a.call(a.in, a.out, "ssh", append(ssh, remote...)...)
+}
+func (a *app) list() error {
+	if err := a.init(); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(filepath.Join(a.home, "environments"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		e, err := a.owned(entry.Name())
 		if err != nil {
 			return err
 		}
-		var list []machine
-		if err = json.Unmarshal([]byte(out), &list); err != nil {
-			return err
+		status, err := a.status(e)
+		if err != nil {
+			status = "Incomplete"
 		}
-		for _, n := range list {
-			if strings.HasPrefix(n.Name, "nsl-") && n.Labels[label] == a.uid && n.Origin == "create" {
-				fmt.Fprintf(a.out, "%s\t%s\t%v\n", strings.TrimPrefix(n.Name, "nsl-"), n.State, n.Volumes)
-			}
-		}
+		fmt.Fprintf(a.out, "%s\t%s\t%s\n", e.Name, status, e.Project)
+	}
+	return nil
+}
+func usage(w io.Writer) {
+	fmt.Fprintln(w, `nsl — persistent development VMs (experimental)
+
+  create NAME --image FILE --digest sha256:HEX [--project DIR] [--desktop]
+              [--cpus 2] [--memory 2] [--disk 16]
+  list
+  start NAME
+  shell NAME
+  exec NAME [--root] [--tty] [--workdir /path] -- COMMAND [ARGS...]
+  gui NAME -- COMMAND [ARGS...]
+  stop NAME
+  recover NAME
+  export NAME FILE.nsl
+  restore NAME FILE.nsl [--project DIR] [--desktop]
+  ports NAME
+  logs NAME
+  ssh-config NAME
+  doctor
+  version
+
+Commands start stopped VMs automatically. Project shares are set at creation.
+VMs persist after commands exit. GUI forwarding currently uses software rendering.
+NSL_HOME and NSL_WAYPIPE override state/tool locations.`)
+}
+func (a *app) execute(args []string) error {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
+		usage(a.out)
 		return nil
+	}
+	switch args[0] {
+	case "version":
+		fmt.Fprintln(a.out, version)
+		return nil
+	case "doctor":
+		return a.doctor()
+	case "_devices":
+		return a.devices(args[1:])
+	case "list":
+		if len(args) != 1 {
+			return errors.New("usage: list")
+		}
+		return a.list()
 	}
 	if len(args) < 2 {
 		return errors.New("expected environment name")
 	}
-	name, err := machineName(args[1])
+	name := args[1]
+	if args[0] == "create" {
+		return a.create(name, args[2:])
+	}
+	if args[0] == "restore" {
+		return a.restore(name, args[2:])
+	}
+	if args[0] == "export" {
+		if len(args) != 3 {
+			return errors.New("usage: export NAME FILE.nsl")
+		}
+		return a.export(name, args[2])
+	}
+	if !strings.Contains("|start|stop|recover|ports|logs|shell|exec|gui|ssh-config|_launch|_forward|", "|"+args[0]+"|") {
+		return fmt.Errorf("unknown command %s", args[0])
+	}
+	e, err := a.owned(name)
 	if err != nil {
 		return err
 	}
-	if args[0] == "new" {
-		if len(args) != 2 {
-			return errors.New("usage: nsl new NAME")
-		}
-		return a.newEnv(args[1])
-	}
-	if !slices.Contains([]string{"stop", "enter", "run", "in", "gui"}, args[0]) {
-		return fmt.Errorf("unknown command %q", args[0])
-	}
-	var vol, dir string
-	var env []string
-	var cmd []string
-	root := false
-	detach := false
 	switch args[0] {
-	case "stop", "enter":
-		if len(args) != 2 {
-			return fmt.Errorf("usage: nsl %s NAME", args[0])
-		}
-	case "run":
-		rest := args[2:]
-		if len(rest) > 0 && rest[0] == "--root" {
-			root = true
-			rest = rest[1:]
-		}
-		if len(rest) < 2 || rest[0] != "--" {
-			return errors.New("usage: nsl run NAME [--root] -- COMMAND [ARGS...]")
-		}
-		cmd = rest[1:]
-	case "in":
-		if len(args) < 3 {
-			return errors.New("usage: nsl in NAME PROJECT [-- COMMAND [ARGS...]]")
-		}
-		if len(args) > 3 && (args[3] != "--" || len(args) == 4) {
-			return errors.New("expected -- COMMAND")
-		}
-		vol, err = projectVolume(args[2])
-		if err != nil {
+	case "exec":
+		fs := flag.NewFlagSet("exec", flag.ContinueOnError)
+		fs.SetOutput(a.err)
+		root := fs.Bool("root", false, "")
+		tty := fs.Bool("tty", false, "")
+		dir := fs.String("workdir", "", "")
+		if err = fs.Parse(args[2:]); err != nil {
 			return err
 		}
-		dir = "/work"
-		if len(args) > 3 {
-			cmd = args[4:]
-		}
+		return a.executeGuest(e, fs.Args(), *root, *tty, false, *dir)
 	case "gui":
 		if len(args) < 4 || args[2] != "--" {
-			return errors.New("usage: nsl gui NAME -- COMMAND [ARGS...]")
+			return errors.New("usage: gui NAME -- COMMAND")
 		}
-		vol, env, err = waylandVolume(a.username)
-		if err != nil {
-			return err
-		}
-		cmd = args[3:]
-		env = append(env, "XDG_CONFIG_HOME=/home/"+a.username+"/.config")
+		return a.executeGuest(e, args[3:], false, false, true, "")
 	}
-	n, err := a.owned(name)
-	if err != nil {
-		return err
-	}
-	if args[0] != "stop" {
-		// A failed new must not silently give the user a half-configured shell.
-		wasStopped := n.State != "running"
-		if wasStopped {
-			if err = a.start(n, ""); err != nil {
-				return err
-			}
-		}
-		if err = a.guest(n, true, false, "", nil, []string{"test", "-f", "/etc/nsl-ready"}); err != nil {
-			return fmt.Errorf("%s bootstrap incomplete; inspect machine and repair or remove it manually", name)
-		}
-		if wasStopped && (args[0] == "in" || args[0] == "gui") {
-			if err = a.nspawn("stop", name); err != nil {
-				return err
-			}
-		}
-		// Re-inspect because start above changed state and mount eligibility.
-		n, err = a.owned(name)
-		if err != nil {
-			return err
-		}
+	if len(args) != 2 {
+		return errors.New("unexpected arguments")
 	}
 	switch args[0] {
+	case "start":
+		return a.start(e)
 	case "stop":
-		if len(args) != 2 {
-			return errors.New("usage: nsl stop NAME")
-		}
-		if n.State == "running" {
-			if err = a.nspawn("stop", name); err != nil {
-				return err
-			}
-		}
-		if len(n.Volumes) == 0 {
-			return nil
-		}
-		// Clear remembered mounts; nspawn only accepts mount updates on start.
-		if err = a.nspawn("start", name, "-v", "none"); err != nil {
-			return fmt.Errorf("stopped but could not clear saved mounts: %w", err)
-		}
-		return a.nspawn("stop", name)
-	case "enter", "run", "in", "gui":
-		if err = a.start(n, vol); err != nil {
+		return a.stop(e)
+	case "recover":
+		return a.recover(e)
+	case "ports":
+		return a.ports(e)
+	case "logs":
+		return a.call(nil, a.out, "journalctl", "--user", "--no-pager", "-n", "100", "-u", unit(e), "-u", portUnit(e))
+	case "_launch":
+		return a.launch(e)
+	case "_forward":
+		return a.forward(e)
+	case "shell":
+		return a.executeGuest(e, []string{"/bin/bash", "-l"}, false, true, false, "")
+	case "ssh-config":
+		if err = a.start(e); err != nil {
 			return err
 		}
-		return a.guest(n, root, detach, dir, env, cmd)
-	default:
-		return fmt.Errorf("unknown command %q", args[0])
+		fmt.Fprintln(a.out, filepath.Join(a.dir(e.Name), "ssh.config"))
+		return nil
 	}
-}
-func usage(w io.Writer) {
-	fmt.Fprintf(w, "nsl %s — NSpawn Subsystem for Linux\n", version)
-	fmt.Fprint(w, `
-Usage:
-  nsl new NAME                         Create a Debian 13 environment
-  nsl ls                               List your environments
-  nsl enter NAME                       Enter as your host UID
-  nsl run NAME [--root] -- CMD [ARGS]  Run command (root only when explicit)
-  nsl in NAME PROJECT [-- CMD [ARGS]]  Mount one project at /work and work there
-  nsl gui NAME -- CMD [ARGS]           Launch app on current Wayland session
-  nsl stop NAME                        Stop and clear temporary mounts
-  nsl version
-Switching mounts while a machine runs requires nsl stop NAME first.
-`)
+	return nil
 }
 func main() {
-	a, err := currentApp(processRunner{}, os.Stdout)
+	a, err := newApp()
 	if err == nil {
 		err = a.execute(os.Args[1:])
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "nsl:", err)
-		var exited *exec.ExitError
-		if errors.As(err, &exited) {
-			os.Exit(exited.ExitCode())
+		if code, ok := err.(*exec.ExitError); ok {
+			os.Exit(code.ExitCode())
 		}
+		fmt.Fprintln(os.Stderr, "nsl:", err)
 		os.Exit(1)
 	}
 }

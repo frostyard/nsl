@@ -1,0 +1,15 @@
+[Unit]
+Description=Configure the nsl development environment
+After=local-fs.target systemd-repart.service sshd-keygen.service
+Requires=sshd-keygen.service
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ImportCredential=nsl.config
+ExecStart=/usr/local/libexec/nsl-setup
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

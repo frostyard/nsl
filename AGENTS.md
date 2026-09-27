@@ -1,6 +1,6 @@
 # frostyard/nsl
 
-nsl is a Go CLI for persistent systemd-nspawn development machines on atomic Linux hosts. Start at [docs/README.md](docs/README.md); user setup is in [README.md](README.md).
+nsl is a Go CLI for persistent systemd-vmspawn/QEMU development VMs on atomic Linux hosts. Each environment runs a full distro directly in one VM; see ADR-0005. Start at [docs/README.md](docs/README.md); user setup is in [README.md](README.md).
 
 This is the canonical agent instruction file. `CLAUDE.md`, `GEMINI.md`, and `.github/copilot-instructions.md` link here; `.claude/skills` links to `.agents/skills` ([ADR-0002](docs/adr/0002-agent-portable-instruction-surface.md)). Edit the canonical targets only.
 
@@ -10,14 +10,15 @@ Procedures belong in [.agents/skills/](.agents/skills/). Add a skill based on it
 
 ## Live code conventions
 
-- Keep the CLI standard-library-only. The root `main.go` owns command parsing, the `runner` interface abstracts calls to nspawn, and `main_test.go` uses a fake runner; do not require root or a machine for unit tests.
+- The root `main.go` owns command parsing; `state.go`, `vm.go`, `ports.go` and `backup.go` manage storage, lifecycle, forwarding and archives using the Go standard library. The `runner` interface abstracts local tools. The image pipeline installs `guest/exec.py` and `guest/setup.py`; the command helper is also embedded for local protocol tests. Tests use a fake runner and local Python processes; do not require root or a VM for unit tests. Language/dependency changes are allowed when justified.
 - Run guest commands with argument arrays (`exec.Command`), not a host shell. Validate machine ownership (`app.owned`) before changing state. Never overwrite preexisting images or environments. Reserve `--root` for explicit administrative commands.
-- nspawn remembers mount settings; switching mounts on a running machine is forbidden. `stop` clears saved volumes before returning. Review [the lifecycle design](docs/design/lifecycle.md) and [the CLI contract](docs/specs/cli.md) before changing this.
+- Project shares are fixed at creation and persist across stop/start. GUI uses Waypipe independently of project mounts. `stop` preserves disks and configuration. Review [the lifecycle design](docs/design/lifecycle.md) and [the CLI contract](docs/specs/cli.md) before changing this.
+- Backups follow [ADR-0006](docs/adr/0006-stopped-vm-backups.md): stopped VMs only; restore preserves guest identity and keys but allocates new runtime identity. Validate archives before publishing; never inherit a host share implicitly.
 - Run `make ci` before claiming a change is complete. CI runs the same recipe. GoReleaser Pro (not OSS) validates `.goreleaser.yaml` in CI using the org secret; run Pro's `goreleaser check` when changing release configuration.
 
 ## Repository boundary
 
-Never commit binaries, `build/`, `dist/`, coverage artifacts, local agent state, credentials or a host-specific nspawn machine image. The CLI does not install nspawn.org on the host, change sudoers or implicitly mount host home, D-Bus, GPU or SSH sockets. Releases are built from `v*` tags by `.github/workflows/release.yml` using GoReleaser Pro and GitHub provenance attestations. Conventional commit subjects make the release changelog readable.
+Never commit binaries, `build/`, `dist/`, coverage artifacts, local agent state, credentials or a host-specific VM image. The CLI does not install host packages, change device permissions or sudoers or implicitly mount host home, D-Bus, GPU or SSH sockets. Releases are built from `v*` tags by `.github/workflows/release.yml` using GoReleaser Pro and GitHub provenance attestations. Conventional commit subjects make the release changelog readable.
 
 ## Documentation
 

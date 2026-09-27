@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+chmod 0755 /usr/local/libexec/nsl-exec /usr/local/libexec/nsl-setup
+systemctl enable systemd-networkd systemd-resolved nsl-setup.service
+rm -f /etc/ssh/ssh_host_*
+mkdir -p /usr/lib/nsl
+printf '1\n' > /usr/lib/nsl/image-version

@@ -1,56 +1,110 @@
-# nsl — NSpawn Subsystem for Linux
+# nsl — development VMs for atomic Linux
 
-`nsl` v0.1.0 is a small Linux CLI for persistent Debian development environments backed by [nspawn.org](https://nspawn.org). It runs package managers in a booted Debian machine while leaving an atomic host's `/usr` untouched. One binary, Go standard library, no additional daemon or database. Work as your own UID; ask explicitly for root. Maintainer architecture and decisions: [docs/README.md](docs/README.md). Licensed under [MIT](LICENSE).
+`nsl` manages persistent Linux development VMs with terminal, project-file, localhost and Wayland integration. Each environment runs its distribution and applications directly inside one VM. The Go CLI uses systemd-vmspawn and QEMU/KVM, with a Debian image built from nspawn's mkosi recipes.
 
-## Requirements
+This is a development prototype. The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland. Other atomic distributions remain to be tested. [Implementation and validation](docs/plans/vmspawn-implementation.md).
 
-- Linux with systemd-nspawn and a working nspawn.org **1.5.1** service (`nspawn ps -a`). Tested on Snow Linux, systemd 261 and nspawn.org 1.5.1.
-- A non-root local user whose login name starts with a lowercase letter or `_` and then contains lowercase letters, digits, `_` or `-`; numeric UID and GID available inside Debian. The CLI currently uses `sudo -n nspawn` for management, so passwordless sudo must already be configured. It does **not** edit sudoers. `NSL_NSPAWN=/usr/local/bin/nspawn` chooses the installed binary if `nspawn` is not on sudo's PATH.
-- Go 1.23+ to build; no Go runtime needed afterwards.
-- An active Wayland login session for `gui`. No X11/audio/portals/GPU integration in v0.1.
+## Prerequisites
 
-## Build
+- systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` and util-linux `unshare`.
+- Existing membership in `kvm`, with access to `/dev/kvm` and `/dev/vhost-vsock`; unprivileged user namespaces must work.
+- Go 1.23+ to build the CLI. Waypipe and a Wayland session for GUI applications.
+- Lima 2.2.0, Git and Python 3 to build the guest image locally. Lima is used only by the image builder.
+
+nsl does not install host packages or change device permissions, groups or sudoers. `doctor` checks the local prerequisites. arm64 cross-compiles; creating arm64 guests is not implemented.
+
+## Build and create
+
+```sh
+make build
+# Optional: download pinned Lima and extract Waypipe locally for development.
+./scripts/bootstrap-poc.sh --waypipe
+source build/poc/env.sh
+build/nsl doctor
+
+# Build once inside a disposable VM; dependencies stay inside that VM.
+scripts/build-image.sh
+image_sha=$(sha256sum build/image/share/nsl-debian-v4.raw)
+build/nsl create dev \
+  --image "$PWD/build/image/share/nsl-debian-v4.raw" \
+  --digest "sha256:${image_sha%% *}" \
+  --project "$PWD" --desktop --cpus 2 --memory 2 --disk 16
+build/nsl shell dev
+```
+
+The image builder refuses to overwrite an existing output. See [image build details](image/README.md). `create` verifies the image and prepares an independent disk and keypair. First entry boots and configures the guest; later commands start a stopped VM automatically.
+
+The guest user is `nsl`, with your numeric UID/primary GID, persistent `/home/nsl`, and guest sudo. The selected host project is at `/work`. It is fixed at creation; no host home, agent, D-Bus or GPU socket is implicitly shared. Omitting `--project` creates a VM with no host project share.
+
+## Use
+
+```sh
+build/nsl exec dev --workdir /work -- git status
+build/nsl exec dev --root -- apt-get update
+build/nsl exec dev --root -- apt-get install -y golang-go
+build/nsl gui dev -- galculator
+build/nsl ports dev
+build/nsl list
+build/nsl stop dev
+```
+
+`exec --tty` supports interactive commands. Guest arguments retain their original boundaries, streams and exit status. GUI sessions use software-rendered Waypipe and stay attached until the app exits. Exiting a shell leaves the VM running; `stop` preserves its disk and project definition.
+
+Guest IPv4 TCP listeners on ports 1024–65535 appear on host `127.0.0.1` at the same port, excluding 5353/5355. Discovery polls once per second. `ports` reports conflicts and retries when a port becomes free. Existing listeners are never displaced. IPv6-only listeners and UDP are not supported.
+
+For remote editor access, `build/nsl ssh-config dev` prints the SSH configuration path; the alias is `guest`. The guest host key is trusted on first use and pinned for later connections.
+
+## State and recovery
+
+State defaults to `$XDG_DATA_HOME/nsl` or `~/.local/share/nsl`. `NSL_HOME` selects a separate directory; `NSL_WAYPIPE` overrides the GUI tool. Fresh environments have independent disks and client keys. Every environment gets its own systemd units and vsock address; restored copies retain the backup's guest authentication identity. Older prototype metadata is rejected; no migration or adoption is performed.
+
+```sh
+build/nsl logs dev
+build/nsl recover dev
+```
+
+`recover` restarts the environment and resumes interrupted preparation while preserving an existing disk and its keys. It checks qcow2 metadata without automatic repair. Lost keys, filesystem corruption and directories without valid metadata require manual diagnosis. Safe deletion and resizing existing disks remain planned.
+
+## Back up and restore
+
+```sh
+build/nsl stop dev
+build/nsl export dev "$HOME/dev-backup.nsl"
+build/nsl restore recovered "$HOME/dev-backup.nsl"
+build/nsl shell recovered
+# To reattach a host project or enable GUI, select those at restore time:
+# build/nsl restore another "$HOME/dev-backup.nsl" --project "$PWD" --desktop
+```
+
+Export requires a stopped VM, temporary disk space, and a destination filesystem with hard-link support for atomic publication. It never replaces an existing backup. The archive includes the full guest disk, packages, home, settings and SSH credentials. Protect it as private data: it is not encrypted. Shared host project contents are **not included** and need their own backup.
+
+Restore checks the archive and creates a new independent disk without the original image cache. It requires x86_64 and the same numeric UID/primary GID. It preserves the guest machine/SSH identity, while allocating new VM units and addresses. Source and restored VMs can run together, but services with their own machine identity may need application-specific changes. Host shares and desktop access require explicit restore flags. Only restore archives from a trusted source; checksums detect damage, not publisher identity.
+
+## Roadmap
+
+[Backup/restore and guest maintenance checks passed](docs/plans/backup-and-reliability.md), including rootless Podman and kernel reinstallation. Next are safe removal/disk growth, broader reliability tests, defaults/cwd/editor conveniences, signed prebuilt images and desktop integration. See the [prioritized roadmap](docs/plans/wsl2-equivalent.md) for current evidence and release gates.
+
+## Existing prototype VMs
+
+Use image v4 for new environments. Earlier v3 guests have a FAT `/boot` layout that fails Debian kernel reinstalls; the failed operation can remove their boot entry. Updating nsl does not change existing guest disks. Keep a stopped backup and use a fresh v4 environment for kernel maintenance until a tested migration is available. [Image details](image/README.md).
+
+## Current limits
+
+- Host file changes through virtiofs do not produce reliable guest inotify events. Use polling for live reload, or keep source in the guest home and use a remote editor.
+- Clipboard, audio, accelerated graphics, portals and application launcher export are unfinished. One working Wayland application is not full desktop integration.
+- Host suspend/reboot, upgrades to a newer kernel, alternate distributions and signed image delivery remain release gates. Kernel reinstallation and rootless Podman passed on image v4.
+- Writable shares are accessible to guest processes, including guest root. `--root` is a convenience for administration inside the VM.
+
+## Validate
 
 ```sh
 make ci
-make build
-./build/nsl version
+python3 scripts/measure-poc.py --nsl build/nsl \
+  --environment dev --project "$PWD" \
+  --warm-trials 50 --cold-trials 20 \
+  --output build/native/evidence/measurement.json
 ```
 
-Put the resulting binary in a directory on your PATH if desired (for example `~/.local/bin`). Tagged releases publish Linux amd64/arm64 archives and checksums through GoReleaser Pro (the CI uses the Frostyard org secret). Do not install packages on the atomic host for this tool; only `nspawn` must already be functional.
+The measurement harness writes uniquely named test files, starts a temporary HTTP server, briefly opens a calculator and cycles the VM. It leaves the measured VM stopped. Unit tests use fake tools and local helper processes and need neither root nor a VM. Additional recovery and multi-VM checks are described in the [implementation report](docs/plans/vmspawn-implementation.md).
 
-## Workflows
-
-```sh
-nsl new debian                      # signed Debian 13 base, separate persistent machine
-nsl ls
-nsl run debian -- id                # your host's numeric UID/GID and guest user name
-nsl run debian --root -- apt-get update
-nsl run debian --root -- apt-get install -y build-essential
-nsl enter debian                    # interactive guest shell as your user
-nsl stop debian                     # stop first before changing mounts
-nsl in debian ~/projects/myapp     # bind only this project at /work; interactive shell
-nsl in debian ~/projects/myapp -- make
-nsl stop debian
-nsl gui debian -- galculator        # attach only current Wayland socket; returns on app exit
-nsl stop debian                     # also removes saved session socket mount
-```
-
-The guest home `/home/<host-login>` persists in the machine; host `$HOME` is **never** mounted. For source trees, `in` canonicalizes and mounts one directory at `/work`; its idmapped bind mount preserves host file ownership when commands run as your UID. Explicit root commands from `run --root` can still create root-owned project files if manually given project access; normal project workflow is non-root. No host files are copied into the machine by `new`.
-
-Mounts are mutually exclusive for v0.1. `enter` and `run` need an unmounted machine, `in` needs the same project mount, and `gui` needs the same Wayland socket mount. If already running with another mount, `nsl` refuses to switch: `nsl stop NAME` clears saved mounts, then try again. A GUI app uses a guest-owned private runtime directory for its socket, not the host's runtime directory. The socket is tied to the host's login; stop before logout so that a future session gets a fresh socket. The GUI command stays attached until the app exits, while the machine keeps running until stopped.
-
-Machines are named `nsl-NAME` and labeled with the owner's UID. `nsl` lists/operates only its own labeled machines and never overwrites existing machines. The shared base image `nsl-base-debian-13` is pulled with signature verification. Inspect or manage everything directly with `sudo nspawn inspect nsl-NAME` or `sudo machinectl status nsl-NAME`.
-
-## Boundaries and current limitations
-
-- This is a system container sharing the host kernel, **not a VM or a sandbox for hostile packages**. GUI apps can interact with your Wayland compositor. Only grant graphical access to trusted applications.
-- This initial release targets one user per environment and Debian 13 only. There is no automatic host-wide packaging, environment deletion, orchestration, command export, project-specific machines, or conflict resolution for concurrent projects. `nsl stop` stops all processes inside that machine.
-- Existing numeric UID/GID collisions in the image, or unusual usernames, may cause `new` to fail during guest bootstrap. The partially created machine is deliberately retained for inspection, not automatically deleted.
-- `nsl new` checks the base image's hub reference and signature metadata before cloning, but does not cryptographically re-verify a previously pulled local base on every run. Trust the local root-controlled nspawn store.
-- This CLI uses nspawn's `exec` to run commands; the guest shell is `/bin/sh`. No terminal integration or guest systemd user session is set up. Apps needing desktop portals, audio, session D-Bus, GPU devices or SSH agent may need future explicit features.
-- No `rm` subcommand: deletion is intentionally manual (`nsl stop NAME`, then `sudo nspawn rm nsl-NAME`) to avoid accidental loss of the persistent guest home. To remove the shared base too, ensure no environments still depend on it.
-
-## Verification performed on framework
-
-Unit tests (including `-race`) and `go vet` passed. Created `nsl-dev` with the final v0.1 binary; confirmed guest UID 1000, a real home, the bootstrap marker and a project mount showing host UID 1000; stopped with empty saved volumes. Earlier test machines `nsl-smoke` and `nsl-gui-smoke` also remain stopped with empty saved volume lists. `nsl-gui-smoke` has `galculator` installed and its attached process ran for a five-second smoke test using the Wayland mount (which is then cleared). The existing `debian-dev-test` machine was not modified by `nsl`.
+[Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md) · [Earlier runtime comparison](docs/plans/vmspawn-comparison.md)

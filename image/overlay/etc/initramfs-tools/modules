@@ -1,0 +1,2 @@
+# Make vsock available before the real-root systemd generators run.
+vmw_vsock_virtio_transport

@@ -7,3 +7,4 @@
 /.worktrees/
 /.mcp.json
 /.env
+__pycache__/

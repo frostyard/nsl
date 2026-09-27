@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+# Fixed UID/GID is intentionally limited to this host's experiment.
+useradd --uid 1000 --user-group --create-home --shell /bin/bash nsl
+install -d -m 0700 -o nsl -g nsl /home/nsl/.ssh /home/nsl/.config
+install -m 0600 -o nsl -g nsl /usr/local/libexec/nsl-authorized-key /home/nsl/.ssh/authorized_keys
+rm /usr/local/libexec/nsl-authorized-key
+printf 'nsl ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/nsl
+chmod 0440 /etc/sudoers.d/nsl
+chmod 0755 /usr/local/libexec/nsl-exec
+# Debian's systemd-ssh-generator and sshd-keygen.service provide vsock SSH
+# and unique first-boot host keys; no custom SSH socket/service is needed.
+systemctl enable systemd-networkd systemd-resolved
+rm -f /etc/ssh/ssh_host_*
+mkdir -p /var/lib/systemd/linger
+touch /var/lib/systemd/linger/nsl

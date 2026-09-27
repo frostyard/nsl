@@ -1,5 +1,7 @@
 # nsl v0.1.0 implementation plan
 
+**Historical v0.1 container plan.** The current CLI manages full VMs with vmspawn. Start with the [current roadmap](docs/plans/wsl2-equivalent.md), [implementation results](docs/plans/vmspawn-implementation.md) and [next milestone](docs/plans/backup-and-reliability.md). The original plan below is retained as history.
+
 Goal: a small compiled CLI for persistent Debian development machines on atomic Linux, using nspawn.org as the sole state/lifecycle backend. No host packages or automatic host-home sharing.
 
 ## Scope and decisions

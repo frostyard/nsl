@@ -1,6 +1,6 @@
 # 0003 — Wrap nspawn for atomic-host development
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0004](0004-managed-development-vms.md)
 - **Date:** 2026-09-26 (retrospective record of v0.1 design)
 
 ## Context
