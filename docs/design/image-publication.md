@@ -48,7 +48,8 @@ package/provenance/acceptance evidence.
 - Initial GHCR package creation may default to private. Set the package public,
   verify anonymous catalogue/blob access, and exercise CLI pull/create/start/exec
   from a clean cache before claiming public delivery. Run the complete public
-  acceptance command below; it records download/boot timings and removes passing
+  acceptance command below; it checks independent machine IDs and SSH host keys
+  from two VMs per base, records download/boot timings and removes passing
   disposable guests:
 
   ```sh
