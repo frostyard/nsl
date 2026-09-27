@@ -10,6 +10,9 @@ jobs:
     if: github.repository == 'frostyard/nsl' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, X64, nsl-image-builder]
     timeout-minutes: 180
+    env:
+      GOROOT: "" # Use the toolchain selected by setup-go, not the runner login environment.
+      GOBIN: ""
     permissions:
       contents: read
       packages: write
