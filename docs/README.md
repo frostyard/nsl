@@ -17,6 +17,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Decisions
 
+- [0014 — Arch kernel maintenance](adr/0014-arch-kernel-maintenance.md)
+
 - [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md)
 
 - [0012 — Signed image distribution](adr/0012-signed-image-distribution.md)
@@ -48,6 +50,8 @@ The completed storage increment follows [backup/restore and guest reliability](p
 - [CLI contract](specs/cli.md)
 
 ### Plans
+
+- [SUSE and Arch validation](plans/suse-and-arch.md)
 
 - [Fedora and CentOS Stream guests](plans/rpm-guests.md) — validated RPM adapters, SELinux and maintenance.
 

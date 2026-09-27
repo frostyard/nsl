@@ -1,10 +1,10 @@
 # Plan: Broad Linux distribution support
 
-Make Ubuntu, Debian, Fedora, CentOS and SUSE-family guests work through the same nsl interface. This is near-term architecture work, alongside storage and before further Debian-only product features. [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md) defines the boundary; the [guest contract](../specs/guest-images.md) defines acceptance.
+Make Ubuntu, Debian, Fedora, CentOS, Arch and SUSE-family guests work through the same nsl interface. This is near-term architecture work, alongside storage and before further Debian-only product features. [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md) defines the boundary; the [guest contract](../specs/guest-images.md) defines acceptance.
 
 ## Current matrix
 
-The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44 and CentOS Stream 10 on x86_64 through explicit profiles. [The v6 acceptance report](image-profiles-and-ubuntu.md) records their test coverage. Recipe availability is distinct from a working nsl image.
+The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` name kernels for all five families. nsl now validates Debian 13, Ubuntu 24.04 LTS, Fedora 44, CentOS Stream 10 and Arch on x86_64 through explicit profiles. Reports cover [Debian/Ubuntu](image-profiles-and-ubuntu.md), [Fedora/CentOS](rpm-guests.md) and [SUSE/Arch](suse-and-arch.md). Recipe availability is distinct from a working nsl image.
 
 | Guest target | Inputs available | nsl evidence | Next gate |
 | --- | --- | --- | --- |
@@ -12,8 +12,9 @@ The pinned nspawn disk profiles at `68263d05169784f44168ca65241d989865ed011b` na
 | Ubuntu LTS | `ubuntu` profile, `linux-generic` | v6 noble profile, ext4 and AppArmor; common acceptance suite on Snow | Additional supported Ubuntu releases; actual newer-kernel upgrade |
 | Fedora | `fedora` profile, `kernel-core` | v4 Fedora 44, btrfs; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
 | CentOS Stream | `centos` profile, `kernel-core` | v3 Stream 10, ext4; full common/maintenance suite, SELinux enforcing | Actual newer-kernel upgrade; broader host coverage |
-| openSUSE Leap | `opensuse` profile, `kernel-default` | Unbuilt | Pin a supported Leap release; prove bootloader, zypper, network and security policy |
-| openSUSE Tumbleweed | Same family input; snapshot must be pinned | Unbuilt | Record snapshot and test rolling updates separately from Leap |
+| openSUSE Leap | Explicit 16.0 profile, `kernel-default` | Boot, commands, shares, lifecycle passed; native container policy fix verified diagnostically | Validate clean image and native kernel-update hooks |
+| openSUSE Tumbleweed | Snapshot 20260923, `kernel-default` | Boot, lifecycle and rootless containers passed with SELinux enforcing | Complete native kernel-update and storage gates |
+| Arch | Snapshot 2026/09/25, native `linux` package | v1 full suite, including kernel 7.2.6→7.2.7; btrfs | Validate v2 inventory hardening; broader host coverage |
 | SUSE Linux Enterprise | Not established by the openSUSE recipe | Planned research | Verify authorized image sources, entitlements/redistribution and compatible build route |
 | AlmaLinux / Rocky Linux | CentOS-family recipe matches both | Planned follow-up | Independent artifacts and maintenance tests before inheriting a support claim |
 
@@ -59,6 +60,8 @@ Optional cloud-init is a planned per-image capability, with Debian and Ubuntu as
 - Desktop support gets its own capability matrix; core development support should not wait for GPU/audio/portal parity.
 
 ## References
+
+- [SUSE and Arch validation](suse-and-arch.md).
 
 - [v0.2.0 and v0.3.0 release gates](v0.2-v0.3-release.md).
 
