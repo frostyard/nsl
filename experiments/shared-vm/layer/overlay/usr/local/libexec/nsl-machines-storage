@@ -1,0 +1,48 @@
+#!/usr/bin/python3
+"""Prepare the shared VM's machine-storage disk before it is mounted.
+
+vmspawn attaches extra drives without a serial, so the data disk is the only
+writable whole disk that is not the root disk. A blank disk is formatted with
+the nsl label; an existing filesystem must already carry that label.
+"""
+import json
+import subprocess
+import sys
+
+LABEL = 'nsl-machines'
+
+
+def output(*args):
+    return subprocess.run(args, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def main():
+    subprocess.run(['udevadm', 'settle', '--timeout=30'], check=False)
+    root_source = output('findmnt', '--noheadings', '--nofsroot', '--output', 'SOURCE', '/')
+    root_disk = output('lsblk', '--noheadings', '--paths', '--output', 'PKNAME', root_source)
+    devices = json.loads(output('lsblk', '--json', '--paths', '--output', 'NAME,TYPE,RO,FSTYPE,LABEL'))
+    candidates = [d for d in devices['blockdevices']
+                  if d['type'] == 'disk' and not d['ro'] and d['name'] != root_disk
+                  and not d.get('children')]
+    labelled = [d for d in candidates if d['label'] == LABEL]
+    if labelled:
+        if len(labelled) != 1 or labelled[0]['fstype'] != 'btrfs':
+            raise SystemExit('ambiguous or non-btrfs nsl machine storage')
+        return
+    if len(candidates) != 1:
+        raise SystemExit(f'expected one machine-storage disk, found {len(candidates)}')
+    disk = candidates[0]['name']
+    # blkid -p exits 2 only when the probe finds no signature at all.
+    probe = subprocess.run(['blkid', '--probe', disk], capture_output=True, text=True)
+    if probe.returncode != 2:
+        raise SystemExit(f'refusing to format {disk}: existing signature {probe.stdout.strip()}')
+    subprocess.run(['mkfs.btrfs', '--label', LABEL, disk], check=True)
+    subprocess.run(['udevadm', 'settle', '--timeout=30'], check=False)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as error:
+        print('nsl machine storage:', error, file=sys.stderr)
+        sys.exit(1)

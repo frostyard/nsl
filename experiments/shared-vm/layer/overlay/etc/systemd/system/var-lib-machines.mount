@@ -1,0 +1,13 @@
+[Unit]
+Description=nsl machine storage
+Requires=nsl-machines-storage.service
+After=nsl-machines-storage.service
+
+[Mount]
+What=/dev/disk/by-label/nsl-machines
+Where=/var/lib/machines
+Type=btrfs
+Options=noatime,compress=zstd:1
+
+[Install]
+WantedBy=local-fs.target

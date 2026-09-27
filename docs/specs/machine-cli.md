@@ -38,7 +38,7 @@ Machine names follow the current rules: a lowercase ASCII letter first, then low
 
 - There MUST be zero or one default machine. The first machine created MUST become the default; `--default` MUST select it explicitly.
 - Removing the default MUST leave no default. Bare `nsl` without a default MUST fail and list machines; it MUST NOT pick one implicitly.
-- The host working directory MUST be resolved through symlinks. When it lies in a shared tree and the machine is not isolated, the guest directory MUST be `/mnt/host` followed by the resolved path.
+- The host working directory MUST be matched against shared trees by the device and inode of its ancestors, so symlink and bind-mount aliases translate. For example, `/home` and `/var/home` can be two mounts of one subvolume. When it lies in a shared tree and the machine is not isolated, the guest directory MUST be `/mnt/host` followed by the tree's canonical path and the remaining components.
 - A shell whose directory cannot be translated MUST start in the guest home and say so on stderr.
 - `run` with an untranslatable directory and no `--cd` MUST fail without running anything. A command intended for the project directory must not run somewhere else.
 - `--cd` MUST take an absolute guest path.
@@ -46,7 +46,7 @@ Machine names follow the current rules: a lowercase ASCII letter first, then low
 ### Host files
 
 - Machines that are not isolated MUST see the user's home, `/run/media/USER` and `/mnt`, read-write, at their canonical host paths under `/mnt/host`. Nothing else from the host filesystem MAY be shared.
-- Top-level host symlinks that resolve into a shared tree SHOULD appear as matching relative symlinks under `/mnt/host`.
+- Top-level host aliases of a shared tree, whether symlinks or bind mounts, SHOULD appear as matching relative symlinks under `/mnt/host`.
 - Files created through `/mnt/host` MUST be owned by the host user. Guest root MUST NOT gain host permissions beyond the host user's.
 - Unix sockets under shared trees MUST NOT be proxied.
 - Isolated machines MUST have no `/mnt/host` content, desktop session or broker access.
@@ -79,6 +79,7 @@ Machine names follow the current rules: a lowercase ASCII letter first, then low
 
 - The configuration surface for idle timeout and resource budgets, whether flags, `nsl set` or a configuration file.
 - Whether to translate absolute host symlinks that point into shared trees; see the [experiment plan](../plans/shared-vm-experiment.md).
+- Whether to trigger host automounts for guest access. virtiofs lookups do not trigger them, so an unmounted autofs point appears empty until the host mounts it.
 
 ## References
 

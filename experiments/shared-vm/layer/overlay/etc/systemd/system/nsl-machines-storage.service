@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare nsl machine storage
+DefaultDependencies=no
+After=systemd-udevd.service systemd-udev-trigger.service
+Before=var-lib-machines.mount
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/nsl-machines-storage
+StandardError=journal+console
