@@ -66,7 +66,7 @@ establish public delivery or replace the real VM acceptance gate.
 
 Next: build/test/sign/publish all seven profiles in the main-branch workflow,
 verify anonymous GHCR access, exercise CLI creation from published artifacts, and
-record download measurements. Finish the rebuild/withdrawal runbook before the
+record download measurements. Exercise the [rebuild/refresh/withdrawal runbook](../design/image-publication.md) before the
 v0.3.0 tag. The trust/format questions are settled in ADR-0015 and the delivery spec.
 
 ## References

@@ -45,9 +45,21 @@ package/provenance/acceptance evidence.
 - Initial GHCR package creation may default to private. Set the package public,
   verify anonymous catalogue/blob access, and exercise CLI pull/create/start/exec
   from a clean cache before claiming public delivery.
-- Each catalogue expires after 30 days. A refresh and emergency-withdrawal
-  procedure must be completed before v0.3.0; a failed build never extends trust in
-  an untested image.
+- Each catalogue expires after 30 days. Dispatch `operation=refresh` before
+  expiry to re-sign the same authenticated selections with a higher sequence and
+  renewed expiry. Use `operation=publish` for integration or package refreshes.
+  Refresh verifies the prior bundle; it never substitutes untested image bytes.
+- For emergency withdrawal, dispatch `operation=withdraw` with `revoke` set to
+  the affected full OCI manifest digests (space or comma separated). The job
+  verifies the current catalogue, removes those selections, preserves earlier
+  revocations and signs a higher sequence. Online clients reject withdrawn
+  selections after refresh; offline clients remain bounded by expiry. Running
+  guests are unaffected. Do not delete retained artifacts as a substitute for
+  publishing a withdrawal.
+- Publication, refresh and withdrawal share a workflow concurrency group. A
+  sequence cannot be reused; the prior signed sequence must be smaller. Preserve
+  this workflow's run-number history. Removing/recreating it requires coordinated
+  sequence handling and, when necessary, a CLI minimum-sequence update.
 - Preserve private evidence locally for failures, stop diagnostic guests, and
   inspect the image-validation skill. Never upload the evidence directory as a
   general Actions artifact.
