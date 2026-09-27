@@ -62,7 +62,9 @@ These are single trials on this host/network, not latency percentiles. Pull time
 
 The [publication runbook](../design/image-publication.md) requires refresh before expiry and retention of promoted digests. Temporary runners auto-unregister after their job. No host package/service installation is needed by the workflow.
 
-Public acceptance and source CI are complete. The v0.3.0 release workflow will run CI again; archive checksums, GitHub provenance and a fresh-cache boot with the released binary are the final post-tag checks.
+[v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0) is published at source `64ed1e038c4dc072659b9db9ddbf684453a0e2cc`. [Release run 36298475819](https://github.com/frostyard/nsl/actions/runs/36298475819) passed tagged-source CI, GoReleaser Pro and GitHub provenance attestation. Both amd64 and arm64 archives passed SHA256 checks; `gh attestation verify --repo frostyard/nsl` succeeded for both archives and `checksums.txt`. Archives include the CLI, README, LICENSE and third-party notices.
+
+The downloaded amd64 binary reports `0.3.0`. With a separate empty cache it authenticated catalogue 4, pulled and verified Debian in 16.67 seconds, and booted/executed in 7.30 seconds. The test checked the running build identity and UID, offline verification, data persistence after restart and clean removal. Evidence: `build/native/evidence/v0.3.0-release-smoke.json`. The release gate is complete.
 
 ## Later / limits
 
