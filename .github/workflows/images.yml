@@ -1,0 +1,34 @@
+name: Images
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: image-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'frostyard/nsl' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, nsl-image-builder]
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Prepare pinned local tools
+        run: |
+          scripts/bootstrap-poc.sh
+          python3 scripts/bootstrap-publisher.py
+          echo "NSL_LIMACTL=$GITHUB_WORKSPACE/build/poc/tools/bin/limactl" >> "$GITHUB_ENV"
+      - name: Build and validate all profiles
+        run: python3 scripts/publish-images.py build
+      - name: Sign, publish and promote the complete catalogue
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-images.py publish

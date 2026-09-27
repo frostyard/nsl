@@ -24,6 +24,7 @@ const ociManifestType = "application/vnd.oci.image.manifest.v1+json"
 type ociLayer struct {
 	blobRef
 	MediaType   string            `json:"mediaType"`
+	Data        []byte            `json:"data,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 type ociManifest struct {
@@ -164,6 +165,9 @@ func parseManifest(b []byte, reference, artifactType string) (ociManifest, error
 	}
 	if m.SchemaVersion != 2 || m.MediaType != ociManifestType || m.ArtifactType != artifactType || len(m.Layers) > 8 {
 		return m, errors.New("unsupported OCI image manifest")
+	}
+	if m.Config.MediaType != "application/vnd.oci.empty.v1+json" || m.Config.Digest != hashBytes([]byte("{}")) || m.Config.Size != 2 || (len(m.Config.Data) > 0 && string(m.Config.Data) != "{}") {
+		return m, errors.New("unsupported OCI artifact config")
 	}
 	m.raw = b
 	return m, nil

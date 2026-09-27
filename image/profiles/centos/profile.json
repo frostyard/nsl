@@ -3,6 +3,6 @@
   "release": "10",
   "architecture": "x86-64",
   "family": "rpm",
-  "revision": 3,
+  "revision": 4,
   "root_filesystem": "ext4"
 }

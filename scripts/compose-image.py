@@ -63,13 +63,22 @@ def compose(root, destination, profile, recipes, mkosi):
     for source, target in [('exec.py', 'nsl-exec'), ('setup.py', 'nsl-setup')]:
         shutil.copy2(root/'guest'/source, libexec/target)
     digest = hashlib.sha256()
-    for base in [root/'image', root/'guest']:
-        for path in sorted(base.rglob('*')):
-            if '__pycache__' in path.parts or (not path.is_file() and not path.is_symlink()):
-                continue
-            digest.update(str(path.relative_to(root)).encode()+b'\0')
-            digest.update(path.readlink().as_posix().encode() if path.is_symlink() else path.read_bytes())
-            digest.update(b'\0')
+    # Hash exactly the selected integration inputs, including permissions and
+    # composition logic. Unrelated profiles/docs cannot change this identity.
+    inputs = [root/'scripts/compose-image.py', root/'guest/exec.py', root/'guest/setup.py']
+    for layer in layers:
+        inputs.extend(layer.rglob('*'))
+    for path in sorted(inputs):
+        if '__pycache__' in path.parts or path.suffix == '.pyc':
+            continue
+        if not path.is_file() and not path.is_symlink():
+            continue
+        record = dict(path=path.relative_to(root).as_posix(),
+                      mode=path.lstat().st_mode & 0o7777,
+                      type='link' if path.is_symlink() else 'file',
+                      content=(path.readlink().as_posix() if path.is_symlink()
+                               else hashlib.sha256(path.read_bytes()).hexdigest()))
+        digest.update(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()+b'\n')
     descriptor = dict(schema=1, build_id=name, **profile, protocol_min=1, protocol_max=1,
                       transport='nsl-vsock-ssh', integration_sha256=digest.hexdigest(),
                       recipes_revision=recipes, mkosi_revision=mkosi)

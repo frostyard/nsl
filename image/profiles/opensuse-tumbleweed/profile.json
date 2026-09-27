@@ -3,7 +3,7 @@
   "release": "tumbleweed",
   "architecture": "x86-64",
   "family": "suse",
-  "revision": 5,
+  "revision": 6,
   "root_filesystem": "btrfs",
   "os_id": "opensuse-tumbleweed",
   "os_version": "20260923",

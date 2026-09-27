@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 import tempfile
@@ -41,6 +42,24 @@ class ImageProfiles(unittest.TestCase):
                 self.assertEqual('Snapshot=20260923' in config.splitlines(), release == 'tumbleweed')
                 descriptor = json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())
                 self.assertEqual(descriptor['os_id'], 'opensuse-tumbleweed' if release == 'tumbleweed' else 'opensuse-leap')
+
+    def test_input_hash_tracks_permissions_not_unrelated_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)/'source'
+            for name in ('image', 'guest', 'scripts'):
+                shutil.copytree(ROOT/name, root/name, symlinks=True)
+            profile = compose.select(root, 'debian')
+            def fingerprint(index):
+                destination = Path(tmp)/str(index)
+                compose.compose(root, destination, profile, 'recipes', 'mkosi')
+                return json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())['integration_sha256']
+            first = fingerprint(1)
+            (root/'image/README.md').write_text('Unrelated docs')
+            (root/'image/profiles/ubuntu/profile.json').write_text('{}')
+            self.assertEqual(first, fingerprint(2))
+            path = root/'guest/setup.py'
+            path.chmod(path.stat().st_mode ^ 0o100)
+            self.assertNotEqual(first, fingerprint(3))
 
     def test_complete_separate_images_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:

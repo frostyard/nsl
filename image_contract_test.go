@@ -104,3 +104,17 @@ func TestMetadataCaptureBoundAppliesToCopy(t *testing.T) {
 		t.Fatalf("stored %d bytes", b.buffer.Len())
 	}
 }
+
+func TestOCIArtifactInlineEmptyConfig(t *testing.T) {
+	m := ociManifest{SchemaVersion: 2, MediaType: ociManifestType, ArtifactType: diskArtifactType,
+		Config: ociLayer{blobRef: refBytes([]byte("{}")), MediaType: "application/vnd.oci.empty.v1+json", Data: []byte("{}")}}
+	b := encodeJSON(m)
+	if _, err := parseManifest(b, hashBytes(b), diskArtifactType); err != nil {
+		t.Fatal(err)
+	}
+	m.Config.Data = []byte("unexpected config")
+	b = encodeJSON(m)
+	if _, err := parseManifest(b, hashBytes(b), diskArtifactType); err == nil {
+		t.Fatal("accepted nonempty config")
+	}
+}

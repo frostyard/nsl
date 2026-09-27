@@ -3,6 +3,6 @@
   "release": "trixie",
   "architecture": "x86-64",
   "family": "debian",
-  "revision": 6,
+  "revision": 7,
   "root_filesystem": "btrfs"
 }

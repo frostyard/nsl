@@ -3,7 +3,7 @@
   "release": "rolling",
   "architecture": "x86-64",
   "family": "arch",
-  "revision": 2,
+  "revision": 3,
   "root_filesystem": "btrfs",
   "snapshot": "2026/09/25",
   "os_id": "arch",
