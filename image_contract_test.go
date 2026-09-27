@@ -22,6 +22,11 @@ func TestCataloguePolicy(t *testing.T) {
 	if err := base.validate(time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	first := base
+	first.Sequence = catalogueMinimum
+	if err := first.validate(time.Now()); err != nil {
+		t.Fatalf("first supported catalogue: %v", err)
+	}
 	for _, tc := range []struct {
 		name   string
 		change func(*imageCatalogue)
@@ -29,7 +34,7 @@ func TestCataloguePolicy(t *testing.T) {
 		{"expired", func(c *imageCatalogue) { c.Expires = time.Now().Add(-time.Second) }},
 		{"future", func(c *imageCatalogue) { c.Created = time.Now().Add(6 * time.Minute) }},
 		{"long validity", func(c *imageCatalogue) { c.Expires = c.Created.Add(31 * 24 * time.Hour) }},
-		{"old sequence", func(c *imageCatalogue) { c.Sequence = 0 }},
+		{"old sequence", func(c *imageCatalogue) { c.Sequence = catalogueMinimum - 1 }},
 		{"duplicate selector", func(c *imageCatalogue) { c.Images[0].Selectors = append(c.Images[0].Selectors, "debian:13") }},
 		{"revoked entry", func(c *imageCatalogue) { c.Revoked = []string{c.Images[0].Manifest} }},
 		{"invalid digest", func(c *imageCatalogue) { c.Images[0].Manifest = "sha256:../../image" }},

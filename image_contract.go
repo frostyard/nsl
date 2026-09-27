@@ -14,7 +14,9 @@ const metadataLimit = 1 << 20
 const evidenceLimit = 16 << 20
 const compressedLimit int64 = 8 << 30
 const rawLimit int64 = 32 << 30
-const catalogueMinimum int64 = 1
+
+// The first promoted public catalogue came from image workflow run number 3.
+const catalogueMinimum int64 = 3
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 var imageWord = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,127}$`)
