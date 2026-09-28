@@ -63,7 +63,7 @@ The completed storage increment follows [backup/restore and guest reliability](p
 
 ### Plans
 
-- [Machines in a shared VM](plans/shared-vm-implementation.md) — implementation of ADR-0016 and ADR-0017, through the v0.4.0 cutover.
+- [Machines in a shared VM](plans/shared-vm-implementation.md) — implementation of ADR-0016 and ADR-0017; start here for new work.
 
 - [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; evidence for ADR-0017.
 
@@ -91,4 +91,4 @@ The completed storage increment follows [backup/restore and guest reliability](p
 - [VM proof of concept — experiment and results](plans/vm-proof-of-concept.md)
 - [WSL2-like environments on atomic Linux — research and roadmap](plans/wsl2-equivalent.md)
 
-New docs start from each category's `TEMPLATE.md`. ADRs are immutable after acceptance (except supersession/link repairs). Design docs evolve with implementation; specs evolve with code. Cross-link related documents in both directions. Canonical instructions: [AGENTS.md](../AGENTS.md).
+New docs start from each category's `TEMPLATE.md`. While nsl is pre-release, ADRs, specs and plans are rewritten in place when decisions change ([ADR-0001](adr/0001-record-architecture-decisions.md)). Design docs evolve with implementation; specs evolve with code. Cross-link related documents in both directions. Canonical instructions: [AGENTS.md](../AGENTS.md).

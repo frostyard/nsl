@@ -1,6 +1,6 @@
 # NNNN — Decision title
 
-<!-- Filename NNNN-kebab-case-title.md. Accepted ADRs are immutable; supersede with a new ADR. -->
+<!-- Filename NNNN-kebab-case-title.md. Pre-release: edit in place when a decision changes (ADR-0001). -->
 - **Status:** Proposed | Accepted | Superseded by NNNN
 - **Date:** YYYY-MM-DD
 

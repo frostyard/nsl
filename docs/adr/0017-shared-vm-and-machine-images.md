@@ -92,7 +92,7 @@ The project has no users; nothing needs migration.
 - A stopped machine exports as a versioned archive of its root filesystem, preserving numeric owners, xattrs and ACLs, with a checksummed manifest. Import restores it into a new subvolume under an unused name. The trust tier is chosen at import (ADR-0016).
 - The VM holds no user state and is not exported. `recover` applies to the VM.
 
-**Retired and narrowed decisions.** When machine images ship:
+**Retired and narrowed decisions.**
 
 - Per-distro bootable VM images and ADR-0014 are retired.
 - ADR-0007 and ADR-0010 narrow to the nsl VM image.
@@ -101,7 +101,7 @@ The project has no users; nothing needs migration.
 - [ADR-0006](0006-stopped-vm-backups.md)'s qcow2 archive gives way to machine archives.
 - This supersedes ADR-0005's one VM per environment and per-distro bootable images.
 
-The implemented CLI and images remain the product until the [machine CLI](../specs/machine-cli.md) replaces them, without migration.
+The environment CLI, its state and the per-distro images are replaced in place by the [machine CLI](../specs/machine-cli.md), with no compatibility, migration or transition period.
 
 ## Consequences
 

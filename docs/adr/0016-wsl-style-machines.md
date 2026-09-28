@@ -41,7 +41,7 @@ This supersedes the explicit capability-grant posture of [ADR-0004](0004-managed
 
 ## Consequences
 
-- `--project`, `/work`, `--desktop`, `gui`, the fixed `nsl` account and restore grant flags are removed. The current [CLI contract](../specs/cli.md) stays valid for the implemented binary until the planned [machine CLI](../specs/machine-cli.md) replaces it.
+- `--project`, `/work`, `--desktop`, `gui`, the fixed `nsl` account and restore grant flags are removed. The [machine CLI](../specs/machine-cli.md) replaces the environment CLI in place.
 - The [guest contract](../specs/guest-images.md) changes: account name, hostname, `/mnt/host`, the Waypipe session and the broker client. Images need new revisions.
 - `/mnt/host` has no reliable inotify, like WSL's `/mnt/c`. Watched or heavy builds belong in the guest home, with remote editor access.
 - A compromised machine that is not isolated can act as the host user through files. Document this plainly and recommend `--isolated` for untrusted software. Host root, sudoers, devices, D-Bus, GPU and SSH-agent sockets remain unshared.

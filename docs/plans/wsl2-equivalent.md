@@ -4,7 +4,7 @@ Deliver persistent Linux VMs that open from a terminal or application launcher, 
 
 **Status: seven validated x86-64 distribution profiles and public signed images, 2026-09-27.** The Go CLI manages one full distro VM per environment through systemd-vmspawn/QEMU/KVM. Images use pinned nspawn mkosi disk recipes. Lima supplies the disposable image builder and remains a historical runtime baseline. No nspawn container runs inside the development VM. Decisions: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md); current behavior: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md).
 
-**Direction, 2026-09-27:** [ADR-0016](../adr/0016-wsl-style-machines.md) defines nsl as WSL-style machines trusted as the user, with host storage at `/mnt/host` and a default machine. [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts one shared VM running machines as containers, from Frostyard machine images, on the [shared-VM experiment](shared-vm-experiment.md)'s evidence. The [machine CLI](../specs/machine-cli.md) is planned, and the [implementation plan](shared-vm-implementation.md) phases the work through the v0.4.0 cutover.
+**Direction, 2026-09-27:** [ADR-0016](../adr/0016-wsl-style-machines.md) defines nsl as WSL-style machines trusted as the user, with host storage at `/mnt/host` and a default machine. [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts one shared VM running machines as containers, from Frostyard machine images, on the [shared-VM experiment](shared-vm-experiment.md)'s evidence. The [machine CLI](../specs/machine-cli.md) is planned, and the [implementation plan](shared-vm-implementation.md) phases the work.
 
 ## Current evidence and next work
 
