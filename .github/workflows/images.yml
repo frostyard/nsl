@@ -41,9 +41,12 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation || 'publish' }}
         run: |
-          if [ "$OPERATION" = publish ]; then scripts/bootstrap-poc.sh; fi
+          if [ "$OPERATION" = publish ]; then scripts/bootstrap-poc.sh --waypipe; fi
           python3 scripts/bootstrap-publisher.py
           echo "NSL_LIMACTL=$GITHUB_WORKSPACE/build/poc/tools/bin/limactl" >> "$GITHUB_ENV"
+          echo "NSL_WAYPIPE=$GITHUB_WORKSPACE/build/poc/tools/usr/bin/waypipe" >> "$GITHUB_ENV"
+          # A builder of its own: a builder's mount belongs to the checkout that created it.
+          echo "NSL_IMAGE_LIMA_HOME=$HOME/.local/share/nsl-publication-build" >> "$GITHUB_ENV"
       # The runner's session supplies KVM, vsock and a Wayland compositor (WAYLAND_DISPLAY) for the gui checks.
       - name: Build and accept the VM image and every machine image
         if: (inputs.operation || 'publish') == 'publish'

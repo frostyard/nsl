@@ -90,6 +90,11 @@ PY
 if [[ ! -d $LIMA_HOME/$builder ]]; then
   "$limactl" --tty=false create --name="$builder" "$LIMA_HOME/builder.json"
 fi
+# The builder's mount is fixed at creation; another checkout needs its own builder.
+grep -qF "\"$work/share\"" "$LIMA_HOME/$builder/lima.yaml" || {
+  echo "The builder in $LIMA_HOME mounts another checkout; set NSL_IMAGE_LIMA_HOME for this one." >&2
+  exit 1
+}
 trap '"$limactl" --tty=false stop "$builder" >&2 || true' EXIT
 "$limactl" --tty=false start --timeout=8m "$builder"
 "$limactl" shell --workdir / "$builder" sudo -n sh -c '

@@ -16,7 +16,7 @@ python3 scripts/probe-vm.py --nsl build/nsl --image build/image/share/nsl-vm-tri
 
 The script builds the agent (`make agent`), composes the build input with `scripts/compose-image.py`, and builds `nsl-vm-trixie-x86-64-rN.raw` under `build/image/share/`. Next to it are the mkosi package manifest (`.manifest`) and the descriptor as built (`.json`), and the raw SHA256 is in `build/image/evidence/`. Bump `vm/profile.json`'s revision when inputs change; the script refuses to overwrite an existing artifact.
 
-The builder needs Lima 2.2.0, Python 3, Git, Go and `flock`. It lives in `${XDG_DATA_HOME:-~/.local/share}/nsl-image-build` (override with `NSL_IMAGE_LIMA_HOME`), outside the checkout, because Lima's socket paths must stay under 108 bytes. It has 4 CPUs, 4 GiB of memory and a 64 GiB sparse disk, shares only `build/image/share`, and stops when the build ends. Build packages stay inside it.
+The builder needs Lima 2.2.0, Python 3, Git, Go and `flock`. It lives in `${XDG_DATA_HOME:-~/.local/share}/nsl-image-build` (override with `NSL_IMAGE_LIMA_HOME`), outside the checkout, because Lima's socket paths must stay under 108 bytes. It has 4 CPUs, 4 GiB of memory and a 64 GiB sparse disk, shares only the `build/image/share` of the checkout that created it, and stops when the build ends; another checkout needs its own `NSL_IMAGE_LIMA_HOME`, and the script refuses to use a builder that mounts a different one. Build packages stay inside it.
 
 To run a local build, select it and start the VM:
 
