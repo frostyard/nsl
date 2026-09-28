@@ -446,7 +446,7 @@ Each item was found by a failing check and must not regress.
 - Find the 1.3–2 s Ctrl-C delay in the SSH transport.
 - Translate absolute host symlinks; handle `/run/media/USER` appearing after VM start, and host automounts.
 - Launcher exports and terminal integration through OSC 3008 context markers.
-- More machine images (Ubuntu, CentOS Stream, openSUSE Leap), each after acceptance.
+- More machine images: Ubuntu, CentOS Stream and openSUSE Leap are [their own plan](more-machine-images.md).
 - Re-validate cloud-init inside machines before provisioning returns.
 - Private user namespaces with idmapped virtiofs mounts, if trusted machines ever need isolation from each other.
 

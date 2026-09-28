@@ -10,18 +10,21 @@ The host and the agent stay distribution-neutral. Everything distro-specific is 
 
 A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a signed artifact under the [delivery contract](image-delivery.md#artifacts). It is built from the pinned `nspawn/mkosi-definitions` recipes without the disk profile, as mkosi's zstd tar output, plus the nsl machine layer and one family adapter. It contains no kernel, bootloader, initramfs or partition table. Local builds are named `nsl-machine-DISTRIBUTION-RELEASE-x86-64-rN.tar.zst`.
 
-### Initial catalogue
+### Catalogue
 
 | Selectors | Family | Adapter |
 | --- | --- | --- |
 | `debian:trixie`, `debian:13` | `debian` | `libpam-systemd`, `dbus-user-session`, `tzdata`; native Debian build tools. |
+| `ubuntu:resolute`, `ubuntu:26.04` | `debian` | The Debian family's packages; Fedora 44 tools tree, which carries the Ubuntu archive keyring. |
 | `fedora:44` | `rpm` | `systemd-pam`, `shadow-utils`, `tzdata`; Fedora 44 tools tree. |
+| `centos:10`, `centos-stream:10` | `rpm` | The rpm family's packages, and `libglvnd-gles`: GTK 4 renders through GLES, and CentOS Stream 10's `gtk4` does not require it. It brings Mesa and LLVM, about 60 MB compressed. The recipe adds EPEL, which stays enabled in the machine. Fedora 44 tools tree. |
 | `arch:rolling` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
 | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`; openSUSE Tumbleweed tools tree. |
+| `opensuse:16.0`, `opensuse-leap:16.0` | `suse` | The suse family's packages; openSUSE Tumbleweed tools tree. |
 
 Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
-Other distros join after they pass acceptance.
+Other distros and releases join after they pass acceptance ([plan](../plans/more-machine-images.md)).
 
 ### Machine layer
 
@@ -30,7 +33,7 @@ Every image supplies:
 - **Accounts:** root locked with no usable password; shadow tools (`useradd`, `groupadd`, `usermod`); `sudo`, reading `/etc/sudoers.d`.
 - **Identity:** `/etc/machine-id` absent, empty or `uninitialized`, so each machine gets its own on first boot. No SSH host key or package-keyring private key.
 - **Sessions:** a PAM service `/etc/pam.d/nsl` that runs `pam_systemd`. It uses only modules every family ships (`pam_rootok`, `pam_unix`, `pam_keyinit`, `pam_limits`, `pam_env`, `pam_systemd`), so one file serves them all. It gives an nsl command a logind session, `XDG_RUNTIME_DIR` and a user manager. A system D-Bus and a user D-Bus session.
-- **Network:** `systemd-networkd` and `systemd-resolved` masked, with their sockets. Machines use the VM's network namespace and its resolver. Masking survives the first boot's presets; the recipes enable both.
+- **Network:** `systemd-networkd`, `systemd-resolved` and every other networkd or resolved unit the image installs masked, sockets included. Machines use the VM's network namespace and its resolver. Masking survives the first boot's presets; the recipes enable both.
 - **Nesting:** `run-nsl-proc.mount`, a fully visible procfs at `/run/nsl/proc`, and `/etc/containers/containers.conf.d/50-nsl-nspawn.conf` with `keyring = false` and `default_sysctls = []`.
 - **Presets:** a preset for every integration unit. Images apply presets on first boot, and a distro's disable-all preset would otherwise undo an enable.
 - **Desktop:** zone data, a font, a cursor theme and the Wayland client libraries, for the `gui` capability.
@@ -109,7 +112,7 @@ Checks that an image does not repeat the [hub image tally](../plans/shared-vm-ex
 | --- | --- |
 | Root password | root's shadow entry is locked or has no usable hash. |
 | Keyrings | No private key under any package keyring, such as `/etc/pacman.d/gnupg`. |
-| Network | networkd and resolved, and their sockets, are not enabled. |
+| Network | networkd and resolved are masked, with every other networkd and resolved unit, sockets included. |
 | Machine ID | The image tree has no machine ID value; two machines from one image have different IDs. |
 | SSH | No SSH host key in the image tree; no enabled SSH service or socket. |
 | Session | `pam_systemd` in `/etc/pam.d/nsl`, `sudo`, a user bus, a font and the nesting mount are present. |

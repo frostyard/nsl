@@ -18,6 +18,9 @@ MACHINES = {
     ('fedora', '44'): 'fedora',
     ('arch', 'rolling'): 'arch',
     ('opensuse', 'tumbleweed'): 'opensuse-tumbleweed',
+    ('ubuntu', 'resolute'): 'ubuntu',
+    ('centos', '10'): 'centos',
+    ('opensuse', '16.0'): 'opensuse-leap',
 }
 
 

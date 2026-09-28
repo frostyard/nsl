@@ -12,10 +12,10 @@ A self-hosted runner labeled `nsl-image-builder` supplies the host prerequisites
 
 `scripts/publish-images.py build`:
 
-1. runs `make ci`, then builds the VM image and the four machine images from pinned recipes;
+1. runs `make ci`, then builds the VM image and the seven machine images from pinned recipes;
 2. runs `probe-vm.py` on the VM image;
 3. runs `probe-machines.py` with every machine image, an isolated machine and `--gui`, so every declared capability is accepted: `gui` by the GUI check and `nesting` by the Podman check;
-4. runs `measure-machines.py`: four idle machines at or below 950 MiB without desktop sessions, as the experiment that set the budget measured, and an additional machine at p95 ≤ 2 s. The acceptance report also records what four desktop sessions add, ungated;
+4. runs `measure-machines.py` with the Debian, Fedora, Arch and Tumbleweed images, the four that set the budget: four idle machines at or below 950 MiB without desktop sessions, as the experiment measured, and an additional machine at p95 ≤ 2 s. The acceptance report also records what four desktop sessions add, ungated;
 5. writes one public directory per image.
 
 A public directory holds the payload, the package inventory, provenance, the acceptance report and the unsigned descriptor. VM disks are compressed with a pinned zstd (`scripts/zstd-image.go`). Machine images are published as built, and the same tool measures the root filesystem the descriptor records. Acceptance reports use an explicit field list: check names and results, protocols and a few timings. Probe logs, host paths, test state and archives stay in private evidence.

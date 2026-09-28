@@ -2,7 +2,7 @@
 
 `nsl` gives atomic Linux hosts persistent Linux machines, as WSL does for Windows. Machines are systemd-nspawn containers in one nsl-owned VM, launched with systemd-vmspawn and QEMU/KVM, and are trusted as your user: they see your home and removable media at `/mnt/host` ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)).
 
-**Status: pre-release.** The [implementation plan](docs/plans/shared-vm-implementation.md) has replaced the earlier one-VM-per-environment prototype, and the [CLI contract](docs/specs/cli.md) describes the system. Machines come from signed Frostyard images: Debian 13, Fedora 44, Arch and openSUSE Tumbleweed. They get forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. nsl exports and imports machines, and stops idle machines and the idle VM. With `--isolated`, a machine gets its own small VM with no access to your files or desktop. v0.3.0 and earlier releases are the retired prototype.
+**Status: pre-release.** The [implementation plan](docs/plans/shared-vm-implementation.md) has replaced the earlier one-VM-per-environment prototype, and the [CLI contract](docs/specs/cli.md) describes the system. Machines come from signed Frostyard images: Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, and openSUSE Tumbleweed and Leap 16.0. They get forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. nsl exports and imports machines, and stops idle machines and the idle VM. With `--isolated`, a machine gets its own small VM with no access to your files or desktop. v0.3.0 and earlier releases are the retired prototype.
 
 The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
 
@@ -46,7 +46,7 @@ build/nsl recover     # start the VM from a fresh root
 
 # Build a machine image and create a machine from it; the first becomes the default.
 scripts/build-image.sh --role machine --distribution debian
-machine=build/image/share/nsl-machine-debian-trixie-x86-64-r3.tar.zst
+machine=build/image/share/nsl-machine-debian-trixie-x86-64-r4.tar.zst
 build/nsl create debian --image "$machine" --digest "sha256:$(sha256sum "$machine" | cut -d' ' -f1)"
 build/nsl             # a login shell in the default machine, in this directory
 build/nsl run -m debian sudo apt-get install -y podman
@@ -54,7 +54,7 @@ build/nsl list
 build/nsl shutdown
 ```
 
-Machines are Debian 13, Fedora 44, Arch or openSUSE Tumbleweed (`--distribution debian|fedora|arch|opensuse`). Your account has your username, UID and GID, a home at `/home/USER` in the machine, and passwordless `sudo`. Your home, `/run/media/USER` and `/mnt` appear read-write at `/mnt/host` plus their host paths, and commands start in the matching directory. Each machine is its own distro with its own packages and services, all in one VM.
+Machines are Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, openSUSE Tumbleweed or openSUSE Leap 16.0; `nsl images` lists each one's selectors, such as `debian:13`, `ubuntu:26.04`, `centos:10` or `opensuse-leap:16.0`. Your account has your username, UID and GID, a home at `/home/USER` in the machine, and passwordless `sudo`. Your home, `/run/media/USER` and `/mnt` appear read-write at `/mnt/host` plus their host paths, and commands start in the matching directory. Each machine is its own distro with its own packages and services, all in one VM.
 
 A server listening in a machine on port 1024 or above is reachable at the same port on host `127.0.0.1`, unless something on the host already uses it; `nsl ports` shows each port. From a Wayland session, Wayland applications in machines open windows on your desktop through Waypipe, and `nsl-open URL` (also `BROWSER`) opens web links and `/mnt/host` files with the host's handlers. `nsl ssh-config NAME >> ~/.ssh/config` lets VS Code or any SSH client reach a machine as `nsl-NAME`.
 
@@ -65,7 +65,7 @@ A server listening in a machine on port 1024 or above is reachable at the same p
 | `[-m NAME]` | Login shell in NAME or the default machine, in the translated current directory or the home. |
 | `run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv literally in the machine; exit status, streams and signals pass through. |
 | `create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]` | Create a machine from a local machine image, offline. |
-| `create NAME --distro DISTRO:RELEASE [--offline]` | Create a machine from a signed catalogue image (once images are published). |
+| `create NAME --distro DISTRO:RELEASE [--offline]` | Create a machine from a signed catalogue image. |
 | `create NAME ... --isolated`, `import NAME FILE --isolated` | Give the machine its own VM, without `/mnt/host`, desktop or `nsl-open`, for untrusted software. |
 | `start NAME`, `stop NAME`, `default NAME` | Start or stop a machine, or make it the default. |
 | `export NAME FILE`, `import NAME FILE` | Write a stopped machine to a new private archive, or create a machine from one. |
