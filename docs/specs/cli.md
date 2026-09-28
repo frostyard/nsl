@@ -146,7 +146,7 @@ Syntax:
 
 Rules:
 
-- An absent file MUST mean defaults.
+- An absent file MUST mean defaults. A symlink to a missing file, or anything other than a regular file, MUST be an error.
 - Unknown sections or keys, duplicate sections or keys, keys outside a section, invalid values and out-of-range numbers MUST be errors naming the file and line, as `PATH:LINE: message`. nsl MUST NOT start a VM with a partially understood file.
 - `nsl config` MUST print each setting, its value and its source: `default`, or `file` with its line.
 - A command-line flag MAY override a key for one invocation, with the source `flag`. nsl MUST NOT rewrite the file.

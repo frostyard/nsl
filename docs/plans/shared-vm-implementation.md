@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phase 1 complete, 2026-09-27.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1 and 2 complete, 2026-09-27.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -97,6 +97,39 @@ Decisions the specs now fix, each of which later phases implement:
 - `$XDG_CONFIG_HOME` selects the file; tests set it.
 - `nsl config` prints effective values and sources.
 - **Done when:** tests cover the absent file, every key's range, defaults, comments and whitespace, and each error class.
+
+**Result, 2026-09-27: complete.** `config.go` parses the file into typed settings, each with its source, and `nsl config` prints them. `config_test.go` covers:
+
+- the absent file, and empty and comment-only files;
+- both ends of every range and one past each;
+- the memory default's rounding and its clamps to 2 and 128, and the CPU clamp to 64;
+- CRLF line endings, tabs, `key=value` without spaces, `[ vm ]`, and indented headers;
+- `XDG_CONFIG_HOME` absolute, relative and unset;
+- each error class: syntax, unknown section, duplicate section, key outside a section, unknown key, duplicate key, invalid value, out of range, invalid UTF-8, NUL, oversize, a directory, an unreadable file and a dangling symlink.
+
+On Snow 13 (MemTotal 58.6 GiB, 32 CPUs), the release build printed:
+
+```text
+$ XDG_CONFIG_HOME=/scratch/xdg nsl config      # nsl/nsl.conf absent
+SETTING                VALUE  SOURCE
+vm.memory              29     default (half of host memory)
+vm.cpus                32     default (host CPUs)
+machines.autostart     true   default
+machines.idle_timeout  15     default
+isolated.memory        2      default
+isolated.cpus          2      default
+
+$ nsl config    # after writing [vm] memory = 16G
+nsl: /scratch/xdg/nsl/nsl.conf:2: vm.memory must be a whole number of GiB from 1 to 128, got "16G"
+```
+
+A file setting `memory`, `cpus` and `idle_timeout` showed each as `file (line N)`; a repeated `autostart` failed with `duplicate key machines.autostart (first on line 2)`. `make ci` passed.
+
+Not in this phase:
+
+- **Pending restarts** in `nsl config` need the VM record, so they arrive in Phase 5.
+- **Flag overrides:** no command has a resource flag yet, so none were built.
+- **Host facts:** the parser reads `/proc/meminfo` even when the file sets both `vm` values, and an unreadable one is an error.
 
 ## Phase 3 — The nsl VM image
 

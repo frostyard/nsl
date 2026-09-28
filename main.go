@@ -69,6 +69,7 @@ type app struct {
 	in                              io.Reader
 	out, err                        io.Writer
 	imageService                    *imageClient
+	host                            *hostFacts // nil reads the real host
 }
 
 func newApp() (*app, error) {
@@ -247,6 +248,7 @@ func usage(w io.Writer) {
   ports NAME
   logs NAME
   ssh-config NAME
+  config
   doctor
   version
 
@@ -267,6 +269,11 @@ func (a *app) execute(args []string) error {
 		return nil
 	case "doctor":
 		return a.doctor()
+	case "config":
+		if len(args) != 1 {
+			return errors.New("usage: config")
+		}
+		return a.configCommand()
 	case "_devices":
 		return a.devices(args[1:])
 	case "list":
