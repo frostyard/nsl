@@ -1,0 +1,10 @@
+# Tool pins for this repository (frostyard/core ADR-0043). Go comes from go.mod;
+# never pin it here. mise.lock carries each tool's checksums: `mise install`
+# provisions exactly these, and `mise outdated` reports newer releases.
+[settings]
+idiomatic_version_file_enable_tools = ["go"]
+lockfile = true
+
+[tools]
+# make bump: the next version from conventional commits, per .svu.yaml.
+svu = "3.4.1"
