@@ -4,7 +4,7 @@ Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalo
 
 ## Overview
 
-`.github/workflows/images.yml` builds the nsl VM image and every machine image, accepts them together on KVM, then signs and publishes them and a catalogue that selects them. It runs weekly and on manual dispatch, from `main` only. The catalogue is promoted only when every image passes. The first catalogue carrying VM and machine images, sequence 6, was published on 2026-09-28 by [run 36400743847](https://github.com/frostyard/nsl/actions/runs/36400743847). The earlier disk catalogues, up to sequence 4, belong to the retired prototype, and the CLI refuses them.
+`.github/workflows/images.yml` builds the nsl VM image and every machine image, accepts them together on KVM, then signs and publishes them and a catalogue that selects them. It runs weekly and on manual dispatch, from `main` only. The catalogue is promoted only when every image passes. The first catalogue carrying VM and machine images, sequence 6, was published on 2026-09-28 by [run 36400743847](https://github.com/frostyard/nsl/actions/runs/36400743847). Sequence 7, from [run 36412981733](https://github.com/frostyard/nsl/actions/runs/36412981733), added Ubuntu 26.04, CentOS Stream 10 and openSUSE Leap 16.0. The earlier disk catalogues, up to sequence 4, belong to the retired prototype, and the CLI refuses them.
 
 ## Design
 
