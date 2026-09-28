@@ -136,9 +136,11 @@ func entryName(name string) (string, error) {
 	return clean, nil
 }
 
-// validateRootfs refuses an archive that could write outside its tree or that
-// has more than one interpretation, before anything is extracted.
-func validateRootfs(archive string, limit int64) error {
+// validateRootfs refuses a compressed root filesystem that could write outside
+// its tree or that has more than one interpretation, before anything is
+// extracted. Machine archives may hold device nodes, such as overlay whiteouts
+// from rootless containers; machine images may not.
+func validateRootfs(archive string, limit int64, devices bool) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -149,7 +151,13 @@ func validateRootfs(archive string, limit int64) error {
 		return err
 	}
 	defer dec.Close()
-	stream := &io.LimitedReader{R: dec, N: limit + 1}
+	return validateTar(dec, limit, devices)
+}
+
+// validateTar reads an uncompressed root filesystem tar to its end, including
+// every file's content, so a caller can tee the stream elsewhere.
+func validateTar(input io.Reader, limit int64, devices bool) error {
+	stream := &io.LimitedReader{R: input, N: limit + 1}
 	r := tar.NewReader(stream)
 	seen := map[string]bool{}
 	files := map[string]bool{}
@@ -183,9 +191,12 @@ func validateRootfs(archive string, limit int64) error {
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
-		case tar.TypeReg, tar.TypeFifo:
+		case tar.TypeReg, tar.TypeFifo, tar.TypeChar, tar.TypeBlock:
 			if name == "." {
 				return invalid("the root is not a directory")
+			}
+			if !devices && (h.Typeflag == tar.TypeChar || h.Typeflag == tar.TypeBlock) {
+				return invalid("device node %q in a machine image", name)
 			}
 			files[name] = true
 		case tar.TypeSymlink:
@@ -225,7 +236,7 @@ func validateRootfs(archive string, limit int64) error {
 	if stream.N <= 0 {
 		return invalid("larger than %d GiB uncompressed", limit>>30)
 	}
-	if !seen["."] && len(seen) == 0 {
+	if len(seen) == 0 {
 		return errors.New("invalid root filesystem: empty archive")
 	}
 	return nil

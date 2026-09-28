@@ -1,6 +1,6 @@
 # Experiment: machines as containers in one shared VM
 
-**Status: all four phases complete, 2026-09-27. The decision rule is met, and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts the shared VM and Frostyard machine images. The [implementation plan](shared-vm-implementation.md) carries the work forward.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
+**Status: all four phases complete, 2026-09-27. The decision rule is met, and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts the shared VM and Frostyard machine images. The [implementation plan](shared-vm-implementation.md) carries the work forward.** The experiment code lived in `experiments/shared-vm/` until Phase 7 of the implementation plan ported it and deleted it; commit `2d4ff7c` holds its last version. This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
 [ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/cli.md) now makes several running machines a primary workflow, which changes that trade.
 
@@ -26,7 +26,7 @@ It would cost:
 - Launch it through the existing vmspawn path. Share the ADR-0016 allowlist through virtiofs and mount it at `/mnt/host` in the VM.
 - **Done when:** the VM passes authenticated readiness, mounts the data disk and shows `/mnt/host` with host ownership.
 
-**Result, 2026-09-27: passed.** [`experiments/shared-vm/`](../../experiments/shared-vm/README.md) builds `nsl-shared-vm-trixie-x86-64-v1` in about three minutes: the Debian trixie profile plus `systemd-container` and a machine-storage layer. Measured on Snow 13 (systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2) with 4 vCPUs and an 8 GiB ceiling. These are one-host observations.
+**Result, 2026-09-27: passed.** `experiments/shared-vm/` builds `nsl-shared-vm-trixie-x86-64-v1` in about three minutes: the Debian trixie profile plus `systemd-container` and a machine-storage layer. Measured on Snow 13 (systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2) with 4 vCPUs and an 8 GiB ceiling. These are one-host observations.
 
 | Check | Result |
 | --- | --- |
@@ -54,7 +54,7 @@ Raw evidence is in ignored `build/shared-vm/evidence/phase1-*.json`; the 18:38:1
 - Route commands through the VM's SSH forced command into the target machine. Compare `systemd-run --machine`, `machinectl shell` and `nsenter` for PTY, signal and exit-status fidelity.
 - **Done when:** two machines run concurrently and each passes the argv, PTY, exit-status and binary-stream checks with separate hostnames and homes.
 
-**Result, 2026-09-27: passed.** [`machines.py`](../../experiments/shared-vm/README.md#machines) pulls hub.nspawn.org images. It verifies the key-signed DSSE bundle against the project key pinned from `mkosi-definitions` `68263d0`, using `openssl`; a random key and a mismatched digest are both rejected. As VM root, it imports the single zstd layer into a btrfs subvolume. Creation then:
+**Result, 2026-09-27: passed.** `machines.py` pulls hub.nspawn.org images. It verifies the key-signed DSSE bundle against the project key pinned from `mkosi-definitions` `68263d0`, using `openssl`; a random key and a mismatched digest are both rejected. As VM root, it imports the single zstd layer into a btrfs subvolume. Creation then:
 
 - adds the host account (`bjk`, 1000:1000) and sets the hostname;
 - locks the image's `root:root` password;
@@ -117,7 +117,7 @@ Run inside each machine, reusing `scripts/probe-development.py`, `probe-files.py
 - Directory translation, and stop/start preserving packages, home and services.
 - **Done when:** each check has pass/fail evidence for Debian and Fedora, then Arch and openSUSE Tumbleweed for systemd-version and family breadth.
 
-**Result, 2026-09-27: passed.** [`workloads.py`](../../experiments/shared-vm/README.md#workloads) ran all eight checks on four freshly created machines in one VM: 32 of 32 passed. The CLI-bound probes hard-code `/work` and `nsl exec`, so their Podman and watcher workflows were ported rather than reused. All four hub images were dated 20260927.
+**Result, 2026-09-27: passed.** `workloads.py` ran all eight checks on four freshly created machines in one VM: 32 of 32 passed. The CLI-bound probes hard-code `/work` and `nsl exec`, so their Podman and watcher workflows were ported rather than reused. All four hub images were dated 20260927.
 
 | | Debian 13 | Fedora 44 | Arch | Tumbleweed |
 | --- | --- | --- | --- | --- |
@@ -205,7 +205,7 @@ Use the same host (Snow 13), distros and guest memory ceiling for both topologie
 - Compressed artifact size per distro: root filesystem compared with bootable disk.
 - **Done when:** a JSON evidence file under `build/` and a summary table in this plan cover both topologies.
 
-**Result, 2026-09-27: complete.** [`measure.py`](../../experiments/shared-vm/README.md#measurements) ran both topologies on Snow 13 (32 host CPUs, 60 GiB, KSM off, THP `always`), never both at once.
+**Result, 2026-09-27: complete.** `measure.py` ran both topologies on Snow 13 (32 host CPUs, 60 GiB, KSM off, THP `always`), never both at once.
 - **Shared VM:** 4 vCPUs and 8 GiB, running the four Phase 3 machines.
 - **One VM per machine:** the nsl CLI (`v0.3.0-5-gcd2891f`) in its own `NSL_HOME`, with four signed catalogue images at the default 2 vCPUs and 2 GiB each.
 

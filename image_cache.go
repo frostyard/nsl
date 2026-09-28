@@ -16,7 +16,6 @@ import (
 )
 
 const catalogueArtifactType = "application/vnd.frostyard.nsl.catalogue.v1"
-const diskArtifactType = "application/vnd.frostyard.nsl.image.v1"
 
 type signatureVerifier func([]byte, []byte) error
 type imageClient struct {
@@ -32,6 +31,7 @@ func (a *app) imageClient() *imageClient {
 	}
 	return &imageClient{app: a, registry: newImageRegistry(), verify: verifyImageSignature, now: time.Now}
 }
+
 func (c *imageClient) init() (string, error) {
 	if err := c.app.init(); err != nil {
 		return "", err
@@ -45,6 +45,7 @@ func (c *imageClient) init() (string, error) {
 	}
 	return base, nil
 }
+
 func (c *imageClient) read(path string, max int64) ([]byte, error) {
 	if err := privateFile(path, c.app.uid, 0022); err != nil {
 		return nil, err
@@ -77,6 +78,9 @@ func (c *imageClient) parseCatalogue(record catalogueRecord, fresh bool) (imageC
 	}
 	return cat, nil
 }
+
+// catalogue returns the latest authenticated catalogue, refreshed from the
+// registry unless offline, and records it before any payload is fetched.
 func (c *imageClient) catalogue(offline bool) (imageCatalogue, error) {
 	var empty imageCatalogue
 	base, err := c.init()
@@ -137,26 +141,6 @@ func (c *imageClient) catalogue(offline bool) (imageCatalogue, error) {
 	}
 	return cat, nil
 }
-func selectImage(cat imageCatalogue, selector string) (catalogueEntry, error) {
-	name, pin, hasPin := strings.Cut(selector, "@")
-	if !selectorPattern.MatchString(name) || (hasPin && !digestPattern.MatchString(pin)) {
-		return catalogueEntry{}, errors.New("expected DISTRO:RELEASE[@sha256:HEX]")
-	}
-	for _, entry := range cat.Images {
-		if entry.Architecture != "x86-64" {
-			continue
-		}
-		for _, candidate := range entry.Selectors {
-			if candidate == name {
-				if hasPin && pin != entry.Manifest {
-					return catalogueEntry{}, errors.New("pinned image is not the current approved catalogue selection")
-				}
-				return entry, nil
-			}
-		}
-	}
-	return catalogueEntry{}, fmt.Errorf("no approved x86-64 image for %s; use nsl images", name)
-}
 
 type imageReceipt struct {
 	Manifest   []byte `json:"manifest"`
@@ -164,13 +148,15 @@ type imageReceipt struct {
 	Bundle     []byte `json:"bundle"`
 }
 
-func (c *imageClient) inspectReceipt(record imageReceipt, entry catalogueEntry) (imageArtifact, map[string]blobRef, error) {
+// inspectReceipt authenticates an artifact's descriptor against the selected
+// manifest and the publisher, and checks it describes the catalogue entry.
+func (c *imageClient) inspectReceipt(record imageReceipt, entry catalogueEntry, k imageKind) (imageArtifact, map[string]blobRef, error) {
 	var d imageArtifact
-	m, err := parseManifest(record.Manifest, entry.Manifest, diskArtifactType)
+	m, err := parseManifest(record.Manifest, entry.Manifest, k.artifactType)
 	if err != nil {
 		return d, nil, err
 	}
-	files, err := manifestFiles(m, map[string]int64{"descriptor.json": metadataLimit, "descriptor.sigstore.json": metadataLimit, "disk.raw.zst": compressedLimit, "packages.json": evidenceLimit, "provenance.json": evidenceLimit, "acceptance.json": evidenceLimit})
+	files, err := manifestFiles(m, k.layers())
 	if err != nil {
 		return d, nil, err
 	}
@@ -185,19 +171,21 @@ func (c *imageClient) inspectReceipt(record imageReceipt, entry catalogueEntry) 
 	if err = decodeMetadata(record.Descriptor, &d, metadataLimit); err != nil {
 		return d, nil, err
 	}
-	if err = d.validate(); err != nil {
+	buildID, version, err := d.validate(k)
+	if err != nil {
 		return d, nil, err
 	}
-	if d.Image.BuildID != entry.BuildID || d.Image.Architecture != entry.Architecture {
-		return d, nil, errors.New("image does not match catalogue identity")
+	if buildID != entry.BuildID || version != entry.protocol() || entry.Kind != k.name {
+		return d, nil, errors.New("image does not match its catalogue entry")
 	}
-	for name, ref := range map[string]blobRef{"disk.raw.zst": d.Compressed, "packages.json": d.Packages, "provenance.json": d.Provenance, "acceptance.json": d.Acceptance} {
+	for name, ref := range map[string]blobRef{k.payload: d.Compressed, "packages.json": d.Packages, "provenance.json": d.Provenance, "acceptance.json": d.Acceptance} {
 		if files[name] != ref {
 			return d, nil, errors.New("payload does not match signed descriptor")
 		}
 	}
 	return d, files, nil
 }
+
 func (c *imageClient) evidence(dir string, files map[string]blobRef, offline bool) error {
 	for _, name := range []string{"packages.json", "provenance.json", "acceptance.json"} {
 		ref := files[name]
@@ -221,8 +209,10 @@ func (c *imageClient) evidence(dir string, files map[string]blobRef, offline boo
 	}
 	return nil
 }
-func verifiedRaw(path string, ref blobRef, uid int) error {
-	if err := privateFile(path, uid, 0022); err != nil {
+
+// verifiedFile checks a cached payload's owner, mode, size and digest.
+func verifiedFile(path string, ref blobRef, uid int) error {
+	if err := privateFile(path, uid, 0222); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
@@ -235,175 +225,231 @@ func verifiedRaw(path string, ref blobRef, uid int) error {
 		return err
 	}
 	if st.Size() != ref.Size {
-		return errors.New("cached raw image size mismatch")
+		return errors.New("cached image size mismatch")
 	}
 	h := sha256.New()
 	if _, err = io.Copy(h, io.LimitReader(f, ref.Size+1)); err != nil {
 		return err
 	}
 	if "sha256:"+hex.EncodeToString(h.Sum(nil)) != ref.Digest {
-		return errors.New("cached raw image SHA256 mismatch")
+		return errors.New("cached image SHA256 mismatch")
 	}
 	return nil
 }
-func (c *imageClient) pull(selector string, offline bool) (string, string, error) {
+
+// cachedImage is a verified payload in the image cache: a VM image's raw disk,
+// or a machine image's compressed root filesystem.
+type cachedImage struct {
+	path    string
+	ref     blobRef
+	buildID string
+}
+
+// cacheTarget is where a verified payload lives: VM images as raw disks named
+// by their digest, machine images as rootfs.tar.zst named by theirs, in the
+// directory VMs read through the image share.
+func (c *imageClient) cacheTarget(k imageKind, d imageArtifact) (string, blobRef) {
+	if k.name == "vm" {
+		return c.app.vmImagePath(strings.TrimPrefix(d.Raw.Digest, "sha256:")), *d.Raw
+	}
+	return filepath.Join(c.app.machineImages(), strings.TrimPrefix(d.Compressed.Digest, "sha256:")+".tar.zst"), d.Compressed
+}
+
+// pullMachine verifies and caches the machine image a selector names.
+func (c *imageClient) pullMachine(selector string, offline bool) (*cachedImage, error) {
+	return c.pull(machineKind, offline, func(cat imageCatalogue) (catalogueEntry, error) { return selectMachine(cat, selector) })
+}
+
+// pullVM verifies and caches the catalogue's VM image.
+func (c *imageClient) pullVM(offline bool) (*cachedImage, error) {
+	return c.pull(vmKind, offline, selectVM)
+}
+
+func (c *imageClient) pull(k imageKind, offline bool, choose func(imageCatalogue) (catalogueEntry, error)) (*cachedImage, error) {
 	cat, err := c.catalogue(offline)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	entry, err := selectImage(cat, selector)
+	entry, err := choose(cat)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
+	image, err := c.fetch(entry, k, offline)
+	if err != nil {
+		return nil, err
+	}
+	// A concurrent refresh may withdraw the image while its payload downloads.
+	// Recheck the latest locally authenticated policy before returning it.
+	if cat, err = c.catalogue(true); err != nil {
+		return nil, err
+	}
+	current, err := choose(cat)
+	if err != nil {
+		return nil, err
+	}
+	if current.Manifest != entry.Manifest {
+		return nil, errors.New("catalogue selection changed during download; retry")
+	}
+	return image, nil
+}
+
+func (c *imageClient) fetch(entry catalogueEntry, k imageKind, offline bool) (*cachedImage, error) {
 	base, err := c.init()
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	dir := filepath.Join(base, strings.TrimPrefix(entry.Manifest, "sha256:"))
 	if err = os.MkdirAll(dir, 0700); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = checkPrivateDir(dir, c.app.uid); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	lock, err := fileLock(filepath.Join(dir, "lock"))
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	defer unlock(lock)
 	receiptPath := filepath.Join(dir, "receipt.json")
 	var record imageReceipt
 	if b, readErr := c.read(receiptPath, 5*metadataLimit); readErr == nil {
 		if err = decodeMetadata(b, &record, 5*metadataLimit); err != nil {
-			return "", "", err
+			return nil, err
 		}
 	} else {
 		if !os.IsNotExist(readErr) || offline {
-			return "", "", fmt.Errorf("no complete verified image receipt: %w", readErr)
+			return nil, fmt.Errorf("no complete verified image receipt: %w", readErr)
 		}
-		m, err := c.registry.manifest(entry.Manifest, diskArtifactType)
+		m, err := c.registry.manifest(entry.Manifest, k.artifactType)
 		if err != nil {
-			return "", "", err
+			return nil, err
 		}
-		files, err := manifestFiles(m, map[string]int64{"descriptor.json": metadataLimit, "descriptor.sigstore.json": metadataLimit, "disk.raw.zst": compressedLimit, "packages.json": evidenceLimit, "provenance.json": evidenceLimit, "acceptance.json": evidenceLimit})
+		files, err := manifestFiles(m, k.layers())
 		if err != nil {
-			return "", "", err
+			return nil, err
 		}
 		record.Manifest = m.raw
-		record.Descriptor, err = c.registry.metadata(files["descriptor.json"], metadataLimit)
-		if err != nil {
-			return "", "", err
+		if record.Descriptor, err = c.registry.metadata(files["descriptor.json"], metadataLimit); err != nil {
+			return nil, err
 		}
-		record.Bundle, err = c.registry.metadata(files["descriptor.sigstore.json"], metadataLimit)
-		if err != nil {
-			return "", "", err
+		if record.Bundle, err = c.registry.metadata(files["descriptor.sigstore.json"], metadataLimit); err != nil {
+			return nil, err
 		}
 	}
-	d, files, err := c.inspectReceipt(record, entry)
+	d, files, err := c.inspectReceipt(record, entry, k)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = c.evidence(dir, files, offline); err != nil {
-		return "", "", err
+		return nil, err
 	}
-	raw := filepath.Join(c.app.home, "images", strings.TrimPrefix(d.Raw.Digest, "sha256:")+".raw")
-	// A raw digest may be referenced by more than one artifact or a local import.
-	// The manager lock serializes final publication with the existing importer.
-	if err = verifiedRaw(raw, d.Raw, c.app.uid); err == nil {
+	target, ref := c.cacheTarget(k, d)
+	image := &cachedImage{path: target, ref: ref, buildID: entry.BuildID}
+	partial := filepath.Join(dir, k.payload+".part")
+	// A payload may be shared with another artifact or a local import.
+	if err = verifiedFile(target, ref, c.app.uid); err == nil {
 		if err = atomicWrite(receiptPath, encodeJSON(record), 0600); err != nil {
-			return "", "", err
+			return nil, err
 		}
-		return c.finishPull(selector, entry, raw, d.Raw.Digest)
+		// A machine image published before an interruption leaves its partial name.
+		if err = os.Remove(partial); os.IsNotExist(err) {
+			err = nil
+		}
+		return image, err
 	} else if !os.IsNotExist(err) {
-		return "", "", err
+		return nil, err
 	}
 	if offline {
-		return "", "", errors.New("verified raw image is not cached; retry online")
+		return nil, fmt.Errorf("%s is not cached; retry online", entry.BuildID)
 	}
-	partial := filepath.Join(dir, "disk.raw.zst.part")
+	// An interruption after verification can leave the partial read-only.
+	if st, err := os.Lstat(partial); err == nil && st.Mode().IsRegular() && st.Mode().Perm() == 0444 {
+		if err = os.Chmod(partial, 0600); err != nil {
+			return nil, err
+		}
+	}
 	f, err := os.OpenFile(partial, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	defer f.Close()
 	if err = privateFile(partial, c.app.uid, 0077); err != nil {
-		return "", "", err
+		return nil, err
 	}
-	if err = c.registry.download(d.Compressed, f, c.app.err); err != nil {
-		return "", "", err
+	if err = c.registry.download(d.Compressed, f, k.compressedLimit, c.app.err); err != nil {
+		return nil, err
 	}
-	fmt.Fprintf(c.app.err, "Verifying and decompressing %s\n", entry.BuildID)
-	stage, err := os.CreateTemp(filepath.Join(c.app.home, "images"), ".download-*")
-	if err != nil {
-		return "", "", err
+	fmt.Fprintf(c.app.err, "Verifying %s\n", entry.BuildID)
+	var stage *os.File
+	if k.name == "vm" {
+		// The VM boots from the raw disk, so the cache keeps it decompressed.
+		if stage, err = os.CreateTemp(filepath.Dir(target), ".download-*"); err != nil {
+			return nil, err
+		}
+		defer os.Remove(stage.Name())
+		defer stage.Close()
 	}
-	defer os.Remove(stage.Name())
-	defer stage.Close()
-	decoder, err := zstd.NewReader(f, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(128<<20), zstd.WithDecoderMaxWindow(128<<20))
-	if err != nil {
-		return "", "", err
+	if err = decompressed(f, stage, d.uncompressed()); err != nil {
+		return nil, err
 	}
-	h := sha256.New()
-	n, copyErr := io.Copy(io.MultiWriter(stage, h), io.LimitReader(decoder, d.Raw.Size+1))
-	decoder.Close()
-	if copyErr != nil {
-		return "", "", fmt.Errorf("decompress image: %w", copyErr)
+	// A machine image stays compressed; the agent verifies it again as it reads.
+	published := f
+	if stage != nil {
+		published = stage
 	}
-	if n != d.Raw.Size || "sha256:"+hex.EncodeToString(h.Sum(nil)) != d.Raw.Digest {
-		return "", "", errors.New("decompressed image digest/size mismatch")
-	}
-	if err = stage.Chmod(0444); err != nil {
-		return "", "", err
-	}
-	if err = stage.Sync(); err != nil {
-		return "", "", err
-	}
-	if err = stage.Close(); err != nil {
-		return "", "", err
-	}
-	manager, err := fileLock(filepath.Join(c.app.home, "lock"))
-	if err != nil {
-		return "", "", err
-	}
-	err = os.Link(stage.Name(), raw)
-	if os.IsExist(err) {
-		err = verifiedRaw(raw, d.Raw, c.app.uid)
+	if err = published.Chmod(0444); err == nil {
+		err = published.Sync()
 	}
 	if err == nil {
-		folder, e := os.Open(filepath.Dir(raw))
-		if e != nil {
-			err = e
-		} else {
-			err = folder.Sync()
-			folder.Close()
-		}
+		err = c.publish(published.Name(), target, ref)
 	}
-	unlock(manager)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if err = atomicWrite(receiptPath, encodeJSON(record), 0600); err != nil {
-		return "", "", err
+		return nil, err
 	}
-	if err = os.Remove(partial); err != nil {
-		return "", "", err
-	}
-	return c.finishPull(selector, entry, raw, d.Raw.Digest)
+	return image, os.Remove(partial)
 }
 
-// A concurrent refresh may withdraw this image while its payload downloads.
-// Recheck the latest locally authenticated policy at the pull's completion.
-func (c *imageClient) finishPull(selector string, selected catalogueEntry, path, digest string) (string, string, error) {
-	cat, err := c.catalogue(true)
+// decompressed streams the verified compressed payload through a bounded
+// decoder, proving the decompressed digest and size, and keeps the output in
+// stage when one is given.
+func decompressed(compressed io.Reader, stage *os.File, want blobRef) error {
+	decoder, err := zstd.NewReader(compressed, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(128<<20), zstd.WithDecoderMaxWindow(128<<20))
 	if err != nil {
-		return "", "", err
+		return err
 	}
-	current, err := selectImage(cat, selector)
+	defer decoder.Close()
+	h := sha256.New()
+	out := io.Writer(h)
+	if stage != nil {
+		out = io.MultiWriter(stage, h)
+	}
+	n, err := io.Copy(out, io.LimitReader(decoder, want.Size+1))
 	if err != nil {
-		return "", "", err
+		return fmt.Errorf("decompress image: %w", err)
 	}
-	if current.Manifest != selected.Manifest {
-		return "", "", errors.New("catalogue selection changed during download; retry")
+	if n != want.Size || "sha256:"+hex.EncodeToString(h.Sum(nil)) != want.Digest {
+		return errors.New("decompressed image digest/size mismatch")
 	}
-	return path, digest, nil
+	return nil
+}
+
+// publish links a verified payload into the cache under the manager lock,
+// which also serializes local imports; an existing entry must verify.
+func (c *imageClient) publish(source, target string, ref blobRef) error {
+	manager, err := fileLock(filepath.Join(c.app.home, "lock"))
+	if err != nil {
+		return err
+	}
+	defer unlock(manager)
+	err = os.Link(source, target)
+	if os.IsExist(err) {
+		err = verifiedFile(target, ref, c.app.uid)
+	}
+	if err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(target))
 }

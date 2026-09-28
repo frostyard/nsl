@@ -11,7 +11,7 @@ A machine holds packages, services, configuration and a guest-native home. Under
 
 Export only stopped machines. An archive is a tar file with two members:
 
-- `manifest.json`: the format version, machine name, account name, UID and GID, image build ID, and the SHA256 and size of the root filesystem;
+- `manifest.json`: the format version, architecture, machine name, account, UID and GID, image build ID, creation time, and the SHA256 and size of the root filesystem;
 - `rootfs.tar.zst`: a zstd tar of the subvolume that preserves numeric owners, modes, xattrs (including file capabilities) and ACLs.
 
 Publish a mode-0600 archive without replacing an existing path, and leave the source unchanged. The VM is not exported.

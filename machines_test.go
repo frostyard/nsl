@@ -240,3 +240,55 @@ func TestRunSendsLiteralArgvFromTheTranslatedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func credentialOf(t *testing.T, v *vmRecord) protocol.Credential {
+	t.Helper()
+	var c protocol.Credential
+	b, _ := os.ReadFile(filepath.Join(v.dir, "nsl.vm"))
+	if err := protocol.DecodeStrict(b, &c); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestOnlyCommandsThatEnterMachinesAutostartThem(t *testing.T) {
+	a, f := testApp(t)
+	image, digest := localImage(t, "vm image")
+	if err := a.execute([]string{"update", "--image", image, "--digest", digest}); err != nil {
+		t.Fatal(err)
+	}
+	f.vm, _ = a.loadVM()
+	if err := a.create(append([]string{"debian"}, machineImage(t, "rootfs")...)); err != nil {
+		t.Fatal(err)
+	}
+	if c := credentialOf(t, f.vm); c.Autostart {
+		t.Fatal("create started every machine")
+	}
+	a.shutdown()
+	if err := a.execute([]string{"start", "debian"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := credentialOf(t, f.vm); !c.Autostart {
+		t.Fatal("start did not autostart machines")
+	}
+}
+
+func TestStartRelaunchesAVMThatPowersOffWhileIdle(t *testing.T) {
+	a, f, v := startedVM(t)
+	unit := vmUnit(v)
+	launches := f.ran("systemd-run", "--user")
+	// The running VM powers itself off as the command arrives.
+	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+		if req.Op == "identity" && f.ran("systemd-run", "--user") == launches {
+			f.states[unit] = "inactive"
+			return errors.New("connection closed")
+		}
+		return nil
+	}
+	if _, err := a.runningVM(true); err != nil {
+		t.Fatal(err)
+	}
+	if f.ran("systemd-run", "--user") != launches+1 {
+		t.Fatal("did not start the VM again")
+	}
+}

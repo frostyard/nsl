@@ -95,13 +95,17 @@ func usage(w io.Writer) {
 
   [-m NAME]                       login shell in NAME or the default machine
   run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]
+  create NAME --distro DISTRO:RELEASE [--offline] [--default] [--user NAME]
   create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]
   list
   default NAME
   start NAME
   stop NAME
   remove NAME [--yes]
+  export NAME FILE
+  import NAME FILE
   shutdown
+  update [--offline]
   update --image FILE --digest sha256:HEX
   config
   recover
@@ -167,6 +171,10 @@ func (a *app) execute(args []string) error {
 		return a.create(rest)
 	case "remove":
 		return a.remove(rest)
+	case "export":
+		return a.export(rest)
+	case "import":
+		return a.importArchive(rest)
 	case "start", "stop", "default":
 		return a.machineCommand(args[0], rest)
 	case "update":

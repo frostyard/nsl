@@ -3,6 +3,7 @@ enable nsl-data.service
 enable nsl-grow.service
 enable nsl-setup.service
 enable nsl-machines.service
+enable nsl-idle.service
 enable nsl-ssh.socket
 enable var-lib-nsl.mount
 enable var-lib-machines.mount

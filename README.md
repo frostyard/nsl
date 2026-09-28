@@ -2,7 +2,7 @@
 
 `nsl` gives atomic Linux hosts persistent Linux machines, as WSL does for Windows. Machines are systemd-nspawn containers in one nsl-owned VM, launched with systemd-vmspawn and QEMU/KVM, and are trusted as your user: they see your home and removable media at `/mnt/host` ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)).
 
-**Status: under construction.** The [implementation plan](docs/plans/shared-vm-implementation.md) is replacing the earlier one-VM-per-environment prototype phase by phase, and the [CLI contract](docs/specs/cli.md) describes the target. Today the binary runs the nsl VM and machines created from locally built images; publication, ports, GUI and export arrive with later phases. There are no published images for this design yet, and v0.3.0 and earlier releases are the retired prototype.
+**Status: under construction.** The [implementation plan](docs/plans/shared-vm-implementation.md) is replacing the earlier one-VM-per-environment prototype phase by phase, and the [CLI contract](docs/specs/cli.md) describes the target. Today the binary runs the nsl VM and machines from locally built images, exports and imports machines, and stops idle machines and the idle VM. It can verify signed catalogue images, but none are published for this design yet; ports, GUI and isolated machines arrive with later phases. v0.3.0 and earlier releases are the retired prototype.
 
 The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
 
@@ -24,7 +24,7 @@ build/nsl doctor
 
 # Build the VM image inside a disposable Lima VM; dependencies stay inside it.
 scripts/build-image.sh --role vm
-image=build/image/share/nsl-vm-trixie-x86-64-r5.raw
+image=build/image/share/nsl-vm-trixie-x86-64-r6.raw
 build/nsl update --image "$image" --digest "sha256:$(sha256sum "$image" | cut -d' ' -f1)"
 build/nsl recover     # start the VM from a fresh root
 
@@ -47,13 +47,16 @@ Machines are Debian 13, Fedora 44, Arch or openSUSE Tumbleweed (`--distribution 
 | `[-m NAME]` | Login shell in NAME or the default machine, in the translated current directory or the home. |
 | `run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv literally in the machine; exit status, streams and signals pass through. |
 | `create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]` | Create a machine from a local machine image, offline. |
+| `create NAME --distro DISTRO:RELEASE [--offline]` | Create a machine from a signed catalogue image (once images are published). |
 | `start NAME`, `stop NAME`, `default NAME` | Start or stop a machine, or make it the default. |
+| `export NAME FILE`, `import NAME FILE` | Write a stopped machine to a new private archive, or create a machine from one. |
 | `remove NAME [--yes]` | Preview, then permanently remove a stopped machine. |
 | `list` | The VM's state, image, resources and data disk, anything pending until its next start, and every machine. |
-| `update --image FILE --digest sha256:HEX` | Select a local VM image for the next start. |
+| `update --image FILE --digest sha256:HEX` | Select a local VM image for the next start; `update` alone selects the catalogue's. |
+| `images`, `pull DISTRO:RELEASE` | List the signed catalogue, or verify and cache a machine image. |
 | `recover` | Restart the VM from a fresh root, check its data disk and finish interrupted growth. |
 | `resize --disk GiB` | Grow the stopped VM's data disk; it never shrinks. |
-| `shutdown` | Stop the VM. |
+| `shutdown` | Stop every machine and the VM. |
 | `config` | Show the effective configuration and its sources. |
 | `doctor`, `version`, `help` | Host checks, build version and usage. |
 
@@ -78,7 +81,9 @@ Comments take whole lines. Resource changes apply at the VM's next start, and `n
 
 ## Current limits
 
-- Port forwarding, GUI sessions, `nsl-open`, export and import, isolated machines and idle stop are not wired into the CLI yet; see the plan's phases. A machine that is running keeps running until `stop` or `shutdown`.
+- Port forwarding, GUI sessions, `nsl-open`, `ssh-config`, `logs` and isolated machines are not wired into the CLI yet; see the plan's phases.
+- A machine stops after `idle_timeout` minutes without nsl commands or GUI clients, and the VM stops a minute after its last machine. Services inside a machine do not keep it running.
+- Archives are unencrypted and can contain credentials; import requires your UID and GID.
 - Host file changes through virtiofs do not produce inotify events in the VM. Watched builds belong in machine storage.
 - The whole home is visible to the VM, including nsl state and keys; this matches the trust model.
 

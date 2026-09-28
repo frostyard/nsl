@@ -98,8 +98,9 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
-// agentJSON sends one request whose answer is JSON, and decodes it strictly.
-func (a *app) agentJSON(v *vmRecord, req protocol.Request, stdin io.Reader, timeout time.Duration, dst any) error {
+// agentStream sends one request; the operation's stdin and stdout belong to the
+// caller, and an agent error on stderr becomes a *protocol.Error.
+func (a *app) agentStream(v *vmRecord, req protocol.Request, stdin io.Reader, stdout io.Writer, timeout time.Duration) error {
 	req.Protocol = protocol.Version
 	encoded, err := protocol.Encode(req)
 	if err != nil {
@@ -107,13 +108,22 @@ func (a *app) agentJSON(v *vmRecord, req protocol.Request, stdin io.Reader, time
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, stderr := &boundedBuffer{limit: 1 << 20}, &boundedBuffer{limit: 16 << 10}
-	err = a.r.run(ctx, stdin, out, stderr, os.Environ(), "ssh", append(a.sshArgs(v, false), encoded)...)
+	stderr := &boundedBuffer{limit: 16 << 10}
+	err = a.r.run(ctx, stdin, stdout, stderr, os.Environ(), "ssh", append(a.sshArgs(v, false), encoded)...)
 	if agentErr := protocol.ParseError(stderr.buffer.String()); err != nil && agentErr != nil {
 		return agentErr
 	}
 	if err != nil {
 		return fmt.Errorf("ssh: %w: %s", err, strings.TrimSpace(stderr.buffer.String()))
+	}
+	return nil
+}
+
+// agentJSON sends one request whose answer is JSON, and decodes it strictly.
+func (a *app) agentJSON(v *vmRecord, req protocol.Request, stdin io.Reader, timeout time.Duration, dst any) error {
+	out := &boundedBuffer{limit: 1 << 20}
+	if err := a.agentStream(v, req, stdin, out, timeout); err != nil {
+		return err
 	}
 	if dst == nil {
 		return nil
@@ -232,7 +242,7 @@ func (a *app) hostAliases(shares []protocol.Share) []protocol.Alias {
 	return aliases
 }
 
-func (a *app) writeCredential(v *vmRecord, c *config) error {
+func (a *app) writeCredential(v *vmRecord, c *config, autostart bool) error {
 	public, err := os.ReadFile(filepath.Join(v.dir, "keys", "identity.pub"))
 	if err != nil {
 		return err
@@ -243,7 +253,7 @@ func (a *app) writeCredential(v *vmRecord, c *config) error {
 	}
 	cred := protocol.Credential{
 		Binding:   protocol.Binding{Version: 1, ID: v.ID, Role: v.Role, UID: v.Owner, GID: v.GID},
-		PublicKey: strings.TrimSpace(string(public)), Autostart: c.autostart.value, IdleTimeout: c.idleTimeout.value,
+		PublicKey: strings.TrimSpace(string(public)), Autostart: autostart && c.autostart.value, IdleTimeout: c.idleTimeout.value,
 		Shares: shares, Aliases: a.hostAliases(shares),
 	}
 	if cred.Shares == nil {
@@ -312,79 +322,88 @@ func (a *app) rootOverlay(v *vmRecord) error {
 	return a.saveVM(v)
 }
 
-// startVM launches the VM if needed and waits for authenticated readiness.
+// startVM launches the VM if needed and waits for authenticated readiness. A
+// VM that powers off while idle is started again. autostart lets the VM start
+// every machine; commands that only manage machines start it without.
 // The caller holds the VM lock.
-func (a *app) startVM(v *vmRecord) error {
+func (a *app) startVM(v *vmRecord, autostart bool) error {
 	if v.ResizeTarget != 0 {
 		return errors.New("data disk growth is incomplete; run nsl recover")
 	}
 	if err := a.runtimeFiles(v); err != nil {
 		return err
 	}
-	state, err := a.vmState(v)
-	if err != nil {
-		return err
-	}
-	if state == "stopping" {
-		return errors.New("the VM is stopping; retry after it stops")
-	}
-	if state != "running" {
-		c, err := a.loadConfig()
-		if err != nil {
-			return err
-		}
-		if state == "failed" {
-			if _, err = a.capture(5*time.Second, "systemctl", "--user", "reset-failed", vmUnit(v)); err != nil {
-				return err
-			}
-		}
-		if err = a.rootOverlay(v); err != nil {
-			return err
-		}
-		if err = a.writeCredential(v, c); err != nil {
-			return err
-		}
-		v.CPUs, v.Memory = c.vmCPUs.value, c.vmMemory.value
-		if err = a.saveVM(v); err != nil {
-			return err
-		}
-		script := "exec " + shellQuote(a.self) + " _devices shared"
-		err = a.call(nil, a.err, "systemd-run", "--user", "--unit="+vmUnit(v), "--description="+vmDescription(v), "--collect",
-			"--property=Type=exec", "--property=TimeoutStopSec=30", "--property=KillMode=mixed",
-			"--setenv=NSL_HOME="+a.home, "--setenv=NSL_DEBUG="+os.Getenv("NSL_DEBUG"), "--", "sg", "kvm", "-c", script)
-		if err != nil {
-			return err
-		}
-	}
+	launched := false
 	deadline := time.Now().Add(90 * time.Second)
 	var readiness error
-	for time.Now().Before(deadline) {
-		if state, err = a.vmState(v); err != nil {
+	for {
+		state, err := a.vmState(v)
+		if err != nil {
 			return err
 		}
-		if state != "running" {
+		switch {
+		case state == "running":
+		case launched:
 			return errors.New("the VM exited; see journalctl --user -u " + vmUnit(v) + ", then run nsl recover")
-		}
-		var d *vmDescriptor
-		if d, readiness = a.ready(v); readiness == nil {
-			if !v.Initialized || v.ImageBuild != d.BuildID {
-				v.Initialized, v.ImageBuild = true, d.BuildID
-				if err = a.saveVM(v); err != nil {
-					return err
-				}
+		case state == "stopping":
+			// An idle VM powering itself off: wait, then start it again.
+		default:
+			if err = a.launchVM(v, state, autostart); err != nil {
+				return err
 			}
-			return nil
+			launched, deadline = true, time.Now().Add(90*time.Second)
+			continue
 		}
-		if errors.Is(readiness, errIncompatibleImage) {
-			return readiness
+		if time.Now().After(deadline) {
+			return fmt.Errorf("VM readiness timed out; disks retained; see journalctl --user -u %s or run nsl recover: %w", vmUnit(v), readiness)
+		}
+		if state == "running" {
+			var d *vmDescriptor
+			if d, readiness = a.ready(v); readiness == nil {
+				if !v.Initialized || v.ImageBuild != d.BuildID {
+					v.Initialized, v.ImageBuild = true, d.BuildID
+					if err = a.saveVM(v); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			if errors.Is(readiness, errIncompatibleImage) {
+				return readiness
+			}
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return fmt.Errorf("VM readiness timed out; disks retained; see journalctl --user -u %s or run nsl recover: %w", vmUnit(v), readiness)
+}
+
+func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
+	c, err := a.loadConfig()
+	if err != nil {
+		return err
+	}
+	if state == "failed" {
+		if _, err = a.capture(5*time.Second, "systemctl", "--user", "reset-failed", vmUnit(v)); err != nil {
+			return err
+		}
+	}
+	if err = a.rootOverlay(v); err != nil {
+		return err
+	}
+	if err = a.writeCredential(v, c, autostart); err != nil {
+		return err
+	}
+	v.CPUs, v.Memory = c.vmCPUs.value, c.vmMemory.value
+	if err = a.saveVM(v); err != nil {
+		return err
+	}
+	script := "exec " + shellQuote(a.self) + " _devices shared"
+	return a.call(nil, a.err, "systemd-run", "--user", "--unit="+vmUnit(v), "--description="+vmDescription(v), "--collect",
+		"--property=Type=exec", "--property=TimeoutStopSec=30", "--property=KillMode=mixed",
+		"--setenv=NSL_HOME="+a.home, "--setenv=NSL_DEBUG="+os.Getenv("NSL_DEBUG"), "--", "sg", "kvm", "-c", script)
 }
 
 // runningVM starts the shared VM if needed and returns it ready.
-func (a *app) runningVM() (*vmRecord, error) {
+func (a *app) runningVM(autostart bool) (*vmRecord, error) {
 	v, err := a.ensureVM()
 	if err != nil {
 		return nil, err
@@ -394,7 +413,7 @@ func (a *app) runningVM() (*vmRecord, error) {
 		return nil, err
 	}
 	defer unlock(l)
-	return v, a.startVM(v)
+	return v, a.startVM(v, autostart)
 }
 
 func (a *app) stopVM(v *vmRecord) error {
@@ -474,7 +493,7 @@ func (a *app) recover() error {
 	if v.PendingImage == "" {
 		v.PendingImage = v.Image
 	}
-	if err = a.startVM(v); err != nil {
+	if err = a.startVM(v, true); err != nil {
 		return err
 	}
 	fmt.Fprintln(a.out, "Recovered the VM with a fresh root; its data disk, machines and keys are unchanged")

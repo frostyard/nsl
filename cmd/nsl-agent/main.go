@@ -1,6 +1,7 @@
 // Command nsl-agent runs in every nsl VM. As the forced SSH command it answers
 // one request from the host (docs/specs/agent.md); as a boot service it
-// prepares the data disk, identity and machines (docs/specs/vm-image.md).
+// prepares the data disk, identity and machines, and it stops idle machines
+// and the idle VM (docs/specs/vm-image.md).
 package main
 
 import (
@@ -60,11 +61,13 @@ func main() {
 			err = a.setup()
 		case "boot":
 			err = a.boot()
+		case "idle":
+			err = a.idle()
 		default:
-			err = errors.New("usage: nsl-agent [storage|setup|boot]")
+			err = errors.New("usage: nsl-agent [storage|setup|boot|idle]")
 		}
 	default:
-		err = errors.New("usage: nsl-agent [storage|setup|boot]")
+		err = errors.New("usage: nsl-agent [storage|setup|boot|idle]")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "nsl-agent:", err)
@@ -101,8 +104,11 @@ func (a *agent) handle(command string) (int, error) {
 	if req.Machine != "" && binding.Machine != nil && binding.Machine.Name != req.Machine {
 		return 0, &protocol.Error{Code: protocol.CodeRefused, Message: "this isolated VM hosts only " + binding.Machine.Name}
 	}
-	if req.Op == "create" && binding.Machine != nil && binding.Machine.ID != req.ID {
+	if (req.Op == "create" || req.Op == "import") && binding.Machine != nil && binding.Machine.ID != req.ID {
 		return 0, &protocol.Error{Code: protocol.CodeRefused, Message: "this isolated VM hosts another machine ID"}
+	}
+	if err = a.holdRequest(); err != nil {
+		return 0, err
 	}
 	if a.sys == nil && req.Op != "identity" && req.Op != "vm" {
 		if a.sys, err = newSystem(); err != nil {
@@ -124,10 +130,14 @@ func (a *agent) handle(command string) (int, error) {
 		return a.runCommand(req)
 	case "create":
 		return 0, a.create(req, binding)
+	case "import":
+		return 0, a.importMachine(req, binding)
+	case "export":
+		return 0, a.export(req)
 	case "remove":
 		return 0, a.remove(req)
 	}
-	return 0, &protocol.Error{Code: protocol.CodeFailed, Message: req.Op + " is not implemented yet"}
+	return 0, &protocol.Error{Code: protocol.CodeBadRequest, Message: "unknown operation " + req.Op}
 }
 
 // vm runs argv as VM root, for diagnostics and acceptance probes.

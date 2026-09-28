@@ -1,0 +1,11 @@
+[Unit]
+Description=Stop idle nsl machines and the idle VM
+Requires=nsl-setup.service
+After=nsl-machines.service
+
+[Service]
+ExecStart=/usr/lib/nsl/nsl-agent idle
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -30,6 +30,7 @@ func (a *agent) runCommand(req *protocol.Request) (int, error) {
 		return 0, &protocol.Error{Code: protocol.CodeNotRunning, Message: req.Machine + " is " + state}
 	}
 	a.saveIdleTimeout(*req.IdleTimeout)
+	a.touchActivity(req.Machine)
 	user, home := rec.Account.User, "/home/"+rec.Account.User
 	if req.Root {
 		user, home = "root", "/root"

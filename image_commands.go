@@ -4,7 +4,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"text/tabwriter"
 )
 
 func (a *app) imageCommand(args []string) error {
@@ -14,7 +17,7 @@ func (a *app) imageCommand(args []string) error {
 	selector := ""
 	rest := args[1:]
 	if args[0] == "pull" {
-		if len(rest) == 0 {
+		if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
 			return errors.New("usage: pull DISTRO:RELEASE [--offline]")
 		}
 		selector = rest[0]
@@ -28,20 +31,56 @@ func (a *app) imageCommand(args []string) error {
 	}
 	client := a.imageClient()
 	if args[0] == "pull" {
-		path, digest, err := client.pull(selector, *offline)
+		image, err := client.pullMachine(selector, *offline)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(a.out, "Verified %s\n%s\n", digest, path)
+		fmt.Fprintf(a.out, "Verified %s\n%s\n", image.buildID, image.path)
 		return nil
 	}
 	cat, err := client.catalogue(*offline)
 	if err != nil {
 		return err
 	}
+	base, err := client.init()
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(a.out, "Catalogue %d (expires %s)\n", cat.Sequence, cat.Expires.UTC().Format("2006-01-02T15:04:05Z"))
+	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "KIND\tSELECTORS\tBUILD\tCACHED")
 	for _, e := range cat.Images {
-		fmt.Fprintf(a.out, "%s\t%s\t%s\t%s\n", strings.Join(e.Selectors, ", "), e.Architecture, e.BuildID, e.Manifest)
+		if e.Architecture != "x86-64" {
+			continue
+		}
+		cached := "no"
+		if _, err := os.Lstat(filepath.Join(base, strings.TrimPrefix(e.Manifest, "sha256:"), "receipt.json")); err == nil {
+			cached = "yes"
+		}
+		selectors := strings.Join(e.Selectors, ", ")
+		if e.Kind == "vm" {
+			selectors = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Kind, selectors, e.BuildID, cached)
+	}
+	if err = w.Flush(); err != nil {
+		return err
+	}
+	v, err := a.loadVM()
+	if err != nil {
+		return err
+	}
+	switch {
+	case v == nil || (v.Image == "" && v.PendingImage == ""):
+		fmt.Fprintln(a.out, "VM image: none selected yet")
+	case v.PendingImage != "":
+		fmt.Fprintf(a.out, "VM image: sha256:%s at the next VM start\n", v.PendingImage[:12])
+	default:
+		build := v.ImageBuild
+		if build == "" {
+			build = "sha256:" + v.Image[:12]
+		}
+		fmt.Fprintln(a.out, "VM image in effect:", build)
 	}
 	return nil
 }

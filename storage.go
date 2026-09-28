@@ -207,7 +207,8 @@ func (a *app) finishGrowth(v *vmRecord) error {
 	return a.saveVM(v)
 }
 
-// update selects the VM image for each VM's next start.
+// update selects the VM image for each VM's next start: the catalogue's, or a
+// local one.
 func (a *app) update(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(a.err)
@@ -221,7 +222,11 @@ func (a *app) update(args []string) error {
 		return errors.New("usage: update [--offline] | update --image FILE --digest sha256:HEX")
 	}
 	if *image == "" {
-		return errors.New("signed VM images are not published yet; use nsl update --image FILE --digest sha256:HEX")
+		cached, err := a.imageClient().pullVM(*offline)
+		if err != nil {
+			return err
+		}
+		return a.selectVMImage(strings.TrimPrefix(cached.ref.Digest, "sha256:"), cached.buildID)
 	}
 	if !digestPattern.MatchString(*digest) {
 		return errors.New("--digest must be sha256: followed by 64 lowercase hex digits")
@@ -233,6 +238,12 @@ func (a *app) update(args []string) error {
 	if err := a.importFile(*image, a.vmImagePath(hexDigest), hexDigest); err != nil {
 		return err
 	}
+	return a.selectVMImage(hexDigest, *digest)
+}
+
+// selectVMImage makes a cached VM image replace the VM's root at its next
+// start; it never touches a running VM.
+func (a *app) selectVMImage(hexDigest, label string) error {
 	v, err := a.ensureVM()
 	if err != nil {
 		return err
@@ -247,9 +258,22 @@ func (a *app) update(args []string) error {
 		fmt.Fprintln(a.out, "That VM image is already in effect")
 	} else {
 		v.PendingImage = hexDigest
-		fmt.Fprintln(a.out, "Selected VM image "+*digest+"; it replaces the VM's root at its next start")
+		fmt.Fprintln(a.out, "Selected VM image "+label+"; it replaces the VM's root at its next start")
 	}
 	return a.saveVM(v)
+}
+
+// ensureVMImage selects the catalogue's VM image when no VM image is selected.
+func (a *app) ensureVMImage(offline bool) error {
+	v, err := a.loadVM()
+	if err != nil || (v != nil && (v.Image != "" || v.PendingImage != "")) {
+		return err
+	}
+	cached, err := a.imageClient().pullVM(offline)
+	if err != nil {
+		return err
+	}
+	return a.selectVMImage(strings.TrimPrefix(cached.ref.Digest, "sha256:"), cached.buildID)
 }
 
 // importFile copies a local file into the cache under its verified digest,

@@ -1,6 +1,6 @@
 # Spec: nsl CLI
 
-Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live. The binary implements the VM commands; machine commands arrive with Phases 6 and 7.
+Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live: `ports`, `logs`, `ssh-config`, the desktop and isolated machines arrive with Phases 8 and 9.
 
 Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent protocol](agent.md), the [VM image](vm-image.md), [machine images](machine-images.md) and [image delivery](image-delivery.md).
 
@@ -10,7 +10,7 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | --- | --- |
 | `nsl [-m NAME]` | Login shell in NAME or the default machine, in the translated host directory or the guest home. |
 | `nsl run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv in the machine. A PTY is used when stdin and stdout are terminals. Flags precede COMMAND; `--` ends them. |
-| `nsl create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]` | Prepare a machine from a verified catalogue selection. `--image FILE --digest sha256:HEX` replaces `--distro` to select a local machine image. |
+| `nsl create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]` | Prepare a machine from a verified catalogue selection, and select the catalogue's VM image first when none is selected. `--image FILE --digest sha256:HEX` replaces `--distro` to select a local machine image. |
 | `nsl list` | Name, state, distro, trust tier and default marker for every owned machine, and any pending VM restart. |
 | `nsl default NAME` | Make NAME the default machine. |
 | `nsl start NAME` | Start a machine, and its VM if needed, and wait for readiness. |
@@ -24,7 +24,7 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
 | `nsl images [--offline]` | List authenticated machine-image selections and the VM image in effect. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
-| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. Not available until VM images are published (Phase 10). |
+| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
 | `nsl config` | Print the effective configuration, the source of each value and any change waiting for a VM restart. |
 | `nsl recover [NAME]` | Restart the shared VM, or isolated machine NAME's VM, from a fresh root; check its data disk and resume interrupted work; preserve machines. |
@@ -79,8 +79,9 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 ### Lifecycle
 
 - Commands MUST start a stopped machine and wait for authenticated readiness.
-- The shared VM MUST start on first use. When it starts, it MUST start every machine unless `autostart` is `false`; machines then start on first use. The VM MUST stop when no machine is running.
-- A machine with no nsl command sessions and no connected GUI clients MUST stop after `idle_timeout`. Services started inside the machine do not keep it running.
+- The shared VM MUST start on first use. When a command that enters or starts a machine starts it, it MUST start every machine unless `autostart` is `false`; machines then start on first use. `create`, `import`, `export` and `remove` MUST start it without starting machines.
+- A machine with no nsl command sessions and no connected GUI clients MUST stop after `idle_timeout`. Services started inside the machine do not keep it running. A `start` or command restarts the idle clock.
+- The VM MUST stop when no machine has been running, and no request has been in flight, for 60 seconds. A command that meets a VM powering itself off MUST wait for it to stop and start it again.
 - `stop` and idle stop MUST preserve all machine state.
 - Automatic forwarding MUST bind host loopback, report and retry conflicts, and never evict an existing listener. Machines share the VM's network namespace, so the same port in two machines conflicts inside the VM, as in WSL.
 - Resource limits MUST come from the configuration: one budget for the shared VM, and one for each isolated machine's VM.
@@ -101,10 +102,10 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 
 ### Export and import
 
-- `export` MUST hold the machine lock and refuse a machine that is not stopped. It MUST publish a mode-0600 archive without replacing an existing path, and preserve the source.
-- The archive is a tar file with `manifest.json` and `rootfs.tar.zst`. The manifest records the format version, machine name, account name, UID and GID, image build ID and the SHA256 and size of `rootfs.tar.zst`. The root filesystem stream preserves numeric owners, modes, xattrs and ACLs.
-- `import` MUST require x86-64 and the archive's UID and primary GID to match the host user. Before publishing a machine, it MUST validate the format version, names, entry types, size bounds, checksums and every root filesystem entry. Absolute or `..` paths, links leaving the tree, duplicates, unexpected entries and trailing data MUST be refused. An invalid archive MUST leave no named machine.
-- Import MUST choose the trust tier from its flags, defaulting to not isolated. It MUST NOT read the tier from the archive. It MUST apply per-machine data for the new name: hostname, hosts entry, host time zone and nspawn settings.
+- `export` MUST hold the machine lock and refuse a machine that is not stopped. It MUST publish a mode-0600 archive without replacing an existing path, and preserve the source. The root filesystem it writes MUST pass import's entry validation.
+- The archive is a tar file whose first entry is `manifest.json` and whose second and last is `rootfs.tar.zst`, followed only by zero padding. The manifest is a JSON object: `format` (`1`), `architecture` (`x86-64`), `machine` (the exported name), `account` (`user`, `group`, `uid`, `gid`), `build_id` of the machine's image, `created` (RFC 3339) and `rootfs` (`digest` as `sha256:HEX` and `size` of `rootfs.tar.zst`). The root filesystem stream preserves numeric owners, modes, xattrs and ACLs, and may hold device nodes, such as overlay whiteouts of rootless containers.
+- `import` MUST require x86-64 and the archive's UID and primary GID to match the host user. Before publishing a machine, it MUST validate the format version, names, entry types, size bounds, checksums and every root filesystem entry. Absolute or `..` paths, links leaving the tree, duplicates, unexpected entries and trailing data MUST be refused. The account MUST exist in the root filesystem with the host UID and GID. An invalid archive MUST leave no named machine.
+- Import MUST choose the trust tier from its flags, defaulting to not isolated. It MUST NOT read the tier from the archive. It MUST apply per-machine data for the new name: hostname, hosts entry, host time zone, `sudo` rule and nspawn settings. The first machine imported into an empty state directory becomes the default, as with `create`.
 - Checksums detect damage; they do not authenticate the archive's origin. Archives are unencrypted and can contain credentials.
 
 ### Images

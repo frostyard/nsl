@@ -55,7 +55,9 @@ The user needs KVM and vhost-vsock access through the `kvm` group. A fixed inter
 
 The unit `nsl-UID-vm-ID.service` runs vmspawn with the root overlay, the data disk as an extra drive, the virtiofs shares, the read-only image cache and the credential. A newly launched VM gets up to 90 seconds to become ready. Readiness is the agent's `identity` answer over authenticated vsock SSH. The host checks it for the VM's ID, UID, GID and role, and for the image descriptor's protocols and architecture, even when the unit was already running. Failures keep the disks and point to `logs` and `recover`. Forwarding starts only after readiness.
 
-The shared VM starts on first use. At boot it starts every machine unless `autostart` is false. It stops when no machine is running, and `shutdown` stops it at once. A stop asks the VM to power off, waits up to 30 seconds, then stops the owned unit.
+The shared VM starts on first use. At boot it starts every machine unless `autostart` is false, or unless it was started only to create, import, export or remove a machine. It stops itself when no machine is running, and `shutdown` stops it at once. A stop asks the VM to power off, waits up to 30 seconds, then stops the owned unit.
+
+The VM's idle monitor makes both idle decisions, so the host runs no background process. It stops a running machine after `idle_timeout` without `nsl-run-*` sessions, Waypipe clients or a `start` or `run` request. It powers the VM off 60 seconds after the last machine stopped and the last agent request ended. Every agent request holds a shared lock that the monitor takes exclusively, and keeps, before powering off. A command that arrives then sees the VM stop, and its readiness loop starts it again.
 
 `recover` stops the owned runtime, completes pending growth, checks the data disk without repairing it, and starts the VM again from a fresh root overlay, since the root holds nothing that must survive. It keeps keys, pinned host keys and machines. It cannot rebuild deleted keys or repair a corrupt filesystem, and it is not a backup.
 
@@ -71,7 +73,7 @@ The shared VM starts on first use. At boot it starts every machine unless `autos
 
 It publishes the subvolume under the machine's name only after every step succeeds. A failure deletes the staging subvolume and leaves the name free. The first machine becomes the default.
 
-Machines run with `PrivateUsers=no` in the VM's network namespace with its resolver and, in the shared VM, bind `/mnt/host`. Machine root is effectively VM root, so machines are not isolated from one another. `start` waits for the machine's manager to report `running` or `degraded`. An idle monitor in the VM stops a machine after `idle_timeout` without `nsl-run-*` sessions or Waypipe clients.
+Machines run with `PrivateUsers=no` in the VM's network namespace with its resolver and, in the shared VM, bind `/mnt/host`. Machine root is effectively VM root, so machines are not isolated from one another. `start` waits for the machine's manager to report `running` or `degraded`. The agent serializes lifecycle operations on each machine with a lock in `/run/nsl`, so a `start` waits for an idle stop or an export to finish.
 
 An isolated machine gets its own VM from the same image, with the `isolated` role, no shares, no display session and `[isolated]` resources.
 
@@ -89,7 +91,9 @@ Machines that are not isolated see the user's home, `/run/media/USER` and `/mnt`
 
 ## Export and import
 
-[ADR-0006](../adr/0006-stopped-vm-backups.md) defines machine archives. `export` locks a stopped machine, and the agent streams its root filesystem as a zstd tar with numeric owners, xattrs and ACLs. The host writes it with a checksummed manifest to private staging, then publishes the archive with a hard link that refuses an existing path. `import` validates the manifest and checksums in staging. The agent then extracts into a staging subvolume, refusing unsafe entries, applies per-machine data for the new name, and publishes. The trust tier comes from the import flags.
+[ADR-0006](../adr/0006-stopped-vm-backups.md) defines machine archives. `export` locks a stopped machine, and the agent streams its root filesystem as a zstd tar with numeric owners, xattrs and ACLs, validating the stream as import will. The host writes it into a private file beside the destination, after space reserved for the manifest, and hashes it on the way. It then fills in the manifest and both tar headers, and publishes the archive with a hard link that refuses an existing path.
+
+`import` reads the manifest and checks the root filesystem's checksum and the archive's end in place, before starting the VM. It then streams the root filesystem to the agent, which verifies the digest again as it stores the stream, validates every entry, extracts into a staging subvolume, checks the account and the machine descriptor, applies per-machine data for the new name, and publishes. The trust tier comes from the import flags.
 
 ## Networking
 

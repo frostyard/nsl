@@ -27,6 +27,12 @@ const (
 	machinesDir = "/var/lib/machines"
 	settingsDir = "/run/systemd/nspawn"
 	runtimeDir  = "/run/nsl"
+	// Every request holds requestsLock shared; its mtime is the latest request.
+	requestsLock = runtimeDir + "/requests.lock"
+	// activityDir/NAME's mtime is the latest start or run for machine NAME.
+	activityDir = runtimeDir + "/activity"
+	// lockWait bounds how long a lifecycle operation waits for another.
+	lockWait = 30 * time.Second
 	// systemd's poweroff request to a container's PID 1 is SIGRTMIN+4, with
 	// glibc's SIGRTMIN of 34.
 	signalPoweroff = 38
@@ -151,6 +157,65 @@ func (a *agent) machines() error {
 	return json.NewEncoder(a.stdout).Encode(out)
 }
 
+// lockMachine serializes lifecycle operations on one machine in the VM. It waits
+// for another operation up to wait, then reports the machine busy.
+func (a *agent) lockMachine(name string, wait time.Duration) (func(), error) {
+	dir := a.path(runtimeDir + "/locks")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(dir+"/"+name+".lock", os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			return func() { f.Close() }, nil
+		}
+		if err != unix.EWOULDBLOCK || !time.Now().Before(deadline) {
+			f.Close()
+			if err == unix.EWOULDBLOCK {
+				return nil, &protocol.Error{Code: protocol.CodeBusy, Message: "another operation holds " + name + "; retry"}
+			}
+			return nil, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// holdRequest marks a request in flight until the agent exits. The idle monitor
+// powers the VM off only when it can take this lock exclusively.
+func (a *agent) holdRequest() error {
+	if err := os.MkdirAll(a.path(runtimeDir), 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(a.path(requestsLock), os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
+	if err != nil {
+		return err
+	}
+	if err = unix.Flock(int(f.Fd()), unix.LOCK_SH); err != nil {
+		f.Close()
+		return err
+	}
+	// The descriptor stays open, and the lock held, for the agent's lifetime.
+	now := time.Now()
+	return os.Chtimes(f.Name(), now, now)
+}
+
+// touchActivity restarts a machine's idle clock.
+func (a *agent) touchActivity(name string) {
+	// Losing the mark only lets idle stop come sooner than the latest request.
+	dir := a.path(activityDir)
+	_ = os.MkdirAll(dir, 0755)
+	if f, err := os.OpenFile(dir+"/"+name, os.O_CREATE|os.O_WRONLY|unix.O_NOFOLLOW, 0644); err == nil {
+		f.Close()
+		now := time.Now()
+		_ = os.Chtimes(dir+"/"+name, now, now)
+	}
+}
+
 func (a *agent) saveIdleTimeout(minutes int) {
 	// The idle monitor reads the latest value; losing it only delays idle stop.
 	_ = os.MkdirAll(a.path(runtimeDir), 0755)
@@ -158,6 +223,11 @@ func (a *agent) saveIdleTimeout(minutes int) {
 }
 
 func (a *agent) start(req *protocol.Request, binding *protocol.Binding) error {
+	release, err := a.lockMachine(req.Machine, lockWait)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if _, err := a.record(req); err != nil {
 		return err
 	}
@@ -166,6 +236,7 @@ func (a *agent) start(req *protocol.Request, binding *protocol.Binding) error {
 		return err
 	}
 	a.saveIdleTimeout(*req.IdleTimeout)
+	a.touchActivity(req.Machine)
 	began := a.now()
 	state, err := a.state(req.Machine)
 	if err != nil {
@@ -212,26 +283,37 @@ func (a *agent) waitRunning(name string, deadline float64) (string, error) {
 }
 
 func (a *agent) stop(req *protocol.Request) error {
+	release, err := a.lockMachine(req.Machine, lockWait)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if _, err := a.record(req); err != nil {
 		return err
 	}
-	state, err := a.state(req.Machine)
+	return a.powerOff(req.Machine)
+}
+
+// powerOff asks a machine to power off, and terminates it after 30 s. The
+// caller holds the machine's lock.
+func (a *agent) powerOff(name string) error {
+	state, err := a.state(name)
 	if err != nil || state == "stopped" {
 		return err
 	}
 	if state == "running" {
 		// A failed request still falls back to terminating the machine below.
-		_ = a.sys.KillMachine(req.Machine, signalPoweroff)
+		_ = a.sys.KillMachine(name, signalPoweroff)
 	}
 	deadline := a.now() + 30
 	for a.now() < deadline {
-		if state, err = a.state(req.Machine); err != nil || state == "stopped" {
+		if state, err = a.state(name); err != nil || state == "stopped" {
 			return err
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	_ = a.sys.TerminateMachine(req.Machine)
-	return a.sys.StopUnit(unitOf(req.Machine))
+	_ = a.sys.TerminateMachine(name)
+	return a.sys.StopUnit(unitOf(name))
 }
 
 func (a *agent) requireStopped(name string) error {
@@ -300,7 +382,27 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func (a *agent) create(req *protocol.Request, binding *protocol.Binding) (err error) {
+func (a *agent) create(req *protocol.Request, binding *protocol.Binding) error {
+	receive := func(destination string) error {
+		source, err := os.Open(a.path(req.Image.Path))
+		if err != nil {
+			return err
+		}
+		defer source.Close()
+		return copyVerified(source, req.Image.Digest, req.Image.Size, destination)
+	}
+	return a.prepare(req, binding, receive, false, req.Image.BuildID)
+}
+
+// prepare builds a machine in a staging subvolume from a root filesystem that
+// receive stores verified, and publishes it under its name only after every
+// step succeeds. An archive keeps its account; an image gets a new one.
+func (a *agent) prepare(req *protocol.Request, binding *protocol.Binding, receive func(string) error, archive bool, build string) (err error) {
+	release, err := a.lockMachine(req.Machine, lockWait)
+	if err != nil {
+		return err
+	}
+	defer release()
 	name, staging := req.Machine, a.path(machinesDir+"/.nsl-create-"+req.ID)
 	for _, p := range []string{recordsDir + "/" + name + ".json", machinesDir + "/" + name} {
 		if _, err := os.Lstat(a.path(p)); !errors.Is(err, os.ErrNotExist) {
@@ -316,10 +418,14 @@ func (a *agent) create(req *protocol.Request, binding *protocol.Binding) (err er
 			a.deleteSubvolume(staging)
 		}
 	}()
-	if err = a.copyVerified(req.Image, copied); err != nil {
+	if err = receive(copied); err != nil {
 		return err
 	}
-	if err = validateRootfs(copied, rootfsLimit); err != nil {
+	limit := rootfsLimit
+	if archive {
+		limit = protocol.ArchiveLimit
+	}
+	if err = validateRootfs(copied, limit, archive); err != nil {
 		return err
 	}
 	if err = a.btrfs("subvolume", "create", staging); err != nil {
@@ -328,11 +434,19 @@ func (a *agent) create(req *protocol.Request, binding *protocol.Binding) (err er
 	if err = a.extract(copied, staging); err != nil {
 		return err
 	}
-	buildID, err := checkMachineDescriptor(staging, req.Image.BuildID)
+	buildID, err := checkMachineDescriptor(staging, build)
 	if err != nil {
 		return err
 	}
-	if err = a.personalize(staging, name, *req.Account, req.TimeZone, true); err != nil {
+	if archive {
+		err = a.checkAccount(staging, *req.Account)
+	} else {
+		err = a.addAccount(staging, *req.Account)
+	}
+	if err != nil {
+		return err
+	}
+	if err = a.personalize(staging, name, *req.Account, req.TimeZone); err != nil {
 		return err
 	}
 	record := protocol.MachineRecord{Schema: 1, Name: name, ID: req.ID, Account: *req.Account, BuildID: buildID,
@@ -365,6 +479,11 @@ func (a *agent) publish(staging string, record protocol.MachineRecord, role stri
 }
 
 func (a *agent) remove(req *protocol.Request) error {
+	release, err := a.lockMachine(req.Machine, lockWait)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if _, err := a.record(req); err != nil {
 		return err
 	}
@@ -401,26 +520,21 @@ func (a *agent) deleteSubvolume(path string) {
 	}
 }
 
-// copyVerified copies the image from the read-only share into private storage,
-// checking its size and digest, so later reads cannot see different bytes.
-func (a *agent) copyVerified(image *protocol.Image, destination string) error {
-	source, err := os.Open(a.path(image.Path))
-	if err != nil {
-		return err
-	}
-	defer source.Close()
+// copyVerified copies a root filesystem into private storage, checking its size
+// and digest, so later reads cannot see different bytes.
+func copyVerified(source io.Reader, digest string, size int64, destination string) error {
 	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 	hash := sha256.New()
-	n, err := io.Copy(io.MultiWriter(out, hash), io.LimitReader(source, image.Size+1))
+	n, err := io.Copy(io.MultiWriter(out, hash), io.LimitReader(source, size+1))
 	if err != nil {
 		return err
 	}
-	if n != image.Size || "sha256:"+hex.EncodeToString(hash.Sum(nil)) != image.Digest {
-		return &protocol.Error{Code: protocol.CodeFailed, Message: "machine image does not match its verified digest and size"}
+	if n != size || "sha256:"+hex.EncodeToString(hash.Sum(nil)) != digest {
+		return &protocol.Error{Code: protocol.CodeFailed, Message: "the root filesystem does not match its verified digest and size"}
 	}
 	return out.Sync()
 }
@@ -438,14 +552,19 @@ func (a *agent) extract(archive, destination string) error {
 	return nil
 }
 
-// personalize applies per-machine data before anything runs in the tree.
-func (a *agent) personalize(dir, name string, account protocol.Account, zone string, newAccount bool) error {
+// personalize applies per-machine data before anything runs in the tree. An
+// imported machine loses the hosts entry of its previous name.
+func (a *agent) personalize(dir, name string, account protocol.Account, zone string) error {
 	t, err := openTree(dir)
 	if err != nil {
 		return err
 	}
 	defer t.close()
 	if err = t.symlink("../usr/share/zoneinfo/"+zone, "etc/localtime"); err != nil {
+		return err
+	}
+	previous, err := t.readFile("etc/hostname")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if err = t.writeFile("etc/hostname", []byte(name+"\n"), 0644); err != nil {
@@ -455,19 +574,17 @@ func (a *agent) personalize(dir, name string, account protocol.Account, zone str
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if old := strings.TrimSpace(string(previous)); old != name && protocol.ValidName(old) {
+		hosts = []byte(strings.Replace(string(hosts), "127.0.1.1\t"+old+"\n", "", 1))
+	}
 	if !hasHost(string(hosts), name) {
 		if len(hosts) > 0 && !bytes.HasSuffix(hosts, []byte("\n")) {
 			hosts = append(hosts, '\n')
 		}
 		hosts = append(hosts, []byte("127.0.1.1\t"+name+"\n")...)
-		if err = t.writeFile("etc/hosts", hosts, 0644); err != nil {
-			return err
-		}
 	}
-	if newAccount {
-		if err = a.addAccount(dir, account); err != nil {
-			return err
-		}
+	if err = t.writeFile("etc/hosts", hosts, 0644); err != nil {
+		return err
 	}
 	if err = t.mkdir("etc/sudoers.d", 0750); err != nil {
 		return err
@@ -511,6 +628,18 @@ func (a *agent) addAccount(dir string, account protocol.Account) error {
 	}
 	return a.offline(dir, io.Discard, "useradd", "--uid", strconv.Itoa(account.UID), "--gid", strconv.Itoa(account.GID),
 		"--create-home", "--shell", "/bin/bash", account.User)
+}
+
+// checkAccount requires an archive's account to exist in its tree with the
+// host's UID and primary GID.
+func (a *agent) checkAccount(dir string, account protocol.Account) error {
+	var passwd bytes.Buffer
+	err := a.offline(dir, &passwd, "getent", "passwd", account.User)
+	fields := strings.Split(strings.TrimSpace(passwd.String()), ":")
+	if err != nil || len(fields) < 4 || fields[0] != account.User || fields[2] != strconv.Itoa(account.UID) || fields[3] != strconv.Itoa(account.GID) {
+		return &protocol.Error{Code: protocol.CodeRefused, Message: fmt.Sprintf("the archive has no account %s with UID %d and GID %d", account.User, account.UID, account.GID)}
+	}
+	return nil
 }
 
 // checkMachineDescriptor refuses an image built for another machine layer, or

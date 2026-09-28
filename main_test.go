@@ -106,6 +106,15 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			}
 		}
 		f.states[unit], f.descriptions[unit] = "active", description
+		// The launched VM answers as the VM its record describes.
+		for _, a := range args {
+			if home, ok := strings.CutPrefix(a, "--setenv=NSL_HOME="); ok {
+				v := &vmRecord{dir: filepath.Join(home, "vm")}
+				if b, err := os.ReadFile(filepath.Join(home, "vm", "vm.json")); err == nil && json.Unmarshal(b, v) == nil {
+					f.vm = v
+				}
+			}
+		}
 	case "ssh":
 		if args[len(args)-2] == "exit" || strings.HasPrefix(args[len(args)-1], "-") {
 			return nil
@@ -134,7 +143,7 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			if reflect.DeepEqual(req.Argv, []string{"systemctl", "poweroff"}) {
 				f.states[vmUnit(f.vm)] = "inactive"
 			}
-		case "create":
+		case "create", "import":
 			_, err := io.WriteString(out, `{"build_id":"nsl-machine-debian-trixie-x86-64-r1"}`+"\n")
 			return err
 		case "start":
@@ -195,7 +204,7 @@ func startedVM(t *testing.T) (*app, *fakeRunner, *vmRecord) {
 		t.Fatal(err)
 	}
 	f.vm = v
-	if v, err = a.runningVM(); err != nil {
+	if v, err = a.runningVM(true); err != nil {
 		t.Fatal(err)
 	}
 	return a, f, v
@@ -230,7 +239,7 @@ func TestUpdateSelectsAnImageForTheNextStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.vm = v
-	if v, _ = a.runningVM(); v.Image != strings.TrimPrefix(digest, "sha256:") || v.PendingImage != "" {
+	if v, _ = a.runningVM(true); v.Image != strings.TrimPrefix(digest, "sha256:") || v.PendingImage != "" {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -260,7 +269,7 @@ func TestUpdateRefusesBadImages(t *testing.T) {
 
 func TestStartNeedsAnImage(t *testing.T) {
 	a, _ := testApp(t)
-	if _, err := a.runningVM(); err == nil || !strings.Contains(err.Error(), "nsl update") {
+	if _, err := a.runningVM(true); err == nil || !strings.Contains(err.Error(), "nsl update") {
 		t.Fatal(err)
 	}
 }
@@ -273,7 +282,7 @@ func TestLaunchArgumentsAndCredential(t *testing.T) {
 	os.Symlink("var/home", filepath.Join(a.hostRoot, "home"))
 	c, _ := a.loadConfig()
 	c.autostart.value, c.idleTimeout.value = false, 0
-	if err := a.writeCredential(v, c); err != nil {
+	if err := a.writeCredential(v, c, true); err != nil {
 		t.Fatal(err)
 	}
 	var cred protocol.Credential
@@ -390,7 +399,7 @@ func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
 	if err := a.resize([]string{"--disk", "200"}); err == nil {
 		t.Fatal("hid a failed resize")
 	}
-	if _, err := a.runningVM(); err == nil || !strings.Contains(err.Error(), "recover") {
+	if _, err := a.runningVM(true); err == nil || !strings.Contains(err.Error(), "recover") {
 		t.Fatal("started with pending growth:", err)
 	}
 	if err := a.resize([]string{"--disk", "300"}); err == nil || !strings.Contains(err.Error(), "pending growth to 200") {

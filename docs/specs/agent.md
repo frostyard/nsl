@@ -31,6 +31,7 @@ A request is the standard padded base64 encoding of one UTF-8 JSON object of at 
 | `idle_timeout` | integer | `start`, `run` | Minutes, 0–1440, from the [configuration](cli.md#configuration). The VM's idle monitor uses the latest value it receives. |
 | `account` | object | `create`, `import` | `user`, `group`, `uid`, `gid` of the host user, as in [account rules](cli.md#account-and-execution). |
 | `image` | object | `create` | `path` under the read-only image share, `digest` and `size` of the compressed root filesystem, and `build_id`. An empty `build_id` accepts the image's own; otherwise the descriptor must match it. |
+| `rootfs` | object | `import` | `digest` and `size` of the compressed root filesystem on stdin, and the `build_id` its descriptor must carry, from the archive's [manifest](cli.md#export-and-import). |
 | `time_zone` | string | `create`, `import` | The host's IANA zone name, or `Etc/UTC`. |
 
 Example `run` request, before base64 encoding:
@@ -52,8 +53,8 @@ Example `run` request, before base64 encoding:
 | `stop` | `machine`, `id` | Powers the machine off, waiting up to 30 s before terminating it. |
 | `run` | see below | The command's streams and exit status. |
 | `create` | `machine`, `id`, `account`, `image`, `time_zone` | Imports the image into a new subvolume and applies per-machine data. JSON: `build_id`, from the image's descriptor. |
-| `export` | `machine`, `id` | `rootfs.tar.zst` of a stopped machine on stdout. |
-| `import` | `machine`, `id`, `account`, `time_zone`; `rootfs.tar.zst` on stdin | Validates and extracts into a new subvolume, then applies per-machine data. |
+| `export` | `machine`, `id` | The stopped machine's root filesystem on stdout as a zstd tar with numeric owners, modes, xattrs and ACLs. The agent validates the stream as `import` would while writing it, and fails if it would be refused. |
+| `import` | `machine`, `id`, `account`, `rootfs`, `time_zone`; the root filesystem on stdin | Verifies the stream's digest and size, validates and extracts it into a new subvolume, requires the account with its UID and GID, then applies per-machine data. JSON: `build_id`. |
 | `remove` | `machine`, `id` | Deletes a stopped machine's subvolume, settings and record. Resumable. |
 
 Phase 8 adds `listeners`, for port discovery, and `display`, for the per-machine Waypipe session, to this table before implementing them.
@@ -101,9 +102,10 @@ An agent error writes one line to stderr, `nsl-agent: CODE: message`, and exits 
 - The agent MUST enforce the VM's trust tier from its boot identity:
   - A `shared` VM hosts any number of machines, each with `Bind=/mnt/host`.
   - An `isolated` VM hosts only the machine named in its identity, with no `/mnt/host` binding, display session or broker.
-- Lifecycle operations on one machine MUST serialize in the VM. `run` MAY proceed concurrently with other sessions.
+- Lifecycle operations on one machine (`start`, `stop`, `create`, `import`, `export` and `remove`) MUST serialize in the VM. One waits up to 30 s for another, then fails with `busy`. `run` MAY proceed concurrently with other sessions.
+- Every request MUST hold the VM's request lock, shared, for its lifetime, and mark the time it arrived. `start` and `run` MUST also mark the machine's latest activity. The [idle monitor](vm-image.md#machines) reads both.
 - `create` and `import` MUST build the machine in a staging subvolume and publish it under its name only after every step succeeds. On failure they MUST delete the staging subvolume, even if the SSH session ended, and leave the name free.
-- `create` MUST verify the image's compressed digest and size while reading it. `create` and `import` MUST refuse archive entries with absolute or `..` paths, links leaving the tree, OCI whiteouts and duplicates. They MUST preserve numeric owners, modes, xattrs (including file capabilities) and ACLs.
+- `create` and `import` MUST verify the compressed digest and size while reading the root filesystem. They MUST refuse entries with absolute or `..` paths, links leaving the tree, entries below a symlink, OCI whiteouts, duplicates, unsupported types and trailing data. Device nodes are refused in machine images and accepted in archives. They MUST preserve numeric owners, modes, xattrs (including file capabilities) and ACLs.
 - The agent MUST NOT run commands through a shell, `machinectl shell` or `nsenter`.
 - The agent MUST NOT change `/mnt/host` content or host files except as the command it runs directs.
 

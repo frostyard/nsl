@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/frostyard/nsl/internal/protocol"
 	"github.com/klauspost/compress/zstd"
@@ -75,10 +76,11 @@ func (m *fakeManager) Discard(unit string) { m.discarded++ }
 func (m *fakeManager) Close() error        { return nil }
 
 type fakeSystem struct {
-	units   map[string]string
-	manager *fakeManager
-	killed  []int
-	stopped []string
+	units    map[string]string
+	manager  *fakeManager
+	managers map[string]*fakeManager // per machine, when set
+	killed   []int
+	stopped  []string
 }
 
 func (s *fakeSystem) UnitState(unit string) (string, error) {
@@ -105,6 +107,9 @@ func (s *fakeSystem) OpenPTY(name string) (*os.File, *os.File, string, error) {
 func (s *fakeSystem) Machine(name string) (manager, error) {
 	if s.units[unitOf(name)] != "active" {
 		return nil, errors.New("not running")
+	}
+	if m, ok := s.managers[name]; ok {
+		return m, nil
 	}
 	return s.manager, nil
 }
@@ -367,7 +372,7 @@ func TestValidateRootfs(t *testing.T) {
 	check := func(name string, data []byte, limit int64) error {
 		p := filepath.Join(dir, name)
 		os.WriteFile(p, data, 0600)
-		return validateRootfs(p, limit)
+		return validateRootfs(p, limit, false)
 	}
 	if err := check("good", rootfs(t, goodRootfs(), nil), 1<<20); err != nil {
 		t.Fatal(err)
@@ -383,6 +388,7 @@ func TestValidateRootfs(t *testing.T) {
 		"escaping hard":   {name: "./usr/bin/ls", kind: tar.TypeLink, link: "../../etc/shadow"},
 		"hard to dir":     {name: "./usr/bin/ls", kind: tar.TypeLink, link: "./etc"},
 		"device":          {name: "./dev/null", kind: tar.TypeChar},
+		"block device":    {name: "./dev/vda", kind: tar.TypeBlock},
 		"root as file":    {name: ".", kind: tar.TypeReg},
 		"empty symlink":   {name: "./etc/x", kind: tar.TypeSymlink},
 		"symlink as root": {name: ".", kind: tar.TypeSymlink, link: "/"},
@@ -404,6 +410,12 @@ func TestValidateRootfs(t *testing.T) {
 	}
 	if err := check("garbage", []byte("not zstd"), 1<<20); err == nil {
 		t.Fatal("accepted garbage")
+	}
+	// Archives of a machine may hold device nodes, such as overlay whiteouts.
+	p := filepath.Join(dir, "archive")
+	os.WriteFile(p, rootfs(t, append(goodRootfs(), entry{name: "./var/whiteout", kind: tar.TypeChar}), nil), 0600)
+	if err := validateRootfs(p, 1<<20, true); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -543,6 +555,28 @@ func TestCreate(t *testing.T) {
 	if status := ta.serve(request(t, req)); status != 255 || !strings.Contains(ta.errors(), "already exists") {
 		t.Fatal("recreated an existing machine")
 	}
+	// Every request leaves its mark for the idle monitor.
+	if _, err := os.Stat(ta.root + requestsLock); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLifecycleOperationsSerialize(t *testing.T) {
+	ta := newTestAgent(t, "shared")
+	ta.addMachine(t, "debian", machineID)
+	release, err := ta.lockMachine("debian", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	if _, err := ta.lockMachine("debian", 200*time.Millisecond); err == nil || !strings.Contains(err.Error(), "busy") || time.Since(began) < 200*time.Millisecond {
+		t.Fatal("a second lifecycle operation did not wait, then report busy:", err)
+	}
+	release()
+	if release, err = ta.lockMachine("debian", 0); err != nil {
+		t.Fatal(err)
+	}
+	release()
 }
 
 func TestCreateFailuresLeaveNothing(t *testing.T) {
@@ -593,5 +627,164 @@ func TestCreateInIsolatedVM(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(ta.root + settingsDir + "/iso.nspawn"); strings.Contains(string(b), "/mnt/host") {
 		t.Fatal("isolated machine binds host files")
+	}
+}
+
+// importAgent builds an archive's root filesystem: a machine that already has
+// its account and was named debian.
+func importAgent(t *testing.T, entries []entry) (*testAgent, protocol.Request) {
+	t.Helper()
+	image := rootfs(t, entries, nil)
+	ta, req := createAgent(t, "shared", image)
+	stdin := filepath.Join(t.TempDir(), "stdin")
+	os.WriteFile(stdin, image, 0600)
+	f, _ := os.Open(stdin)
+	t.Cleanup(func() { f.Close() })
+	ta.stdin = f
+	handler := ta.r.handler
+	ta.r.handler = func(argv []string, stdin io.Reader, stdout io.Writer) error {
+		if argv[0] == "systemd-nspawn" && strings.Contains(strings.Join(argv, " "), "getent passwd bjk") {
+			io.WriteString(stdout, "bjk:x:1000:1000::/home/bjk:/bin/bash\n")
+			return nil
+		}
+		return handler(argv, stdin, stdout)
+	}
+	req.Op, req.Machine, req.Image = "import", "copy", nil
+	req.Rootfs = &protocol.Rootfs{Digest: "sha256:" + hashHex(image), Size: int64(len(image)), BuildID: "nsl-machine-debian-trixie-x86-64-r1"}
+	return ta, req
+}
+
+func hashHex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func archivedRootfs() []entry {
+	return append(goodRootfs(),
+		entry{name: "./etc/hostname", kind: tar.TypeReg, body: "debian\n"},
+		entry{name: "./home/", kind: tar.TypeDir},
+		entry{name: "./home/bjk/", kind: tar.TypeDir},
+		entry{name: "./home/bjk/notes", kind: tar.TypeReg, body: "kept"})
+}
+
+func TestImport(t *testing.T) {
+	entries := archivedRootfs()
+	entries[2].body = "127.0.0.1\tlocalhost\n127.0.1.1\tdebian\n"
+	ta, req := importAgent(t, entries)
+	if status := ta.serve(request(t, req)); status != 0 {
+		t.Fatal(ta.errors())
+	}
+	root := ta.root + machinesDir + "/copy"
+	if b, _ := os.ReadFile(root + "/home/bjk/notes"); string(b) != "kept" {
+		t.Fatal("lost the home:", string(b))
+	}
+	if b, _ := os.ReadFile(root + "/etc/hostname"); string(b) != "copy\n" {
+		t.Fatal(string(b))
+	}
+	if b, _ := os.ReadFile(root + "/etc/hosts"); string(b) != "127.0.0.1\tlocalhost\n127.0.1.1\tcopy\n" {
+		t.Fatalf("%q", b)
+	}
+	if link, _ := os.Readlink(root + "/etc/localtime"); link != "../usr/share/zoneinfo/Europe/Berlin" {
+		t.Fatal(link)
+	}
+	if ta.r.ran("systemd-nspawn") != 1 {
+		t.Fatal("changed the archive's accounts:", ta.r.calls)
+	}
+	if r, err := ta.loadRecord("copy"); err != nil || r.ID != machineID || r.BuildID != "nsl-machine-debian-trixie-x86-64-r1" {
+		t.Fatal(err, r)
+	}
+	if b, _ := os.ReadFile(ta.root + settingsDir + "/copy.nspawn"); !strings.Contains(string(b), "Bind=/mnt/host") {
+		t.Fatal(string(b))
+	}
+}
+
+func TestImportFailuresLeaveNothing(t *testing.T) {
+	for name, tc := range map[string]struct {
+		change  func(*testAgent, *protocol.Request)
+		message string
+	}{
+		"digest":  {func(ta *testAgent, r *protocol.Request) { r.Rootfs.Digest = "sha256:" + strings.Repeat("0", 64) }, "does not match"},
+		"short":   {func(ta *testAgent, r *protocol.Request) { r.Rootfs.Size++ }, "does not match"},
+		"build":   {func(ta *testAgent, r *protocol.Request) { r.Rootfs.BuildID = "nsl-machine-fedora-44-x86-64-r1" }, "not the selected"},
+		"account": {func(ta *testAgent, r *protocol.Request) { r.Account.UID = 1001 }, "no account bjk with UID 1001"},
+	} {
+		ta, req := importAgent(t, archivedRootfs())
+		tc.change(ta, &req)
+		if status := ta.serve(request(t, req)); status != 255 || !strings.Contains(ta.errors(), tc.message) {
+			t.Fatalf("%s: %d %s", name, status, ta.errors())
+		}
+		if names := leftovers(t, ta); len(names) != 0 {
+			t.Fatalf("%s: left %v", name, names)
+		}
+	}
+}
+
+// exportAgent runs the real tar, without the owner and xattr options an
+// unprivileged test cannot use, unless tarOutput replaces its stream.
+func exportAgent(t *testing.T, tarOutput []byte, tarErr error) *testAgent {
+	t.Helper()
+	ta := newTestAgent(t, "shared")
+	ta.addMachine(t, "debian", machineID)
+	root := ta.root + machinesDir + "/debian"
+	os.MkdirAll(root+"/etc", 0755)
+	os.WriteFile(root+"/etc/hostname", []byte("debian\n"), 0644)
+	os.Symlink("/run/systemd/resolve/stub-resolv.conf", root+"/etc/resolv.conf")
+	os.Link(root+"/etc/hostname", root+"/etc/hostname.bak")
+	ta.r.handler = func(argv []string, stdin io.Reader, stdout io.Writer) error {
+		if argv[0] != "tar" || argv[1] != "--create" {
+			return nil
+		}
+		if tarOutput != nil {
+			stdout.Write(tarOutput)
+			return tarErr
+		}
+		c := exec.Command("tar", "--create", "--file=-", "--directory", argv[4], "--format=posix", ".")
+		c.Stdout = stdout
+		return c.Run()
+	}
+	return ta
+}
+
+func TestExport(t *testing.T) {
+	ta := exportAgent(t, nil, nil)
+	export := request(t, protocol.Request{Op: "export", Machine: "debian", ID: machineID})
+	ta.sys.units[unitOf("debian")] = "active"
+	if status := ta.serve(export); status != 255 || !strings.Contains(ta.errors(), "busy") {
+		t.Fatal("exported a running machine:", status)
+	}
+	ta.sys.units[unitOf("debian")] = "inactive"
+	if status := ta.serve(export); status != 0 {
+		t.Fatal(ta.errors())
+	}
+	archive := filepath.Join(t.TempDir(), "rootfs.tar.zst")
+	os.WriteFile(archive, []byte(ta.output()), 0600)
+	if err := validateRootfs(archive, 1<<20, true); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("tar", "--list", "--zstd", "--file", archive).Output()
+	if err != nil || !strings.Contains(string(out), "./etc/hostname.bak") || !strings.Contains(string(out), "./etc/resolv.conf") {
+		t.Fatal(err, string(out))
+	}
+	for _, c := range ta.r.calls {
+		if c[0] == "tar" && !strings.Contains(strings.Join(c, " "), "--numeric-owner --xattrs --xattrs-include=* --acls") {
+			t.Fatal(c)
+		}
+	}
+}
+
+func TestExportRefusesAnInvalidStream(t *testing.T) {
+	var raw bytes.Buffer
+	w := tar.NewWriter(&raw)
+	for _, name := range []string{"./etc/hosts", "./etc/hosts"} {
+		w.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0644})
+	}
+	w.Close()
+	ta := exportAgent(t, raw.Bytes(), nil)
+	if status := ta.serve(request(t, protocol.Request{Op: "export", Machine: "debian", ID: machineID})); status != 255 || !strings.Contains(ta.errors(), "duplicate") {
+		t.Fatal(status, ta.errors())
+	}
+	ta = exportAgent(t, []byte{}, exitError(2))
+	if status := ta.serve(request(t, protocol.Request{Op: "export", Machine: "debian", ID: machineID})); status != 255 || !strings.Contains(ta.errors(), "archiving debian") {
+		t.Fatal(status, ta.errors())
 	}
 }

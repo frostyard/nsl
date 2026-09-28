@@ -45,12 +45,13 @@ Clients MUST reject a catalogue that is expired or valid for more than 30 days, 
 
 ### Artifacts
 
-Each image is an OCI artifact whose layers are named files. The catalogue authenticates the OCI manifest, and the descriptor's own signature independently authorizes its payload.
+Each image is an OCI artifact whose layers are named files, titled by `org.opencontainers.image.title`, with the empty OCI config. The catalogue authenticates the OCI manifest, and the descriptor's own signature independently authorizes its payload.
 
-| Kind | Files |
-| --- | --- |
-| `vm` | `descriptor.json`, `descriptor.sigstore.json`, `disk.raw.zst`, `packages.json`, `provenance.json`, `acceptance.json` |
-| `machine` | `descriptor.json`, `descriptor.sigstore.json`, `rootfs.tar.zst`, `packages.json`, `provenance.json`, `acceptance.json` |
+| Kind | Artifact type | Files |
+| --- | --- | --- |
+| catalogue | `application/vnd.frostyard.nsl.catalogue.v1` | `catalogue.json`, `catalogue.sigstore.json` |
+| `vm` | `application/vnd.frostyard.nsl.vm.v1` | `descriptor.json`, `descriptor.sigstore.json`, `disk.raw.zst`, `packages.json`, `provenance.json`, `acceptance.json` |
+| `machine` | `application/vnd.frostyard.nsl.machine.v1` | `descriptor.json`, `descriptor.sigstore.json`, `rootfs.tar.zst`, `packages.json`, `provenance.json`, `acceptance.json` |
 
 The signed `descriptor.json` has `schema` 1 and `kind`, and embeds the image's own descriptor as `image`: the [VM descriptor](vm-image.md#descriptor) or the [machine descriptor](machine-images.md#descriptor). Its `role` MUST match `kind`. It records SHA256 digests and sizes of the payload, uncompressed and compressed, and of the three evidence files:
 
@@ -80,7 +81,8 @@ Decompression uses a 128 MiB window and memory bound and an exact output-size li
 - Download anonymously over HTTPS. Registry authorization tokens are scoped to the fixed repository; redirects MUST NOT send them to other origins.
 - Resume private partial blobs by digest using validated HTTP ranges. If a server ignores a range, restart safely. Verify the entire resulting blob, including retained bytes.
 - Serialize requests per cache entry, reject unowned files and symlinks, sync completed files and publish atomically. Failed verification MUST NOT publish a usable image or named machine.
-- VM images are cached as verified raw disks. Machine images are cached as verified `rootfs.tar.zst`, after streaming decompression proves the uncompressed digest and size. The machine-image cache is the directory the VM reads through its read-only image share.
+- VM images are cached as verified raw disks, `images/vm/HEX.raw`, named by the raw digest. Machine images are cached as verified `rootfs.tar.zst`, `images/machines/HEX.tar.zst`, named by the compressed digest, after streaming decompression proves the uncompressed digest and size. The machine-image cache is the directory the VM reads through its read-only image share, and holds nothing else. Local `--image` files use the same names.
+- Receipts (the OCI manifest and the signed descriptor and bundle), evidence files and partial downloads live under `delivery/MANIFEST-HEX/`.
 - Record the greatest authenticated catalogue before fetching image payloads. Offline requests reverify stored signatures, metadata policy and payload digests, and require a complete cache. They MUST NOT download.
 - Recheck the latest locally authenticated catalogue before a pull or update returns. Expiry or a concurrent withdrawal MUST reject the selection. A later refresh affects later selections.
 - The CLI MUST reject a VM image whose `agent_protocol` differs from its own, and a machine image whose `machine_protocol` differs from the VM image's.

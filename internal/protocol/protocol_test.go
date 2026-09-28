@@ -35,6 +35,9 @@ func TestRoundTrip(t *testing.T) {
 		{Protocol: Version, Op: "create", Machine: "fedora-44", ID: testID, TimeZone: "America/New_York",
 			Account: &Account{User: "bjk", Group: "bjk", UID: 1000, GID: 1000},
 			Image:   &Image{Path: ImageShare + "/" + strings.Repeat("a", 64) + ".tar.zst", Digest: "sha256:" + strings.Repeat("a", 64), Size: 7, BuildID: "nsl-machine-debian-13-x86-64-r1"}},
+		{Protocol: Version, Op: "export", Machine: "debian", ID: testID},
+		{Protocol: Version, Op: "import", Machine: "copy", ID: testID, TimeZone: "UTC", Account: &Account{User: "bjk", Group: "bjk", UID: 1000, GID: 1000},
+			Rootfs: &Rootfs{Digest: "sha256:" + strings.Repeat("c", 64), Size: 9, BuildID: "nsl-machine-debian-13-x86-64-r1"}},
 	} {
 		s, err := Encode(r)
 		if err != nil {
@@ -109,6 +112,28 @@ func TestValidateRefusesBadFields(t *testing.T) {
 		"argv with create": {Account: &Account{"u", "u", 1000, 1000}, Image: image, TimeZone: "UTC", Argv: []string{"x"}},
 	} {
 		r.Protocol, r.Op, r.Machine, r.ID = Version, "create", "m", testID
+		if _, err := Encode(r); code(err) != CodeBadRequest {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestValidateRefusesBadImports(t *testing.T) {
+	rootfs := Rootfs{Digest: "sha256:" + strings.Repeat("c", 64), Size: 9, BuildID: "b"}
+	for name, change := range map[string]func(*Request){
+		"missing rootfs":  func(r *Request) { r.Rootfs = nil },
+		"bad digest":      func(r *Request) { r.Rootfs.Digest = "sha256:" + strings.Repeat("C", 64) },
+		"empty rootfs":    func(r *Request) { r.Rootfs.Size = 0 },
+		"oversized":       func(r *Request) { r.Rootfs.Size = ArchiveLimit + 1 },
+		"no build":        func(r *Request) { r.Rootfs.BuildID = "" },
+		"image on import": func(r *Request) { r.Image = &Image{} },
+		"rootfs on export": func(r *Request) {
+			r.Op, r.Account, r.TimeZone = "export", nil, ""
+		},
+	} {
+		copied := rootfs
+		r := Request{Protocol: Version, Op: "import", Machine: "m", ID: testID, TimeZone: "UTC", Account: &Account{"u", "u", 1000, 1000}, Rootfs: &copied}
+		change(&r)
 		if _, err := Encode(r); code(err) != CodeBadRequest {
 			t.Fatalf("%s: %v", name, err)
 		}

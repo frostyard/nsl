@@ -62,7 +62,7 @@ class VMImage(unittest.TestCase):
             self.assertIn('FinalizeScripts=nsl-finalize.chroot', config)
             self.assertEqual((destination/'overlay/etc/systemd/system-generators/systemd-ssh-generator').readlink(), Path('/dev/null'))
             units = destination/'overlay/etc/systemd/system'
-            for unit in ('nsl-data.service', 'nsl-setup.service', 'nsl-machines.service', 'nsl-ssh.socket', 'var-lib-nsl.mount', 'var-lib-machines.mount'):
+            for unit in ('nsl-data.service', 'nsl-setup.service', 'nsl-machines.service', 'nsl-idle.service', 'nsl-ssh.socket', 'var-lib-nsl.mount', 'var-lib-machines.mount'):
                 self.assertTrue((units/unit).is_file(), unit)
             self.assertIn('subvol=state', (units/'var-lib-nsl.mount').read_text())
             self.assertIn('subvol=machines', (units/'var-lib-machines.mount').read_text())

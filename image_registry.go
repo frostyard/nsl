@@ -216,9 +216,9 @@ func (r *imageRegistry) metadata(ref blobRef, max int64) ([]byte, error) {
 
 // The caller owns the per-image lock and private staging directory. An interrupted
 // transfer remains resumable; a completed blob is always hashed from byte zero.
-func (r *imageRegistry) download(ref blobRef, file *os.File, progress io.Writer) error {
-	if !ref.valid(compressedLimit) {
-		return errors.New("invalid compressed disk bounds")
+func (r *imageRegistry) download(ref blobRef, file *os.File, limit int64, progress io.Writer) error {
+	if !ref.valid(limit) {
+		return errors.New("invalid compressed image bounds")
 	}
 	st, err := file.Stat()
 	if err != nil {
@@ -255,12 +255,12 @@ func (r *imageRegistry) download(ref blobRef, file *os.File, progress io.Writer)
 			return fmt.Errorf("image download: HTTP %d", response.StatusCode)
 		}
 		if response.Header.Get("Content-Encoding") != "" && response.Header.Get("Content-Encoding") != "identity" {
-			return errors.New("unexpected disk HTTP encoding")
+			return errors.New("unexpected image HTTP encoding")
 		}
 		if length := response.Header.Get("Content-Length"); length != "" {
 			n, err := strconv.ParseInt(length, 10, 64)
 			if err != nil || n != ref.Size-offset {
-				return errors.New("disk HTTP length mismatch")
+				return errors.New("image HTTP length mismatch")
 			}
 		}
 		if _, err = file.Seek(offset, io.SeekStart); err != nil {
@@ -272,7 +272,7 @@ func (r *imageRegistry) download(ref blobRef, file *os.File, progress io.Writer)
 		syncErr := file.Sync()
 		if n > ref.Size-offset {
 			_ = file.Truncate(0)
-			return errors.New("download exceeds declared disk size")
+			return errors.New("download exceeds declared image size")
 		}
 		if copyErr != nil {
 			return fmt.Errorf("download interrupted; retry to resume: %w", copyErr)

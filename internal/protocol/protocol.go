@@ -24,6 +24,9 @@ const (
 	AgentPath      = "/usr/lib/nsl/nsl-agent"
 	// ImageShare is where a VM mounts the host's verified machine-image cache.
 	ImageShare = "/var/cache/nsl/images"
+	// ArchiveLimit bounds an exported root filesystem, compressed or not: the
+	// largest data disk.
+	ArchiveLimit int64 = 4096 << 30
 )
 
 var (
@@ -85,6 +88,21 @@ func (i *Image) validate() error {
 	return nil
 }
 
+// Rootfs is the compressed root filesystem an import reads from stdin, as the
+// archive's manifest records it.
+type Rootfs struct {
+	Digest  string `json:"digest"`
+	Size    int64  `json:"size"`
+	BuildID string `json:"build_id"`
+}
+
+func (r *Rootfs) validate() error {
+	if !digestPattern.MatchString(r.Digest) || r.Size < 1 || r.Size > ArchiveLimit || !buildPattern.MatchString(r.BuildID) {
+		return errors.New("invalid root filesystem")
+	}
+	return nil
+}
+
 type Request struct {
 	Protocol    int               `json:"protocol"`
 	Op          string            `json:"op"`
@@ -98,6 +116,7 @@ type Request struct {
 	IdleTimeout *int              `json:"idle_timeout,omitempty"`
 	Account     *Account          `json:"account,omitempty"`
 	Image       *Image            `json:"image,omitempty"`
+	Rootfs      *Rootfs           `json:"rootfs,omitempty"`
 	TimeZone    string            `json:"time_zone,omitempty"`
 }
 
@@ -110,19 +129,19 @@ var operations = map[string][]string{
 	"stop":     {"machine", "id"},
 	"run":      {"machine", "id", "argv", "directory", "root", "tty", "env", "idle_timeout"},
 	"create":   {"machine", "id", "account", "image", "time_zone"},
-	"import":   {"machine", "id", "account", "time_zone"},
+	"import":   {"machine", "id", "account", "rootfs", "time_zone"},
 	"export":   {"machine", "id"},
 	"remove":   {"machine", "id"},
 }
 
 // Fields a request must carry for its operation.
-var required = map[string]bool{"machine": true, "id": true, "argv": true, "idle_timeout": true, "account": true, "image": true, "time_zone": true}
+var required = map[string]bool{"machine": true, "id": true, "argv": true, "idle_timeout": true, "account": true, "image": true, "rootfs": true, "time_zone": true}
 
 func (r *Request) present() map[string]bool {
 	return map[string]bool{
 		"machine": r.Machine != "", "id": r.ID != "", "argv": r.Argv != nil, "directory": r.Directory != "",
 		"root": r.Root, "tty": r.TTY, "env": r.Env != nil, "idle_timeout": r.IdleTimeout != nil,
-		"account": r.Account != nil, "image": r.Image != nil, "time_zone": r.TimeZone != "",
+		"account": r.Account != nil, "image": r.Image != nil, "rootfs": r.Rootfs != nil, "time_zone": r.TimeZone != "",
 	}
 }
 
@@ -181,6 +200,11 @@ func (r *Request) Validate() error {
 	}
 	if r.Image != nil {
 		if err := r.Image.validate(); err != nil {
+			return badRequest("%v", err)
+		}
+	}
+	if r.Rootfs != nil {
+		if err := r.Rootfs.validate(); err != nil {
 			return badRequest("%v", err)
 		}
 	}
@@ -438,10 +462,13 @@ type MachineStatus struct {
 	BuildID  string `json:"build_id"`
 }
 
-// CreateResult is the answer to create.
+// CreateResult is the answer to create and import.
 type CreateResult struct {
 	BuildID string `json:"build_id"`
 }
+
+// ValidDigest reports whether s is sha256: followed by 64 lowercase hex digits.
+func ValidDigest(s string) bool { return digestPattern.MatchString(s) }
 
 // ValidBuildID reports whether s is an image build ID.
 func ValidBuildID(s string) bool { return buildPattern.MatchString(s) }

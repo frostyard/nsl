@@ -109,7 +109,11 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 
 - The image MUST provide `systemd-container` (nspawn and machined), `btrfs-progs`, and tar with zstd, xattrs and ACLs. It also provides the agent at `/usr/lib/nsl/nsl-agent` and a Waypipe server.
 - Before `machines.target`, a boot service MUST write each machine's nspawn settings from its record, and the agent MUST rewrite them before starting a machine: `Boot=yes`, `PrivateUsers=no`, `Timezone=off`, no virtual Ethernet, `BindReadOnly=/run/systemd/resolve` and, in a shared VM, `Bind=/mnt/host`. It MUST start every machine when `autostart` is true, and none otherwise.
-- An idle monitor MUST count each running machine's `nsl-run-*` units and connected Waypipe clients. It MUST power off a machine that has had neither for the latest `idle_timeout` (none when it is 0), and power off the VM when no machine is running.
+- An idle monitor, `nsl-idle.service` running `nsl-agent idle`, MUST poll every 10 s:
+  - It counts each running machine's `nsl-run-*` units whose command has not exited, and connections accepted on its Waypipe display socket, `/run/nsl/wayland/NAME/wayland-0`.
+  - A machine is idle from the later of the moment it was last seen with either and its latest `start` or `run` request. After the latest `idle_timeout` (none when it is 0, or unreadable), the monitor powers it off as `stop` does. It skips a machine a lifecycle operation holds, and checks again under the machine's lock.
+  - It powers the VM off once no machine has been running, and no request has been in flight or arrived, for 60 s. It decides under the exclusive request lock and keeps it, so a request that arrives meanwhile waits and the host starts the VM again.
+- Runtime state for the monitor lives in `/run/nsl`: `idle-timeout`, `requests.lock`, `activity/NAME` and `locks/NAME.lock`.
 
 ### Acceptance
 

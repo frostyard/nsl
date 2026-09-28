@@ -70,8 +70,8 @@ The project has no users; nothing needs migration.
 **Lifecycle and autostart.**
 
 - The VM starts on first use.
-- By default, every machine starts with the VM, through `machines.target`. Setting `autostart = false` in the configuration file makes machines start on first use instead.
-- ADR-0016's per-machine idle stop still applies, and the VM stops when no machine is running.
+- By default, every machine starts with the VM, through `machines.target`. Setting `autostart = false` in the configuration file makes machines start on first use instead. A VM started only to create, import, export or remove a machine starts none, since export and removal need the machine stopped.
+- ADR-0016's per-machine idle stop still applies, and the VM stops when no machine is running. An idle monitor in the VM decides both, so the host needs no background process.
 
 **Configuration file.** One user-owned file, `$XDG_CONFIG_HOME/nsl/nsl.conf` (default `~/.config/nsl/nsl.conf`), holds settings, kept separate from state in `NSL_HOME`.
 
@@ -129,7 +129,7 @@ The environment CLI, its state and the per-distro images are replaced in place b
 
 ## References
 
-- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md), including the image tally; [experiment code](../../experiments/shared-vm/README.md).
+- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md), including the image tally. The experiment code lived in `experiments/shared-vm/` until the implementation replaced it; commit `2d4ff7c` holds its last version.
 - Interface: [CLI contract](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md). Identity and trust: [ADR-0016](0016-wsl-style-machines.md).
 - Superseded or narrowed: [ADR-0005](0005-vmspawn-and-nspawn-images.md), [ADR-0006](0006-stopped-vm-backups.md), [ADR-0007](0007-maintainable-guest-boot.md), [ADR-0008](0008-offline-storage-management.md), [ADR-0009](0009-distribution-neutral-guest-contract.md), [ADR-0010](0010-explicit-guest-root-growth.md), [ADR-0011](0011-image-profiles-and-portable-vsock.md).
 - Unchanged and extended: [ADR-0012](0012-signed-image-distribution.md), [ADR-0013](0013-optional-cloud-init-provisioning.md), [ADR-0015](0015-image-verification-and-catalogue-policy.md).

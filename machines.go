@@ -28,7 +28,7 @@ type machineRecord struct {
 	Group    string `json:"group"`
 	UID      int    `json:"uid"`
 	GID      int    `json:"gid"`
-	Image    string `json:"image"`
+	Image    string `json:"image,omitempty"` // the machine image's digest; empty when imported
 	BuildID  string `json:"build_id,omitempty"`
 	Prepared bool   `json:"prepared"`
 	Created  string `json:"created"`
@@ -53,7 +53,8 @@ func (a *app) readMachine(path, name string) (*machineRecord, error) {
 		return nil, fmt.Errorf("machine record %s: %w", name, err)
 	}
 	if m.Schema != 1 || m.Name != name || !protocol.ValidID(m.ID) || m.Tier != "shared" || !protocol.ValidAccount(m.User) ||
-		!protocol.ValidAccount(m.Group) || m.UID != a.uid || m.GID != a.gid || len(m.Image) != 64 || (m.BuildID != "" && !protocol.ValidBuildID(m.BuildID)) {
+		!protocol.ValidAccount(m.Group) || m.UID != a.uid || m.GID != a.gid || (m.Image != "" && !protocol.ValidDigest("sha256:"+m.Image)) ||
+		(m.BuildID != "" && !protocol.ValidBuildID(m.BuildID)) {
 		return nil, fmt.Errorf("unsupported machine record or identity mismatch: %s", name)
 	}
 	return &m, nil
@@ -172,10 +173,12 @@ func (a *app) idleTimeout() (*int, error) {
 	return &n, nil
 }
 
-// create prepares a machine from a local machine image.
+// create prepares a machine from a verified catalogue selection or a local
+// machine image.
 func (a *app) create(args []string) error {
+	usage := errors.New("usage: create NAME --distro DISTRO:RELEASE [--offline] [--default] [--user NAME] | create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]")
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]")
+		return usage
 	}
 	name := args[0]
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
@@ -197,77 +200,98 @@ func (a *app) create(args []string) error {
 		return errors.New("machine names are 1–24 lowercase letters, digits or interior hyphens, starting with a letter")
 	case *isolated:
 		return errors.New("isolated machines are not implemented yet (Phase 9)")
-	case *distro != "" || *offline:
-		return errors.New("signed machine images are not published yet; use --image FILE --digest sha256:HEX")
-	case *image == "" || !digestPattern.MatchString(*digest):
-		return errors.New("create needs --image FILE --digest sha256:HEX")
+	case (*distro == "") == (*image == "") || (*image == "") != (*digest == "") || (*offline && *distro == ""):
+		return usage
+	case *image != "" && !digestPattern.MatchString(*digest):
+		return errors.New("--digest must be sha256: followed by 64 lowercase hex digits")
 	case !protocol.ValidAccount(*account):
 		return errors.New("--user must be a lowercase POSIX account name of at most 32 characters")
 	case runtime.GOARCH != "amd64":
 		return errors.New("machines are x86-64 only")
 	}
-	hexDigest := strings.TrimPrefix(*digest, "sha256:")
 	if err := a.initMachines(); err != nil {
 		return err
 	}
-	cached := filepath.Join(a.machineImages(), hexDigest+".tar.zst")
-	if err := a.importFile(*image, cached, hexDigest); err != nil {
+	var cached *cachedImage
+	if *distro != "" {
+		var err error
+		if cached, err = a.imageClient().pullMachine(*distro, *offline); err != nil {
+			return err
+		}
+		if err = a.ensureVMImage(*offline); err != nil {
+			return err
+		}
+	} else {
+		hexDigest := strings.TrimPrefix(*digest, "sha256:")
+		path := filepath.Join(a.machineImages(), hexDigest+".tar.zst")
+		if err := a.importFile(*image, path, hexDigest); err != nil {
+			return err
+		}
+		st, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		// A local image's build ID is whatever its descriptor says.
+		cached = &cachedImage{path: path, ref: blobRef{Digest: *digest, Size: st.Size()}}
+	}
+	hexDigest := strings.TrimPrefix(cached.ref.Digest, "sha256:")
+	m := &machineRecord{Schema: 1, Name: name, ID: randomID(), Tier: "shared", User: *account, Group: a.group, UID: a.uid, GID: a.gid,
+		Image: hexDigest, Created: time.Now().UTC().Format(time.RFC3339)}
+	request := &protocol.Image{Path: protocol.ImageShare + "/" + hexDigest + ".tar.zst", Digest: cached.ref.Digest, Size: cached.ref.Size, BuildID: cached.buildID}
+	if err := a.newMachine(m, protocol.Request{Op: "create", Image: request}, nil, 20*time.Minute, *makeDefault); err != nil {
 		return err
 	}
-	st, err := os.Stat(cached)
-	if err != nil {
-		return err
-	}
+	fmt.Fprintf(a.out, "Created %s from %s\n", name, m.BuildID)
+	return nil
+}
+
+// newMachine reserves the name with an unprepared record, has the agent build
+// the machine, and makes it the default when there is none or when asked.
+func (a *app) newMachine(m *machineRecord, req protocol.Request, stdin io.Reader, timeout time.Duration, makeDefault bool) error {
 	manager, err := fileLock(filepath.Join(a.home, "lock"))
 	if err != nil {
 		return err
 	}
-	for _, p := range []string{a.machinePath(name), a.removingPath(name)} {
+	for _, p := range []string{a.machinePath(m.Name), a.removingPath(m.Name)} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			unlock(manager)
-			return fmt.Errorf("%s exists or its removal is incomplete; see nsl list", name)
+			return fmt.Errorf("%s exists or its removal is incomplete; see nsl list", m.Name)
 		}
 	}
-	m := &machineRecord{Schema: 1, Name: name, ID: randomID(), Tier: "shared", User: *account, Group: a.group, UID: a.uid, GID: a.gid,
-		Image: hexDigest, Created: time.Now().UTC().Format(time.RFC3339)}
 	// The unprepared record reserves the name; remove cleans it up if we stop here.
 	err = a.saveMachine(m)
 	unlock(manager)
 	if err != nil {
 		return err
 	}
-	l, m, err := a.lockMachine(m)
+	l, locked, err := a.lockMachine(m)
 	if err != nil {
 		return err
 	}
 	defer unlock(l)
-	if err = a.prepareMachine(m, st.Size()); err != nil {
-		return fmt.Errorf("creating %s failed; nothing was kept: %w", name, err)
+	*m = *locked
+	if err = a.prepareMachine(m, req, stdin, timeout); err != nil {
+		return fmt.Errorf("creating %s failed; nothing was kept: %w", m.Name, err)
 	}
 	current, err := a.defaultMachine()
 	if err != nil {
 		return err
 	}
-	if current == "" || *makeDefault {
-		if err = a.setDefault(name); err != nil {
-			return err
-		}
+	if current == "" || makeDefault {
+		return a.setDefault(m.Name)
 	}
-	fmt.Fprintf(a.out, "Created %s from %s\n", name, m.BuildID)
 	return nil
 }
 
-// prepareMachine has the agent import the image; a failure removes both the
+// prepareMachine has the agent build the machine; a failure removes both the
 // VM's partial machine and the host record.
-func (a *app) prepareMachine(m *machineRecord, size int64) error {
-	v, err := a.runningVM()
+func (a *app) prepareMachine(m *machineRecord, req protocol.Request, stdin io.Reader, timeout time.Duration) error {
+	v, err := a.runningVM(false)
 	if err == nil {
+		req.Machine, req.ID, req.TimeZone = m.Name, m.ID, hostZone()
+		req.Account = &protocol.Account{User: m.User, Group: m.Group, UID: m.UID, GID: m.GID}
 		var result protocol.CreateResult
-		err = a.agentJSON(v, protocol.Request{Op: "create", Machine: m.Name, ID: m.ID, TimeZone: hostZone(),
-			Account: &protocol.Account{User: m.User, Group: m.Group, UID: m.UID, GID: m.GID},
-			Image:   &protocol.Image{Path: protocol.ImageShare + "/" + m.Image + ".tar.zst", Digest: "sha256:" + m.Image, Size: size}},
-			nil, 20*time.Minute, &result)
-		if err == nil {
+		if err = a.agentJSON(v, req, stdin, timeout, &result); err == nil {
 			m.BuildID, m.Prepared = result.BuildID, true
 			return a.saveMachine(m)
 		}
@@ -307,7 +331,7 @@ func (a *app) startMachine(m *machineRecord) (*vmRecord, error) {
 	if err := a.requirePrepared(m); err != nil {
 		return nil, err
 	}
-	v, err := a.runningVM()
+	v, err := a.runningVM(true)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +397,7 @@ func (a *app) listMachines(w io.Writer, v *vmRecord) error {
 	}
 	removing, _ := filepath.Glob(filepath.Join(a.home, "removing", "*.json"))
 	if len(names) == 0 && len(removing) == 0 {
-		fmt.Fprintln(w, "No machines; create one with nsl create NAME --image FILE --digest sha256:HEX")
+		fmt.Fprintln(w, "No machines; create one with nsl create NAME --distro DISTRO:RELEASE")
 		return nil
 	}
 	current, err := a.defaultMachine()
@@ -456,7 +480,7 @@ func (a *app) remove(args []string) error {
 			return err
 		}
 	}
-	v, err := a.runningVM()
+	v, err := a.runningVM(false)
 	if err != nil {
 		return fmt.Errorf("removal of %s is pending; retry nsl remove %s --yes: %w", name, name, err)
 	}

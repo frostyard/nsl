@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1–6 complete, 2026-09-27; Phase 7's machine lifecycle is partly built.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1–7 complete, 2026-09-28.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -20,7 +20,7 @@ For a fresh session, read these in order:
 4. The [lifecycle design](../design/lifecycle.md): how those pieces fit together.
 5. The [experiment plan](shared-vm-experiment.md): the measured evidence, every finding and the hub image tally.
 
-The experiment code in [`experiments/shared-vm/`](../../experiments/shared-vm/README.md) is the reference implementation. Port its behavior, not its structure.
+The experiment code, `experiments/shared-vm/` at commit `2d4ff7c`, was the reference implementation. Phase 7 finished porting its behavior and deleted it:
 
 | Experiment code | Becomes |
 | --- | --- |
@@ -32,9 +32,9 @@ The experiment code in [`experiments/shared-vm/`](../../experiments/shared-vm/RE
 | `machines.py`: `entry(method='run')` | The agent's reference behavior (Phase 6) |
 | `machines.py check` | The agent's acceptance matrix (Phase 6) |
 | `workloads.py` | `scripts/probe-machines.py` (Phase 4) |
-| `measure.py` | The memory and start-time regression check (Phases 7 and 10) |
+| `measure.py` | `scripts/measure-machines.py`, the memory and start-time regression check (Phases 7 and 10) |
 
-Delete `experiments/shared-vm/` once Phase 7 has ported everything it holds.
+The hub-image signature check in `machines.py` stays evidence only, and `measure.py`'s one-VM-per-machine side has nothing left to measure.
 
 Dependencies:
 
@@ -296,15 +296,47 @@ The four total 513 MB against the hub's 464 MB; they add `sudo`, PAM, zone data,
 - **Remove `experiments/shared-vm/`** once everything it holds is ported.
 - **Done when:** four machines are created offline from the cache and pass `probe-machines.py` through the CLI. An export and import round trip preserves packages, home and services. Four idle machines stay at or below the experiment's 950 MiB, and another machine starts at p95 ≤ 2 s.
 
-**Progress, 2026-09-27, built with Phases 4 and 6 because their acceptance runs through the CLI:**
+**Result, 2026-09-28: complete.** Creation, `list`, `default`, `start`, `stop` and resumable `remove` were built with Phases 4 and 6, because their acceptance runs through the CLI. This phase added the rest.
 
-- **Built:**
-  - `create NAME --image FILE --digest sha256:HEX`: offline, from the verified cache, with cleanup after failure and the first machine becoming the default;
-  - `list`, `default`, `start`, `stop` and resumable `remove`;
-  - autostart through the boot credential;
-  - `experiments/shared-vm/` is not yet removed.
-- **Evidence:** four machines were created offline and passed `probe-machines.py` (Phase 4). Creation took 2.8–11.5 s, the longest including the VM's first boot. After a VM restart, every machine autostarted.
-- **Remaining:** `create --distro` from the catalogue, `export` and `import`, the idle monitor, the memory and start-time measurements, and removing the experiment code.
+- **Export and import.** The agent's `export` streams a stopped machine as a zstd tar through the same validator `import` uses. The host writes it after space reserved for the manifest, hashes it on the way, fills in both tar headers, and publishes by hard link. `import` checks the manifest, the checksum and the archive's end before starting the VM. The agent verifies the digest again as it receives the stream, validates every entry, requires the account with the host's UID and GID, checks the descriptor, and applies per-machine data. Archives may carry device nodes, such as rootless Podman's overlay whiteouts; machine images may not.
+- **Agent locks.** Lifecycle operations on one machine now serialize in the VM, waiting 30 s before `busy`. Every request holds a shared request lock and records its time; `start` and `run` mark the machine's activity.
+- **Idle stop.** `nsl-idle.service` runs `nsl-agent idle` in the VM ([VM image](../specs/vm-image.md#machines)). It stops a machine idle for `idle_timeout`, and powers the VM off 60 s after its last machine and last request. Waypipe clients are counted as connections accepted on `/run/nsl/wayland/NAME/wayland-0`, which Phase 8 serves. Only commands that enter or start a machine autostart the others; `create`, `import`, `export` and `remove` start the VM without them. A command that meets a VM powering itself off waits and starts it again.
+- **Catalogue delivery.** `images`, `pull`, `update` and `create --distro` read the two-kind catalogue ([delivery](../specs/image-delivery.md)). VM images are cached as raw disks in `images/vm`, and machine images as verified `rootfs.tar.zst` in the share directory, named by the digests local images use. Tests run against a fake registry; nothing is published until Phase 10, and `catalogueMinimum` is 1 until Phase 10 sets it to the first two-kind catalogue.
+- **Deleted:** `experiments/shared-vm/`. `scripts/measure-machines.py` replaces `measure.py`; the rest was ported in Phases 3–6.
+- **VM image r6:** `nsl-vm-trixie-x86-64-r6`, SHA256 `edc6b0fbd74c788727927b9fd8381c32550cc5fa9efc259392cf144b99b6935e`, adds the idle monitor. `probe-vm.py` passed all nine checks (`nsl-vm-trixie-x86-64-r6-probe.json`): readiness 7.72 s on first boot and 8.08 s later; refusal 7.79 s; binding 10.76 s.
+- **Machine acceptance on r6:** the four machine images were created offline from the cache and passed all 36 checks of `probe-machines.py` other than GUI, which waits for Phase 8's display session (`machines-probe-4.json`).
+
+Export and import on r6 (`phase7-archive-idle.json`). A Debian machine got `jq`, `attr`, `acl` and `libcap2-bin`, a home file with a user xattr and an ACL entry, `cap_net_raw` on a copied binary, and an enabled service:
+
+| Check | Result |
+| --- | --- |
+| Export of a stopped machine | 2.1 s, a 185 MB archive, mode 0600: `manifest.json` (4 KiB reserved) then `rootfs.tar.zst` |
+| Import as `copy` | 4.6 s |
+| Preserved | package, home file, xattr, ACL, file capability, enabled and active service, home owner 1000:1000, zone link, `/etc/machine-id` |
+| Per-machine data | hostname `copy`; `/etc/hosts` has `127.0.1.1 copy` and no longer `debian` |
+| Refused | export of a running machine (`busy`), export onto an existing file, import under a taken name, a damaged archive (no record left) |
+
+Idle stop on r6, with `idle_timeout = 1`:
+
+| Check | Result |
+| --- | --- |
+| Three idle machines | Each stopped 66.6 s after starting: the timeout plus the 10 s poll |
+| Idle VM | Powered off 72 s after the last request |
+| Next command | `nsl run -m debian true` started the VM and machine in 7.7 s |
+| A 90 s command | Kept its machine running past the timeout |
+
+Measurements on r6 with `scripts/measure-machines.py` (`measure-machines-1.json`): Snow 13, 32 CPUs, 60 GiB, KSM off, THP `always`; the VM had 4 vCPUs and 8 GiB, as in the experiment. Machines were fresh images without the experiment's workload packages.
+
+| Measurement | Result | Experiment |
+| --- | --- | --- |
+| Idle, 1 machine | 649 MiB | 723 MiB |
+| Idle, 2 machines | 713 MiB | 802 MiB |
+| Idle, 4 machines | **853 MiB** (limit 950) | 950 MiB |
+| Cold start of the first machine, VM included, median / p95 | 7.69 / 8.02 s | 7.97 / 8.33 s |
+| Start of an additional machine, median / p95 | 0.53 / **0.67 s** (limit 2 s) | 0.63 / 0.84 s |
+| No-op `nsl run`, median / p95 | 89 / 111 ms | 66 ms |
+
+QEMU is nearly all of the PSS; virtiofsd held 4.4 MiB and vmspawn 3 MiB while idle.
 
 ## Phase 8 — Host integration
 
@@ -351,6 +383,7 @@ Each item was found by a failing check and must not regress.
 
 - Size the VM to its running machines (virtio-mem or balloon targets); one machine currently costs twice a single VM.
 - Keep agent sessions warm to recover the experiment's 48 ms transport overhead.
+- Fold readiness and `start` into the first request: each command now makes three SSH round trips (`identity`, `start`, `run`), which costs most of the 89 ms no-op median.
 - Measure and bound virtiofsd memory under file load.
 - Find the 1.3–2 s Ctrl-C delay in the SSH transport.
 - Translate absolute host symlinks; handle `/run/media/USER` appearing after VM start, and host automounts.
@@ -366,12 +399,12 @@ Each item was found by a failing check and must not regress.
 | Agent language and D-Bus library? | Resolved in Phase 1: Go with a pinned `godbus/dbus/v5`, sharing request types with the CLI ([agent protocol](../specs/agent.md#implementation)). Built in Phase 6. | Phase 1 |
 | Where do VM identity and host keys live? | Specified in Phase 1: the data disk's `state` subvolume ([VM image](../specs/vm-image.md#disks-and-state)). Phase 3 validates it across a root replacement. | Phase 3 |
 | Machine archive encoding? | Resolved in Phase 1: tar with numeric owners, xattrs and ACLs rather than `btrfs send` ([ADR-0006](../adr/0006-stopped-vm-backups.md)). | Phase 1 |
-| Idle-session accounting? | Specified in Phase 1: the VM's idle monitor counts `nsl-run-*` units and Waypipe clients ([VM image](../specs/vm-image.md#machines)). | Phase 7 |
+| Idle-session accounting? | Resolved in Phase 7: the VM's idle monitor counts `nsl-run-*` units that have not exited and connections to the machine's Waypipe display socket, and takes the latest `start` or `run` as activity ([VM image](../specs/vm-image.md#machines)). | Phase 7 |
 
 ## References
 
 - Decisions: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0012](../adr/0012-signed-image-distribution.md), [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0006](../adr/0006-stopped-vm-backups.md).
 - Contracts: [CLI](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md), [image delivery](../specs/image-delivery.md).
 - Design: [machine lifecycle](../design/lifecycle.md).
-- Evidence and reference code: [shared-VM experiment](shared-vm-experiment.md), [experiment code](../../experiments/shared-vm/README.md).
+- Evidence: [shared-VM experiment](shared-vm-experiment.md); its code is at commit `2d4ff7c`.
 - Pipeline: [image publication](../design/image-publication.md), [image build](../../image/README.md).
