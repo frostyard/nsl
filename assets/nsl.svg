@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>nsl</title>
+  <!-- A machine (an nspawn container) at the heart of a Frostyard snowflake.
+       Colours are the Frostyard ink and ice tokens; light falls from the upper right. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#17445e"/>
+      <stop offset="0.64" stop-color="#0a1f31"/>
+      <stop offset="1" stop-color="#06111d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.82" cy="0.06" r="0.62">
+      <stop offset="0" stop-color="#1f6f9c" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#1f6f9c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="top" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#aee9ff"/>
+      <stop offset="1" stop-color="#e4f8ff"/>
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2b9fe0"/>
+      <stop offset="1" stop-color="#5ac9f7"/>
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1584ca"/>
+      <stop offset="1" stop-color="#0d5f94"/>
+    </linearGradient>
+    <filter id="halo" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="44" fill="url(#tile)"/>
+  <rect x="16" y="16" width="480" height="480" rx="44" fill="url(#glow)"/>
+  <rect x="17.5" y="17.5" width="477" height="477" rx="42.5" fill="none" stroke="#a2deff" stroke-opacity="0.22" stroke-width="3"/>
+
+  <polygon points="256,154 344.3,205 344.3,307 256,358 167.7,307 167.7,205" fill="#3cbdf4" opacity="0.32" filter="url(#halo)"/>
+
+  <!-- Six arms, each a spoke with one branch and a crystal at its tip -->
+  <g fill="#e4f8ff" stroke="#aee9ff" stroke-width="12">
+    <g><path d="M256 146V84M230 95l26 15 26-15" fill="none"/><path d="M256 53l13 13-13 13-13-13z" stroke="none"/></g>
+    <g transform="rotate(60 256 256)"><path d="M256 146V84M230 95l26 15 26-15" fill="none"/><path d="M256 53l13 13-13 13-13-13z" stroke="none"/></g>
+    <g transform="rotate(120 256 256)"><path d="M256 146V84M230 95l26 15 26-15" fill="none"/><path d="M256 53l13 13-13 13-13-13z" stroke="none"/></g>
+    <g transform="rotate(180 256 256)"><path d="M256 146V84M230 95l26 15 26-15" fill="none"/><path d="M256 53l13 13-13 13-13-13z" stroke="none"/></g>
+    <g transform="rotate(240 256 256)"><path d="M256 146V84M230 95l26 15 26-15" fill="none"/><path d="M256 53l13 13-13 13-13-13z" stroke="none"/></g>
+    <g transform="rotate(300 256 256)"><path d="M256 146V84M230 95l26 15 26-15" fill="none"/><path d="M256 53l13 13-13 13-13-13z" stroke="none"/></g>
+  </g>
+
+  <!-- The machine: an isometric cube with its faces parted -->
+  <polygon points="256,158 335.7,204 256,250 176.3,204" fill="url(#top)"/>
+  <polygon points="261.2,259 340.9,213 340.9,305 261.2,351" fill="url(#right)"/>
+  <polygon points="171.1,213 250.8,259 250.8,351 171.1,305" fill="url(#left)"/>
+</svg>
