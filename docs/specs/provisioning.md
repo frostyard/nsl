@@ -1,27 +1,28 @@
 # Spec: Optional creation-time provisioning
 
-**Status: planned interface; none of the commands or flags below are implemented.** This contract is for CLI, image and backup implementers under [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md).
+**Status: deferred.** Nothing here is implemented, and it stays deferred until cloud-init is re-validated inside machines ([ADR-0017](../adr/0017-shared-vm-and-machine-images.md)). This contract is for CLI, agent and machine-image implementers under [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md). Under [ADR-0016](../adr/0016-wsl-style-machines.md), provisioning is machine bootstrap, such as toolchains and dotfiles, not project definition.
+
+Before this ships, re-validation must show that, in Debian and Fedora machines:
+
+- cloud-init's NoCloud seed directory works under nspawn;
+- user modules run after the nsl account exists;
+- nothing conflicts with the machine layer's disabled network services.
 
 ## Interface
 
-The following options extend either local-image creation or the separately planned catalogue selector. Existing image/resource/project flags keep their meanings.
-
 | Proposed command or option | Behavior |
 | --- | --- |
-| `create NAME … --cloud-init FILE` | Snapshot a local cloud-config file into owned state. Prepare the VM; provisioning starts on its first boot. |
-| `create NAME … --cloud-init FILE --wait-provisioning [--provision-timeout DURATION]` | Prepare, boot, wait for authenticated management access, then wait for provisioning success. |
-| `provision status NAME [--json]` | Report saved provisioning identity/input digest and last known status; refresh from the authenticated guest if already reachable. Never start a VM. |
+| `create NAME … --cloud-init FILE` | Snapshot a local cloud-config file into owned state. Provisioning starts on the machine's first boot. |
+| `create NAME … --cloud-init FILE --wait-provisioning [--provision-timeout DURATION]` | Create, start, wait for readiness, then wait for provisioning to succeed. |
+| `provision status NAME [--json]` | Report the saved provisioning ID, input digest and last known status. Refresh from the machine only if it is running; never start it. |
 | `provision wait NAME [--timeout DURATION]` | Start if necessary and wait for provisioning to finish. |
-| `provision logs NAME [--follow]` | Read provisioning logs through authenticated guest access. Require a running reachable VM; never start it implicitly. |
+| `provision logs NAME [--follow]` | Read provisioning logs from a running machine; never start it. |
 
-Wait durations use positive Go duration syntax such as `30s` or `10m`, defaulting to `10m`. Zero/negative values are invalid. `--wait-provisioning` requires `--cloud-init`; `--provision-timeout` also requires the wait option. The provisioning timer begins after management readiness; normal startup retains its separate timeout. Wait timeout or interruption stops waiting and leaves the VM/provisioning running.
-
-Example, once both catalogue delivery and provisioning are implemented:
+Wait durations use positive Go duration syntax such as `30s` or `10m`, defaulting to `10m`. `--wait-provisioning` requires `--cloud-init`, and `--provision-timeout` requires `--wait-provisioning`. The provisioning timer starts after readiness. A timeout or interruption stops waiting and leaves the machine and provisioning running.
 
 ```sh
-nsl create dev --distro ubuntu:24.04 --cloud-init dev.yaml --wait-provisioning
+nsl create dev --distro debian:13 --cloud-init dev.yaml --wait-provisioning
 nsl provision status dev --json
-nsl provision logs dev
 ```
 
 Initial file format:
@@ -41,39 +42,39 @@ runcmd:
   - [sh, -c, 'printf "provisioned\n" > /var/lib/project-ready']
 ```
 
-Package names and shell commands remain distro-specific user configuration. nsl does not translate them between distributions.
+Package names and commands are distro-specific user configuration. nsl does not translate them between distributions.
 
-## Input and capability rules
+## Rules
 
-- `FILE` MUST resolve to a readable regular local file containing UTF-8 YAML beginning with `#cloud-config`, bounded to 1 MiB for the initial interface. Direct shell-script, multipart, compressed and remote-include inputs are outside this initial surface. Omission MUST leave provisioning disabled.
-- The host MUST snapshot the file and record its SHA256 before publishing an environment; later edits or deletion of the source MUST NOT affect that environment. It MUST NOT interpolate shell variables or execute supplied content on the host.
-- The proposed image capability `provisioning.cloud_init` MUST declare interface version, installed cloud-init version, `nocloud` datasource and supported top-level cloud-config keys. Both image selection metadata and the authenticated guest descriptor MUST be checked. Missing/incompatible capability MUST fail clearly; the CLI MUST NOT install cloud-init into an arbitrary guest as a fallback.
-- Initial selectable keys are `package_update`, `package_upgrade`, `packages`, `write_files`, `runcmd`, `ca_certs`, `apt` and `yum_repos`, restricted further by each tested image's declared subset. Unknown/unsupported keys and malformed values MUST be rejected using the guest's cloud-init schema and the nsl allowlist before applying user configuration. Host-side checks cover input bounds/format; full guest validation can fail on first boot and MUST produce observable `failed` status.
-- nsl controls NoCloud metadata and instance ID. Users MUST NOT supply replacement metadata, network configuration or vendor data in this interface. Users/groups, SSH authentication/host keys, partitioning, growth, datasource selection and reboot/power-state directives are reserved. Image adapters MUST disable conflicting cloud-init defaults as well as rejecting conflicting user keys.
-- Approved configuration and commands run as guest root. This is equivalent in authority to explicit guest administration; scripts can still change nsl-managed files or services. Host shares remain limited to existing explicit grants.
+### Input and capability
 
-## Boot and status rules
+- `FILE` MUST be a readable regular file of UTF-8 YAML beginning with `#cloud-config`, at most 1 MiB. Shell scripts, multipart, compressed and remote-include inputs are out of scope.
+- The host MUST snapshot the file and record its SHA256 before publishing the machine. Later edits to the source MUST NOT affect the machine. The host MUST NOT interpolate or execute the content.
+- The machine image MUST advertise the `provisioning.cloud_init` capability in its [descriptor](machine-images.md#descriptor). It declares the interface version, the cloud-init version, the `nocloud` datasource and the supported top-level keys. The CLI MUST check both the catalogue's descriptor and the running machine's. It MUST NOT install cloud-init into a machine as a fallback.
+- Selectable keys are `package_update`, `package_upgrade`, `packages`, `write_files`, `runcmd`, `ca_certs`, `apt` and `yum_repos`, narrowed by each image's declared subset. Other keys and malformed values MUST be rejected before user configuration applies.
+- nsl owns the NoCloud metadata and instance ID. Users/groups, SSH keys, networking, datasource selection and reboot or power-state directives are reserved, and images MUST disable cloud-init defaults that conflict with the machine layer.
+- Accepted configuration runs as machine root. It is equivalent to explicit machine administration.
 
-Images MUST expose only the local NoCloud datasource for this feature, with a read-only seed. Discovery may occur early; user modules MUST run after nsl account/identity/root-growth setup, and network-dependent modules after guest networking. Management SSH readiness MUST NOT wait for user provisioning to finish. Adapters MUST test these dependencies for boot cycles and avoid changing pinned SSH host keys.
+### Status
 
-Provisioning state is independent of VM runtime state:
+Provisioning state is separate from machine state:
 
 | State | Meaning |
 | --- | --- |
 | `disabled` | No cloud-init input was selected. |
-| `pending` | Input is recorded; execution has not been observed starting. |
-| `running` | Cloud-init is executing the selected configuration. |
-| `succeeded` | Cloud-init reports completion with no provisioning errors. |
-| `failed` | Input validation, required provisioning setup or cloud-init execution reported errors. |
-| `unknown` | Provisioning was requested but the guest report is unavailable or inconsistent; never infer success. |
+| `pending` | Input is recorded; execution has not been observed. |
+| `running` | cloud-init is executing the configuration. |
+| `succeeded` | cloud-init finished with no provisioning errors. |
+| `failed` | Validation, setup or execution reported errors, including degraded completion. |
+| `unknown` | The machine's report is unavailable or inconsistent; success is never inferred. |
 
-`status --json` uses these field names and types:
+`status --json`:
 
 ```json
 {
   "schema_version": 1,
-  "environment": "dev",
-  "runtime_state": "Running",
+  "machine": "dev",
+  "machine_state": "running",
   "provisioning_state": "running",
   "provisioning_id": "0123456789abcdef0123456789abcdef",
   "input_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -83,23 +84,18 @@ Provisioning state is independent of VM runtime state:
 }
 ```
 
-`provisioning_id` is 32 lowercase hexadecimal characters; `input_sha256` is 64. Both are null for `disabled`. `observed_at` is RFC 3339 UTC, or null without an observation. `freshness` is `live`, `cached` or `unavailable`; `diagnostic` is null or a bounded summary string. Cached status for a stopped/unreachable guest MUST be labeled. Human output MUST show whether the report is current. Status returns zero for a valid report, including a reported provisioning failure; command/query failures return nonzero.
+`provisioning_id` is 32 lowercase hex digits and `input_sha256` 64; both are null when disabled. `observed_at` is RFC 3339 UTC or null. `freshness` is `live`, `cached` or `unavailable`, and cached status MUST be labeled. `status` exits zero for any valid report, including a provisioning failure.
 
-Wait and create-with-wait MUST return zero only for `succeeded`. Failure, disabled provisioning, timeout, lost guest access or interruption return nonzero with an actionable reason. A timeout MUST NOT mark provisioning failed merely because it is still running. Cloud-init degraded/error completion counts as failure. Normal `start`, `shell` and `exec` continue to use management readiness and MUST NOT silently wait for provisioning.
+`wait` and create-with-wait MUST exit zero only for `succeeded`. A timeout MUST NOT mark provisioning failed while it still runs. Ordinary commands MUST NOT wait for provisioning.
 
-Errors retain the environment and input. `recover` may resume unfinished work under cloud-init's normal module semantics but MUST NOT reset instance identity, clean cloud-init state or force a full rerun. There is no automatic retry/reset command in the initial interface. Recreate a fresh environment for a deliberate full run; partially executed scripts should be written to tolerate retries after interruption.
+### Persistence
 
-## Persistence, privacy and restore
-
-- Private input, seed and provisioning metadata MUST live in owned environment state with access limited to the owner. Shared generic bases MUST contain no per-environment user data. Normal status/errors MUST NOT dump input or raw provisioning logs; explicit log access may expose user-supplied values.
-- Generate a fresh provisioning ID at creation and use `nsl-<provisioning_id>` as NoCloud's `instance-id`. This ID MUST be stable across stop/start, recovery and backup/restore, regardless of the newly allocated runtime ID on restore.
-- Planned archive version 2 MUST carry validated provisioning metadata and input sufficient to reconstruct the seed, including before first boot. The guest disk preserves cloud-init's execution markers. Restore MUST preserve the provisioning ID and input digest, recreate local seed paths, and retain existing explicit project/desktop opt-in behavior. Version-1 archives remain readable with no invented provisioning request; older readers must reject version 2.
-- A completed restored guest MUST NOT rerun once-per-instance modules because it was restored. A pending or interrupted restored guest can execute unfinished work on next boot according to cloud-init semantics. No exactly-once guarantee is made for side effects interrupted before their completion marker was persisted.
-- Export still requires a stopped VM. Seed restoration and archive validation MUST ship with the first provisioning implementation. Snapshot cloning with fresh identity and deliberate reprovisioning is a separate future operation.
+- The seed lives in the machine's tree at cloud-init's NoCloud seed directory, and the input copy in the host's machine state, readable only by the owner.
+- Each machine gets a fresh provisioning ID at creation, used as the NoCloud `instance-id` `nsl-<provisioning_id>`. It MUST stay stable across stop, start, `recover`, export and import.
+- The export archive MUST carry the provisioning ID and input digest in its manifest. An imported machine keeps cloud-init's execution markers, so completed once-per-instance modules do not run again. No exactly-once guarantee covers side effects interrupted before cloud-init recorded them.
+- `recover` MUST NOT reset the instance ID or clean cloud-init state. A deliberate full rerun means creating a fresh machine.
 
 ## References
 
-- Rationale: [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md).
-- Implementation and acceptance: [cloud-init plan](../plans/cloud-init-provisioning.md).
-- Related: [current CLI](cli.md), [guest images](guest-images.md), [lifecycle](../design/lifecycle.md), [image delivery](../plans/image-distribution.md).
-- Planned direction: machine bootstrap under [ADR-0016](../adr/0016-wsl-style-machines.md); container support is an open question in the [shared-VM experiment](../plans/shared-vm-experiment.md).
+- Rationale: [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md). Implementation plan: [cloud-init provisioning](../plans/cloud-init-provisioning.md).
+- Related: [CLI](cli.md), [machine images](machine-images.md), [agent](agent.md).

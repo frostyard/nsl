@@ -37,7 +37,7 @@ Images are published without replacing existing files. Each raw disk has a sibli
 
 The [image delivery plan](../docs/plans/image-distribution.md) selects public GHCR OCI artifacts containing a compressed raw disk, image metadata, package inventory and provenance. A signed catalogue maps distro selections to tested immutable digests. nsl verifies the publishing workflow identity and content, resumes interrupted downloads, caches verified bases and creates independent writable VMs. Ordinary users do not need Lima or mkosi for this path.
 
-Catalogue selection and client signature verification are implemented. The [publication workflow](../docs/design/image-publication.md) builds/tests the full matrix before signing and promoting it; its first public run passed for all seven profiles. Current sibling manifests describe local builds and do not authenticate them. New bases affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [guest contract](../docs/specs/guest-images.md).
+Catalogue selection and client signature verification are implemented. The [publication workflow](../docs/design/image-publication.md) builds/tests the full matrix before signing and promoting it; its first public run passed for all seven profiles. Current sibling manifests describe local builds and do not authenticate them. New bases affect new environments; existing guests retain their disks and use their distro package manager for ordinary updates. [ADR-0012](../docs/adr/0012-signed-image-distribution.md), [machine-image contract](../docs/specs/machine-images.md).
 
 ## Integration layers
 
@@ -55,7 +55,7 @@ Generic images contain no client private key, fixed development account or guest
 
 All profiles use `nsl-ssh.socket` on vsock port 22 and `nsl-ssh@.service` with OpenSSH's inetd mode. Connections require successful setup and root growth. The systemd SSH generator is masked to prevent duplicate listeners; distro SSH units remain available for guest administration. This works with Ubuntu's older systemd without replacing systemd. AppArmor remains enabled on Ubuntu; SELinux remains enforcing on Fedora, CentOS and both openSUSE profiles. A common systemd preset keeps nsl units enabled after distro presets run.
 
-`/usr/lib/nsl/image.json` carries build identity and the declared protocol range. It survives backup/restore as guest disk content. Protocol 1 still performs readiness/authentication; the host does not yet negotiate the descriptor's optional capabilities. [Guest contract](../docs/specs/guest-images.md).
+`/usr/lib/nsl/image.json` carries build identity and the declared protocol range. It survives backup/restore as guest disk content. Protocol 1 still performs readiness/authentication; the host does not yet negotiate the descriptor's optional capabilities. [machine-image contract](../docs/specs/machine-images.md).
 
 ## Boot layout and maintenance
 

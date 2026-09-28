@@ -58,4 +58,4 @@ Local evidence: [results](../../build/native/evidence/tumbleweed-v5/results.json
 
 ## References
 
-- [Distribution matrix](distribution-support.md), [image build](../../image/README.md), [RPM results](rpm-guests.md), [guest contract](../specs/guest-images.md).
+- [Distribution matrix](distribution-support.md), [image build](../../image/README.md), [RPM results](rpm-guests.md), [machine-image contract](../specs/machine-images.md).

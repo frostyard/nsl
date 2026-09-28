@@ -40,7 +40,7 @@ CentOS Stream 10's systemd package already provides working PAM/user-session int
 
 ## References
 
-- [Distribution plan](distribution-support.md), [guest contract](../specs/guest-images.md), [image build](../../image/README.md).
+- [Distribution plan](distribution-support.md), [machine-image contract](../specs/machine-images.md), [image build](../../image/README.md).
 - [Fedora SELinux configuration](https://fedoraproject.org/wiki/SELinux/Config), [dracut kernel-install hook](https://github.com/dracut-ng/dracut/blob/main/install.d/50-dracut.install).
 
 ## Validated artifacts

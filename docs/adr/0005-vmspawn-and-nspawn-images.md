@@ -1,39 +1,37 @@
-# 0005 — Use vmspawn and nspawn-derived development images
+# 0005 — Run nsl VMs with systemd-vmspawn
 
-- **Status:** Accepted for the next development prototype; explicit host integration superseded by [ADR-0016](0016-wsl-style-machines.md); one VM per environment and per-distro bootable images superseded by [ADR-0017](0017-shared-vm-and-machine-images.md)
+- **Status:** Accepted; what runs in the VM is set by [ADR-0017](0017-shared-vm-and-machine-images.md)
 - **Date:** 2026-09-26
 
 ## Context
 
-The [vmspawn comparison](../plans/vmspawn-comparison.md) established a complete workflow on Snow: rootless KVM/vsock, project sharing, commands, localhost forwarding and Waypipe. It passed 20 restart trials, improved measured cold startup, and returned freed anonymous memory to the host. The user authorized continuing this direction and has no compatibility requirement.
+The [vmspawn comparison](../plans/vmspawn-comparison.md) established a complete workflow on Snow with systemd-vmspawn and QEMU: rootless KVM and vsock, commands, localhost forwarding and Waypipe. It passed 20 restart trials, started faster than the Lima prototype, and returned freed anonymous memory to the host.
 
 ## Decision
 
-Replace the Lima runtime in the Go CLI with systemd-vmspawn/QEMU. Preserve one full VM per environment, structured guest argv transport and explicit host integration. Lima may remain an image-build tool. Keep the measured prototype files and local state for comparison; do not migrate or adopt them.
+Run every nsl VM with systemd-vmspawn and QEMU under a systemd user unit. Lima remains only an image-build tool.
 
-Build a generic Debian disk from the pinned nspawn mkosi recipes. Remove the experiment's fixed user and client key. Supply an environment ID, host UID/GID and a unique public SSH key through a systemd VM credential. An idempotent guest service configures the development account and validates the persisted identity on every boot. Private keys remain on the host.
-
-Require an explicit local image and SHA256 until a signed image catalogue exists. Import it into owned state, create independent writable qcow2 disks, and expand the root partition/filesystem in the guest. Use unique systemd user units and vsock IDs for each environment. A recovery command resumes interrupted preparation or restarts an existing disk without replacing it. Do not advertise crash recovery as backup.
-
-Use the proven rootless user namespace and named-device-descriptor launch path. Keep SSH, terminal and Waypipe protocol implementations external. Own TCP discovery and loopback forwarding; expose conflicts and retry them without evicting host listeners.
-
-This supersedes the runtime and image choices in [ADR-0004](0004-managed-development-vms.md). Broader distribution support, image signing, backups, host suspend/reboot and full desktop integration remain release gates.
+- **Launch** through the rootless named-device-descriptor path: open `/dev/kvm` and `/dev/vhost-vsock` under the `kvm` group, then run vmspawn in an unprivileged user namespace that maps the user to themselves.
+- **Identity:** supply the VM's ID, the host UID and primary GID, and a unique public SSH key through a systemd credential. The VM binds that identity on first boot and rejects a different one later. Private keys stay on the host.
+- **Uniqueness:** give each VM its own unit names and vsock CID, and control a unit only after its description names the VM's ID.
+- **Transport:** SSH over vsock, with SSH, terminal and Waypipe implementations kept external.
+- **Forwarding:** nsl owns TCP discovery and loopback forwarding. It reports and retries conflicts without evicting host listeners.
+- **Recovery:** `recover` resumes interrupted preparation and restarts an existing VM without replacing its disks. It is not a backup.
 
 ## Consequences
 
-- nsl owns more lifecycle, readiness and forwarding behavior; these need failure and multi-VM tests.
-- Host systemd-vmspawn, vhost-vsock access and user namespaces become prerequisites. The tested baseline is systemd 261 on x86_64.
-- Generic images can configure the host's numeric UID and primary GID without rebuilding.
-- Existing experimental Lima state remains outside the new schema and is never overwritten.
-- File watchers still need polling or guest-native source files. Memory measurements do not establish file-cache reclamation.
+- nsl owns lifecycle, readiness and forwarding behavior, which need failure and multi-VM tests.
+- Host systemd-vmspawn, vhost-vsock access through `kvm`, and user namespaces are prerequisites. The tested baseline is systemd 261 on x86-64.
+- Generic images configure the host's numeric UID and GID at boot without rebuilding.
+- Host file changes do not produce inotify events in the guest; watchers need polling or guest-native files.
 
 ## Alternatives considered
 
-- **Keep Lima as the runtime:** retains mature integration; the measured vmspawn path now warrants owning the missing pieces for this prototype.
-- **Rewrite in another language:** no demonstrated need; Go can manage the required tools and state.
-- **Promote the Python adapter unchanged:** fixed identity, addresses and storage are insufficient for multiple environments and recovery.
+- **Keep Lima as the runtime:** mature integration, but the measured vmspawn path justified owning the missing pieces.
+- **libvirt or Incus:** capable VM managers that add a daemon and their own image and network models.
+- **Another implementation language:** no demonstrated need; Go manages the required tools and state.
 
 ## References
 
-- [Lifecycle design](../design/lifecycle.md), [CLI contract](../specs/cli.md).
+- [Lifecycle design](../design/lifecycle.md), [CLI contract](../specs/cli.md), [VM image](../specs/vm-image.md).
 - [Comparison and evidence](../plans/vmspawn-comparison.md), [roadmap](../plans/wsl2-equivalent.md).

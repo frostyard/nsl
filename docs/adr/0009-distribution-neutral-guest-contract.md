@@ -1,33 +1,41 @@
-# 0009 — One guest contract across distribution families
+# 0009 — One machine-image contract across distribution families
 
-- **Status:** Accepted; the guest contract becomes a machine-image contract under [ADR-0017](0017-shared-vm-and-machine-images.md)
+- **Status:** Accepted
 - **Date:** 2026-09-26
 
 ## Context
 
-The user requires broad guest support: Ubuntu, Debian, Fedora, CentOS and SUSE families. The current measured image is Debian 13. Pinned nspawn recipes already include Debian, Ubuntu, Fedora, CentOS-family and openSUSE kernel profiles, but a recipe does not establish nsl compatibility. Debian kernel maintenance exposed why boot and update behavior need real per-distribution tests.
+The user requires broad distro support: Debian, Ubuntu, Fedora, CentOS and SUSE families, and Arch. A recipe does not establish nsl compatibility; real per-distro tests do.
+
+Under [ADR-0017](0017-shared-vm-and-machine-images.md), machines are root filesystems in the nsl VM, with no kernel or bootloader of their own. The shared-VM experiment ran hub.nspawn.org images, which needed 13 per-distro workarounds at creation. Examples were PAM stacks, `sudo`, zone data, keyrings, shadow tools and network services.
 
 ## Decision
 
-Keep the host manager distribution-neutral. Define a common authenticated guest contract for account setup, argv execution, readiness, files, networking, persistent identity and storage growth. Keep package names, service names, bootloader/initramfs hooks, security policy and package maintenance in distribution-specific image adapters. Continue using nspawn recipes where applicable, without requiring the nspawn runtime or nested containers.
+Keep the host CLI and the VM agent distribution-neutral. Define one [machine-image contract](../specs/machine-images.md):
 
-Make a Fedora guest and an Ubuntu LTS guest the next image targets after the current storage milestone, before further Debian-specific conveniences or image-catalogue design. Then validate CentOS Stream and openSUSE Leap/Tumbleweed. Track SUSE Linux Enterprise separately, including image access, entitlements and redistribution conditions. AlmaLinux/Rocky can reuse a family adapter only after their own checks pass.
+- a common machine layer;
+- one adapter per family, built into the image, that owns package names, PAM stacks, keyring setup and similar differences;
+- a descriptor with a machine-layer protocol and tested capabilities.
 
-Use explicit capability/version metadata and fail clearly when a required guest capability is missing. Do not infer support solely from distro name, `ID_LIKE`, successful boot or package installation. Older supported systemd versions may need nsl-owned vsock socket/service units instead of the guest SSH generator; prove that path without replacing the guest's systemd wholesale. Do not disable SELinux/AppArmor to satisfy a test.
+Creation applies only per-machine data: account, hostname, time zone, `sudo` rule and nspawn settings.
 
-Keep guest distro, atomic host distro and CPU architecture as independent dimensions. Start with x86_64 guest images; arm64 requires its own boot artifacts and hardware validation. Every published image must pin its recipe/integration revision and record package inputs, checksums, provenance and validation status.
+- Fail clearly when a required capability is missing. Do not infer support from a distro name, `ID_LIKE`, a successful boot or a package install.
+- Start with Debian 13, Fedora 44, Arch and openSUSE Tumbleweed. Ubuntu, CentOS Stream and openSUSE Leap join after they pass acceptance. Track SUSE Linux Enterprise separately, including access and redistribution terms.
+- Keep guest distro, host distro and CPU architecture independent. Start with x86-64.
+- Every published image pins its recipe and integration revisions and records package inputs, provenance and acceptance results.
+- Distro MAC policy does not apply inside machines. Document that plainly; do not claim a distro's SELinux or AppArmor behavior.
 
 ## Consequences
 
-The protocol and storage commands cannot assume apt, Debian boot hooks or btrfs. Image adapters may use different package managers, initramfs implementations and filesystems while providing equivalent user-facing behavior. Support becomes an evidence-backed matrix; optional desktop features can lag core development support. The existing Debian image and tests must be separated into common and distro-specific parts before adding more images.
+The CLI and agent cannot assume apt, a PAM service name or a filesystem layout inside a machine. Support is an evidence-backed matrix, and optional desktop features can lag core support. Frostyard owns an adapter per family, but no longer a kernel or boot adapter per distro.
 
 ## Alternatives considered
 
-- **Finish Debian first and add distributions later:** entrenches untested assumptions in interfaces and updates.
-- **One large package-name substitution script:** hides boot, security-policy and filesystem differences.
+- **Per-distro bootstrap at creation:** what the hub images needed. It needs network access at creation, is not reproducible, and spreads distro logic into the CLI.
+- **One package-name substitution script:** hides PAM, keyring and service differences.
 - **Declare every upstream recipe supported:** confuses build inputs with verified behavior.
 
 ## References
 
-- [Distribution plan](../plans/distribution-support.md), [guest contract](../specs/guest-images.md), [lifecycle](../design/lifecycle.md).
-- [ADR-0005](0005-vmspawn-and-nspawn-images.md), [kernel-maintenance lesson](0007-maintainable-guest-boot.md).
+- [Machine images](../specs/machine-images.md), [ADR-0017](0017-shared-vm-and-machine-images.md), [shared-VM experiment](../plans/shared-vm-experiment.md).
+- History: [distribution plan](../plans/distribution-support.md).

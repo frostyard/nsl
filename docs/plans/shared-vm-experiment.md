@@ -2,7 +2,7 @@
 
 **Status: all four phases complete, 2026-09-27. The decision rule is met, and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts the shared VM and Frostyard machine images. The [implementation plan](shared-vm-implementation.md) carries the work forward.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
-[ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/machine-cli.md) now makes several running machines a primary workflow, which changes that trade.
+[ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/cli.md) now makes several running machines a primary workflow, which changes that trade.
 
 ## Hypotheses
 
@@ -39,7 +39,7 @@ It would cost:
 
 Findings:
 
-- **Bind-mount aliases.** This host mounts one subvolume at both `/home` and `/var/home`; neither is a symlink. The usual working directory `/home/bjk/projects` therefore does not resolve into the shared `/var/home/bjk`. Translation must match by device and inode, and machines should see `/mnt/host/home` as an alias. The [machine CLI](../specs/machine-cli.md) now says so.
+- **Bind-mount aliases.** This host mounts one subvolume at both `/home` and `/var/home`; neither is a symlink. The usual working directory `/home/bjk/projects` therefore does not resolve into the shared `/var/home/bjk`. Translation must match by device and inode, and machines should see `/mnt/host/home` as an alias. The [machine CLI](../specs/cli.md) now says so.
 - **Guest access does not trigger automounts.** An autofs point under a shared tree (`/mnt/framework-backup`) is empty in the guest until the host mounts it; afterwards its content appears without a restart. virtiofsd's `O_PATH` lookups do not trigger automounts, but mount propagation into its namespace works.
 - **Nested filesystems are visible.** Mounted CIFS shares under the home and a second btrfs device under `/mnt` list with the same entry counts as on the host.
 - **The VM runs systemd 257, the host 261.** Machines get Debian trixie's nspawn unless the shared VM tracks a newer systemd. Phase 2 must record any nspawn limitation this causes.
@@ -269,7 +269,7 @@ The thresholds below are proposals; adjust them before measuring, not after.
 
 ## References
 
-- Decision: [ADR-0016](../adr/0016-wsl-style-machines.md). Interface: [machine CLI](../specs/machine-cli.md).
-- Current topology: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [lifecycle](../design/lifecycle.md), [guest contract](../specs/guest-images.md).
+- Decision: [ADR-0016](../adr/0016-wsl-style-machines.md). Interface: [machine CLI](../specs/cli.md).
+- Current topology: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [lifecycle](../design/lifecycle.md), [machine-image contract](../specs/machine-images.md).
 - Prior comparison: [WSL2 roadmap](wsl2-equivalent.md), [vmspawn comparison](vmspawn-comparison.md), [nspawn image route](wsl2-equivalent.md#reusing-nspawn-images-recipes-and-code-are-separate-choices).
 - [WSLg architecture](https://github.com/microsoft/wslg#user-distro), [nspawn hub images](https://nspawn.org/docs/images/).

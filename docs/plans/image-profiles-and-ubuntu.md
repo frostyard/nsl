@@ -38,7 +38,7 @@ The host manager needed no distro-specific changes. Image metadata is recorded i
 
 ## Next slice
 
-Add a Fedora profile with suitable RPM build tools, dracut/UKI maintenance and SELinux integration. Run the same acceptance suite without disabling security policy. Then proceed to CentOS Stream and openSUSE; retain separate release, architecture and host validation gates. [Distribution roadmap](distribution-support.md), [guest contract](../specs/guest-images.md).
+Add a Fedora profile with suitable RPM build tools, dracut/UKI maintenance and SELinux integration. Run the same acceptance suite without disabling security policy. Then proceed to CentOS Stream and openSUSE; retain separate release, architecture and host validation gates. [Distribution roadmap](distribution-support.md), [machine-image contract](../specs/machine-images.md).
 
 ## References
 

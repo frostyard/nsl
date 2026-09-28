@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: planned, 2026-09-27; no phase started.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [machine CLI](../specs/machine-cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phase 1 complete, 2026-09-27.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -16,8 +16,9 @@ For a fresh session, read these in order:
 
 1. ADR-0016 and ADR-0017: what nsl is and how it runs.
 2. This plan, including the requirements table below.
-3. The [machine CLI](../specs/machine-cli.md): the target interface and configuration file.
-4. The [experiment plan](shared-vm-experiment.md): the measured evidence, every finding and the hub image tally.
+3. The target contracts: the [CLI](../specs/cli.md) with its configuration file, the [agent protocol](../specs/agent.md), the [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md) and [image delivery](../specs/image-delivery.md).
+4. The [lifecycle design](../design/lifecycle.md): how those pieces fit together.
+5. The [experiment plan](shared-vm-experiment.md): the measured evidence, every finding and the hub image tally.
 
 The experiment code in [`experiments/shared-vm/`](../../experiments/shared-vm/README.md) is the reference implementation. Port its behavior, not its structure.
 
@@ -45,8 +46,8 @@ Dependencies:
 
 ## Phase 1 — Contracts
 
-- **Move the [machine CLI](../specs/machine-cli.md) to `docs/specs/cli.md`,** replacing the environment contract, and fix every link.
-- **Rewrite the guest contract.** `docs/specs/guest-images.md` becomes the machine-image contract:
+- **Move the [machine CLI](../specs/cli.md) to `docs/specs/cli.md`,** replacing the environment contract, and fix every link.
+- **Rewrite the guest contract.** `docs/specs/machine-images.md` becomes the machine-image contract:
   - the ADR-0017 machine layer;
   - the `/usr/lib/nsl/machine.json` descriptor;
   - capabilities and per-family adapters.
@@ -68,6 +69,26 @@ Dependencies:
 - **Fix the tail.** Mark the [provisioning contract](../specs/provisioning.md) deferred until cloud-init is re-validated in machines, and bring the [lifecycle design](../design/lifecycle.md) and ADRs 0005–0014 into line with ADR-0017. Delete what no longer applies rather than annotating it.
 - **Done when:** the specs describe the target system, are indexed and cross-linked, and carry the fixtures or test cases later phases implement.
 
+**Result, 2026-09-27: complete.**
+
+- **Moved and rewritten:** `docs/specs/cli.md` is the machine CLI. It replaces the environment contract and carries its ownership, locking, storage and archive rules explicitly. `guest-images.md` became [`machine-images.md`](../specs/machine-images.md), since "guest" no longer says whether a VM or a machine is meant.
+- **New:** [`vm-image.md`](../specs/vm-image.md) and [`agent.md`](../specs/agent.md).
+- **Rewritten in place:** [image delivery](../specs/image-delivery.md), the deferred [provisioning contract](../specs/provisioning.md) and its [plan](cloud-init-provisioning.md), the [lifecycle design](../design/lifecycle.md), ADRs 0005–0013, [AGENTS.md](../../AGENTS.md) and the [index](../README.md). ADR-0014 stays until Phase 3 deletes the Arch hooks it documents.
+- **Links:** every relative link and anchor under `docs/`, `AGENTS.md`, `README.md` and `image/` resolves. The only unresolved links point into ignored `build/` evidence from historical reports.
+
+Decisions the specs now fix, each of which later phases implement:
+
+- **Agent transport.** The host logs in to the VM as `root` over vsock SSH with a key forced to `/usr/lib/nsl/nsl-agent`, and sends one base64 JSON request per session in `SSH_ORIGINAL_COMMAND`. The session's stdio carries the command's streams unframed. Agent errors exit 255 with `nsl-agent: CODE: message`.
+- **Agent scope.** The agent runs commands, and also creates, starts, stops, exports, imports and removes machines. Creation therefore cleans up in the VM even when the SSH session drops. Every machine request carries the host's machine ID, and the agent refuses a mismatch.
+- **Agent language.** Go, with a pinned `github.com/godbus/dbus/v5`, sharing request types and validation with the CLI.
+- **Data disk.** A btrfs filesystem labelled `nsl-data` with subvolumes `machines` (`/var/lib/machines`) and `state` (`/var/lib/nsl`). The state subvolume keeps the binding, SSH host keys and the VM's machine records. nspawn settings are regenerated into `/run/systemd/nspawn` at every boot, because settings next to the image are only partly trusted.
+- **Boot credential.** `nsl.vm` carries the VM ID, role, UID and GID, public key, autostart, shares and aliases.
+- **Idle stop.** An idle monitor in the VM counts `nsl-run-*` units and Waypipe clients. `start` and `run` requests carry `idle_timeout`, so a changed value applies without a restart.
+- **Catalogue.** Entries gain `kind`. One `vm` entry per architecture and agent protocol; machine entries keep selectors and gain `machine_protocol`. The sequence floor resets to the first catalogue carrying both kinds.
+- **CLI additions.** `nsl start NAME`; `nsl update` selects the VM image (catalogue or local `--image`) for each VM's next start, which gives Phase 5 its local-VM path. `ssh-config` reaches the machine through nsl with a per-machine key and an inetd-style `sshd` in the machine; nothing listens on the network.
+- **Archives.** A tar of `manifest.json` and `rootfs.tar.zst`, preserving numeric owners, xattrs (including file capabilities) and ACLs ([ADR-0006](../adr/0006-stopped-vm-backups.md)).
+- **Configuration.** `idle_timeout` ranges over 0–1440 minutes. Comments are whole lines only; numbers are bare decimal digits; sections and keys appear once and are case-sensitive.
+
 ## Phase 2 — Configuration file
 
 - `config.go` parses the `nsl.conf` INI subset into typed settings with their sources.
@@ -79,9 +100,9 @@ Dependencies:
 
 ## Phase 3 — The nsl VM image
 
-- **Turn `experiments/shared-vm/layer` into a VM role** of `scripts/compose-image.py` on the Debian trixie profile: `systemd-container`, `nsl-machines-storage`, `var-lib-machines.mount`, and the agent once Phase 6 provides it.
-- **Move state off the root.** VM identity and SSH host keys move to an `nsl-state` subvolume on the data disk, so replacing the VM root keeps them and every machine. The host creates a fresh root overlay for each VM image version.
-- **Delete the per-distro bootable images:** the Ubuntu, Fedora, CentOS, openSUSE and Arch profiles; the RPM, SUSE and Arch boot and kernel adapters (including ADR-0014's hooks); and `scripts/probe-distribution.py`, `probe-maintenance.py` and the other per-VM probes they replace. Keep only what the Debian VM base needs.
+- **Turn `experiments/shared-vm/layer` into a VM role** of `scripts/compose-image.py` on the Debian trixie profile, following the [VM image contract](../specs/vm-image.md): `systemd-container`, the `nsl-data` disk service and mounts, the boot service that writes nspawn settings, the idle monitor, and the agent once Phase 6 provides it.
+- **Move state off the root.** VM identity and SSH host keys move to the data disk's `state` subvolume, so replacing the VM root keeps them and every machine. The host creates a fresh root overlay for each VM image version.
+- **Delete the per-distro bootable images:** the Ubuntu, Fedora, CentOS, openSUSE and Arch profiles; the RPM, SUSE and Arch boot and kernel adapters; and `scripts/probe-distribution.py`, `probe-maintenance.py` and the other per-VM probes they replace. Keep only what the Debian VM base needs. Delete ADR-0014 with the Arch hooks, and drop its mentions from ADR-0017 and the index.
 - **Acceptance** in `scripts/probe-vm.py`, from `driver.py check`:
   - readiness, data-disk formatting and refusal, and persistence across root replacement;
   - `/mnt/host` ownership, bounded guest root, and unproxied sockets.
@@ -117,14 +138,16 @@ Dependencies:
 
 - **Rewrite `state.go` and `vm.go`** around one VM record per state directory: ID, CID, image version, the data disk and the resources in effect. Delete the environment record, its schema checks and the environment commands.
 - **Units** named `nsl-UID-vm-ID.service`, validated by description before any control.
+- **VM images:** `nsl update`, from the catalogue or a local `--image`, records the image for the next start, which replaces the root overlay. This is how a locally built VM reaches the CLI.
 - **Launch** keeps the device-descriptor path. It adds the data disk as an extra drive, the allowlist binds, and a read-only nsl cache share for image import, replacing the experiment's `/mnt/host` shortcut.
 - **Readiness** through the agent's identity and descriptor, over the existing vsock SSH transport.
 - **`stop`, `recover` and `resize --disk`** act on the VM and its data disk, under ADR-0008's locking and resumption. The VM stops when no machine runs. Configuration changes show as pending restarts in `nsl config` and `nsl list`.
+- **Configuration:** `nsl config` and `nsl list` report pending restarts and a pending VM image.
 - **Done when:** fake-runner tests cover launch arguments, configuration application, unit ownership, locking and data-disk growth, and the CLI starts, stops, recovers and grows a locally built VM.
 
 ## Phase 6 — Agent and command execution
 
-- **The agent** is installed in the VM image and reached through a forced SSH command. It starts transient units in machines through systemd's D-Bus API and machined:
+- **The agent** is a Go program in this repository, installed in the VM image and reached through a forced SSH command ([agent protocol](../specs/agent.md)). It starts transient units in machines through systemd's D-Bus API and machined:
   - literal argv, without environment expansion;
   - exit status from `ExecMainCode`/`ExecMainStatus`, with 128+N for signals;
   - PTYs from machined with no title or color sequences (OSC 3008 passes);
@@ -138,7 +161,7 @@ Dependencies:
 
 - **`create`** verifies a cached machine image, imports it into a subvolume through the cache share, then applies per-machine data: account, hostname and hosts entry, the host zone link before anything runs, the `sudo` rule and nspawn settings. Settings are `PrivateUsers=no`, the VM's network, `Bind=/mnt/host`, the VM's resolver and `Timezone=off`. A failure removes the subvolume and keeps the name free.
 - **`list`, `default`, `start`, `stop`, `shutdown` and `remove`** (stopped machines only).
-- **Autostart and idle stop.** At VM start, `autostart` enables or disables `machines.target` membership. Idle stop counts agent sessions and Waypipe clients.
+- **Autostart and idle stop.** At VM start, the boot credential's `autostart` decides whether every machine starts. The VM's idle monitor counts `nsl-run-*` units and Waypipe clients, and uses the `idle_timeout` carried by the latest request.
 - **`export` and `import`** replace `backup.go`: a tar of the subvolume (numeric owners, xattrs, ACLs) with a checksummed manifest. They keep ADR-0006's validation: no links outside the tree, no traversal, no duplicates or trailing data. The trust tier is chosen at import.
 - **Remove `experiments/shared-vm/`** once everything it holds is ported.
 - **Done when:** four machines are created offline from the cache and pass `probe-machines.py` through the CLI. An export and import round trip preserves packages, home and services. Four idle machines stay at or below the experiment's 950 MiB, and another machine starts at p95 ≤ 2 s.
@@ -149,6 +172,8 @@ Dependencies:
 - **Ports.** One forwarder for the VM, reusing `ports.go` discovery; conflicts are reported per port.
 - **Desktop.** One persistent Waypipe session per machine, with its display socket attached through `machinectl bind`, and `WAYLAND_DISPLAY` in agent sessions. GUI is on by default for machines that are not isolated.
 - **Broker.** `nsl-open`, authenticated per machine; it accepts only `http`/`https` URLs and translatable `/mnt/host` paths.
+- **Remote editors.** `ssh-config` prints a host alias whose proxy runs `sshd -i` in the machine through the agent, with a per-machine key.
+- **Agent operations.** Specify `listeners` and `display` in the [agent protocol](../specs/agent.md) before implementing them.
 - **Done when:** the files, ports, translation and GUI checks pass through the CLI, and broker tests refuse every other target.
 
 ## Phase 9 — Isolated machines
@@ -198,14 +223,15 @@ Each item was found by a failing check and must not regress.
 
 | Question | Default proposal | Resolve by |
 | --- | --- | --- |
-| Agent language and D-Bus library? | Go with a pinned D-Bus library, built into the VM image; Python with `jeepney` is the lighter alternative. | Phase 1 |
-| Where do VM identity and host keys live? | An `nsl-state` subvolume on the data disk. | Phase 3 |
-| Machine archive encoding? | tar with numeric owners, xattrs and ACLs rather than `btrfs send`. | Phase 7 |
-| Idle-session accounting? | The agent counts command sessions; the Waypipe session reports connected clients. | Phase 7 |
+| Agent language and D-Bus library? | Resolved in Phase 1: Go with a pinned `godbus/dbus/v5`, sharing request types with the CLI ([agent protocol](../specs/agent.md#implementation)). | Phase 1 |
+| Where do VM identity and host keys live? | Specified in Phase 1: the data disk's `state` subvolume ([VM image](../specs/vm-image.md#disks-and-state)). Phase 3 validates it across a root replacement. | Phase 3 |
+| Machine archive encoding? | Resolved in Phase 1: tar with numeric owners, xattrs and ACLs rather than `btrfs send` ([ADR-0006](../adr/0006-stopped-vm-backups.md)). | Phase 1 |
+| Idle-session accounting? | Specified in Phase 1: the VM's idle monitor counts `nsl-run-*` units and Waypipe clients ([VM image](../specs/vm-image.md#machines)). | Phase 7 |
 
 ## References
 
 - Decisions: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0012](../adr/0012-signed-image-distribution.md), [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0006](../adr/0006-stopped-vm-backups.md).
-- Contracts: [machine CLI](../specs/machine-cli.md), [image delivery](../specs/image-delivery.md), [guest images](../specs/guest-images.md).
+- Contracts: [CLI](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md), [image delivery](../specs/image-delivery.md).
+- Design: [machine lifecycle](../design/lifecycle.md).
 - Evidence and reference code: [shared-VM experiment](shared-vm-experiment.md), [experiment code](../../experiments/shared-vm/README.md).
 - Pipeline: [image publication](../design/image-publication.md), [image build](../../image/README.md).

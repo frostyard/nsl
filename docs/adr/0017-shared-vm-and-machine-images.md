@@ -101,7 +101,7 @@ The project has no users; nothing needs migration.
 - [ADR-0006](0006-stopped-vm-backups.md)'s qcow2 archive gives way to machine archives.
 - This supersedes ADR-0005's one VM per environment and per-distro bootable images.
 
-The environment CLI, its state and the per-distro images are replaced in place by the [machine CLI](../specs/machine-cli.md), with no compatibility, migration or transition period.
+The environment CLI, its state and the per-distro images are replaced in place by the [machine CLI](../specs/cli.md), with no compatibility, migration or transition period. The [implementation plan](../plans/shared-vm-implementation.md) phases the work.
 
 ## Consequences
 
@@ -111,7 +111,7 @@ The environment CLI, its state and the per-distro images are replaced in place b
 - **Machines lose their distro's kernel and MAC policy.** A distro's own policy, such as Fedora's enforcing SELinux, does not apply inside machines; the VM kernel's security modules govern them. All machines share one kernel failure domain. This is documented plainly.
 - **Frostyard owns more.** It owns a machine image pipeline, an acceptance suite (the experiment's workload checks), catalogue entries and a rebuild cadence at least weekly for distro security updates. It no longer maintains per-distro boot and kernel adapters.
 - **Provisioning must be re-validated.** [ADR-0013](0013-optional-cloud-init-provisioning.md) needs cloud-init re-tested inside machines before provisioning ships.
-- **Specs change.** The machine CLI resolves its topology markers and gains the configuration file. The [guest contract](../specs/guest-images.md) splits into VM and machine contracts. [Image delivery](../specs/image-delivery.md) gains machine artifacts. The [lifecycle design](../design/lifecycle.md) and [AGENTS.md](../../AGENTS.md) change with the implementation.
+- **Specs change.** The [CLI contract](../specs/cli.md) gains the configuration file. The guest contract splits into the [VM image](../specs/vm-image.md) and [machine-image](../specs/machine-images.md) contracts, and the [agent protocol](../specs/agent.md) is new. [Image delivery](../specs/image-delivery.md) gains machine artifacts. The [lifecycle design](../design/lifecycle.md) and [AGENTS.md](../../AGENTS.md) change with the implementation.
 - **Follow-ups from the experiment:**
   - virtiofsd memory under file load (up to 1.3 GiB);
   - the 1.3–2 s Ctrl-C delay in the SSH transport;
@@ -130,7 +130,7 @@ The environment CLI, its state and the per-distro images are replaced in place b
 ## References
 
 - Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md), including the image tally; [experiment code](../../experiments/shared-vm/README.md).
-- Interface: [machine CLI](../specs/machine-cli.md). Identity and trust: [ADR-0016](0016-wsl-style-machines.md).
+- Interface: [CLI contract](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md). Identity and trust: [ADR-0016](0016-wsl-style-machines.md).
 - Superseded or narrowed: [ADR-0005](0005-vmspawn-and-nspawn-images.md), [ADR-0006](0006-stopped-vm-backups.md), [ADR-0007](0007-maintainable-guest-boot.md), [ADR-0008](0008-offline-storage-management.md), [ADR-0009](0009-distribution-neutral-guest-contract.md), [ADR-0010](0010-explicit-guest-root-growth.md), [ADR-0011](0011-image-profiles-and-portable-vsock.md), [ADR-0014](0014-arch-kernel-maintenance.md).
 - Unchanged and extended: [ADR-0012](0012-signed-image-distribution.md), [ADR-0013](0013-optional-cloud-init-provisioning.md), [ADR-0015](0015-image-verification-and-catalogue-policy.md).
 - [WSL configuration](https://learn.microsoft.com/en-us/windows/wsl/wsl-config), [systemd-nspawn settings](https://www.freedesktop.org/software/systemd/man/latest/systemd.nspawn.html).

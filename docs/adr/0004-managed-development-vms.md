@@ -1,6 +1,6 @@
 # 0004 — Manage full development VMs with native host integration
 
-- **Status:** Runtime and image choices superseded by [ADR-0005](0005-vmspawn-and-nspawn-images.md); explicit capability grants superseded by [ADR-0016](0016-wsl-style-machines.md)
+- **Status:** Runtime and image choices superseded by [ADR-0005](0005-vmspawn-and-nspawn-images.md); explicit capability grants superseded by [ADR-0016](0016-wsl-style-machines.md); one VM per environment superseded by [ADR-0017](0017-shared-vm-and-machine-images.md)
 - **Date:** 2026-09-26
 
 ## Context

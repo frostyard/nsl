@@ -5,7 +5,7 @@ description: Build and validate an nsl distribution image in disposable VMs when
 
 # Validate a distribution image
 
-Work from the repository root. Read [the guest contract](../../../docs/specs/guest-images.md), [image build instructions](../../../image/README.md) and the relevant report linked from [the distribution matrix](../../../docs/plans/distribution-support.md).
+Work from the repository root. Read [the guest contract](../../../docs/specs/machine-images.md), [image build instructions](../../../image/README.md) and the relevant report linked from [the distribution matrix](../../../docs/plans/distribution-support.md).
 
 ## Build and exercise
 

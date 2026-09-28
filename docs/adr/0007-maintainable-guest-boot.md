@@ -1,32 +1,30 @@
-# 0007 — Keep Debian package files off the EFI filesystem
+# 0007 — Boot the VM image from a UKI and update it by replacement
 
-- **Status:** Accepted; narrowed to the nsl VM image by [ADR-0017](0017-shared-vm-and-machine-images.md)
+- **Status:** Accepted
 - **Date:** 2026-09-26
 
 ## Context
 
-Testing a kernel reinstall in a restored v3 guest exposed a FAT `/boot` mount. Debian's package manager could not create backup hard links for kernel files, and the failed package operation removed the boot entry. The original source VM and archive remained intact. A customized development VM must support its distribution's package maintenance.
+A kernel reinstall in an early Debian guest failed because `/boot` was a FAT EFI partition. Debian's package manager could not create backup hard links there, and the failed operation removed the boot entry. At the time, each guest maintained its own kernel through apt.
+
+Under [ADR-0017](0017-shared-vm-and-machine-images.md), machines have no kernel. The nsl VM image is the only bootable image, and nsl replaces its root as a unit to deliver kernel and userspace updates.
 
 ## Decision
 
-Keep `/boot` on the guest's btrfs root. Mount the EFI System Partition at `/efi`, copying only bootloader/UKI data there during image creation. Include Debian's `systemd-ukify` and use the existing Debian kernel/initramfs package hooks with `kernel-install`'s UKI layout. First boot records the root filesystem UUID in `/etc/kernel/cmdline` if no administrator configuration exists, so subsequent initramfs-tools images can locate the root.
-
-Request the vsock SSH listener explicitly through the kernel command line. Automatic discovery alone can miss the transport when a newly generated initramfs loads its driver later. Keep that driver in the guest initramfs configuration as well.
-
-Version the new base image separately. Existing customized v3 guests are not silently rewritten; a tested upgrade mechanism remains separate work. Keep stopped backups before kernel-maintenance experiments.
+- The VM image mounts the EFI System Partition at `/efi` and keeps `/boot` on the root filesystem. It boots a unified kernel image (UKI) built with `systemd-ukify` when the image is composed.
+- Kernel and bootloader updates arrive only as new VM images. The VM does not maintain its kernel in place; changes made on the root are discarded at the next root replacement.
+- The vsock SSH listener belongs to the image ([ADR-0011](0011-image-profiles-and-portable-vsock.md)), not to automatic generator discovery.
 
 ## Consequences
 
-Kernel package files retain normal Linux filesystem behavior, while the firmware still boots UKIs from FAT. The guest owns kernel updates through apt. The EFI partition has finite space; kernel retention and disk-full recovery remain release gates. An actual newer-kernel upgrade still needs separate evidence when one is available.
+The kernel is part of a tested, signed VM image, and every VM gets it at its next start. nsl owns a kernel security cadence, like WSL. A running VM cannot pick up a kernel fix until it restarts.
 
 ## Alternatives considered
 
-- **Keep FAT at `/boot`:** incompatible with observed Debian package replacement behavior.
-- **Freeze kernels in the base image:** prevents normal guest maintenance and independence.
-- **Replace the whole guest disk on update:** loses user-installed software and configuration.
+- **Maintain the VM kernel with apt:** reintroduces per-VM drift and the failure modes this image avoids, on a root that holds no user state.
+- **FAT at `/boot`:** incompatible with Debian package replacement, should anyone run apt for diagnosis.
 
 ## References
 
-- [ADR-0005](0005-vmspawn-and-nspawn-images.md), [image build](../../image/README.md).
-- [Lifecycle](../design/lifecycle.md), [backup/reliability validation](../plans/backup-and-reliability.md).
-- [systemd kernel-install](https://raw.githubusercontent.com/systemd/systemd/v257/man/kernel-install.xml), [SSH generator](https://raw.githubusercontent.com/systemd/systemd/v257/src/ssh-generator/ssh-generator.c).
+- [VM image](../specs/vm-image.md), [image build](../../image/README.md), [ADR-0017](0017-shared-vm-and-machine-images.md).
+- History: [backup/reliability validation](../plans/backup-and-reliability.md). [systemd kernel-install](https://www.freedesktop.org/software/systemd/man/latest/kernel-install.html).

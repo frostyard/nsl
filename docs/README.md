@@ -9,86 +9,67 @@
 
 ## Current state
 
-The main Go CLI launches full distro VMs using systemd-vmspawn/QEMU and nspawn-derived bootable images. Lima is the image builder and historical runtime baseline. Read the [user guide](../README.md), [measured vmspawn results](plans/vmspawn-implementation.md) and [prioritized roadmap](plans/wsl2-equivalent.md).
+nsl is becoming WSL-style machines on atomic Linux. [ADR-0016](adr/0016-wsl-style-machines.md) defines machines trusted as the user, with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs them as systemd-nspawn containers in one shared VM, from signed Frostyard machine images, as the [shared-VM experiment](plans/shared-vm-experiment.md) supported. The specs below describe that target system; the [implementation plan](plans/shared-vm-implementation.md) phases the work and records what is live.
 
-The completed storage increment follows [backup/restore and guest reliability](plans/backup-and-reliability.md): [safe removal and disk growth](plans/storage-management.md). [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md) implement the next part of [broad distribution support](plans/distribution-support.md). Seven x86-64 profiles now pass the common suite; [SUSE and Arch results](plans/suse-and-arch.md) complete the distribution milestone. [v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0) delivers all seven signed images from public GHCR; see [publication results](plans/public-image-delivery.md). [ADR-0016](adr/0016-wsl-style-machines.md) sets the product direction: WSL-style machines with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs machines as containers in one shared VM, from Frostyard machine images, as the [shared-VM experiment](plans/shared-vm-experiment.md) supported. The [machine CLI](specs/machine-cli.md) is planned; the [implementation plan](plans/shared-vm-implementation.md) phases the work. The implemented contracts describe current behavior; the plans distinguish measured checks from pending acceptance work. Historical reports retain their original measurements and are labeled accordingly.
+Until the plan's Phase 5, the binary still implements the earlier design: one full distro VM per environment, launched with systemd-vmspawn/QEMU from seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](plans/public-image-delivery.md)). The [user guide](../README.md) describes that binary. Historical reports keep their original measurements and are labeled accordingly.
 
 ## Index
 
 ### Decisions
 
 - [0017 — Shared VM and Frostyard machine images](adr/0017-shared-vm-and-machine-images.md)
-
 - [0016 — WSL-style machines trusted as the user](adr/0016-wsl-style-machines.md)
-
 - [0015 — Image verification and catalogue policy](adr/0015-image-verification-and-catalogue-policy.md)
-
-- [0014 — Arch kernel maintenance](adr/0014-arch-kernel-maintenance.md)
-
-- [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md)
-
-- [0012 — Signed image distribution](adr/0012-signed-image-distribution.md)
-
-- [0011 — Image profiles and portable vsock](adr/0011-image-profiles-and-portable-vsock.md)
-
-- [0010 — Explicit guest root growth](adr/0010-explicit-guest-root-growth.md)
-- [0009 — Distribution-neutral guest contract](adr/0009-distribution-neutral-guest-contract.md)
-- [0008 — Offline storage management](adr/0008-offline-storage-management.md)
-
-- [0007 — Maintainable Debian guest boot layout](adr/0007-maintainable-guest-boot.md)
-- [0006 — Self-contained backups of stopped VMs](adr/0006-stopped-vm-backups.md)
-- [0005 — Use vmspawn and nspawn-derived development images](adr/0005-vmspawn-and-nspawn-images.md)
-- [0001 — Record architecture decisions](adr/0001-record-architecture-decisions.md)
-- [0002 — Agent-portable instruction surface](adr/0002-agent-portable-instruction-surface.md)
-- [0003 — Wrap nspawn for atomic-host development](adr/0003-wrap-nspawn-for-development.md)
+- [0014 — Arch kernel maintenance](adr/0014-arch-kernel-maintenance.md) — retired with the per-distro bootable images.
+- [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md) — deferred.
+- [0012 — Signed image distribution through GHCR](adr/0012-signed-image-distribution.md)
+- [0011 — Image composition and the vsock transport](adr/0011-image-profiles-and-portable-vsock.md)
+- [0010 — Data filesystem growth before readiness](adr/0010-explicit-guest-root-growth.md)
+- [0009 — One machine-image contract across families](adr/0009-distribution-neutral-guest-contract.md)
+- [0008 — Offline removal and data-disk growth](adr/0008-offline-storage-management.md)
+- [0007 — VM image boot and update by replacement](adr/0007-maintainable-guest-boot.md)
+- [0006 — Machine archives](adr/0006-stopped-vm-backups.md)
+- [0005 — Run nsl VMs with systemd-vmspawn](adr/0005-vmspawn-and-nspawn-images.md)
 - [0004 — Manage full development VMs with native host integration](adr/0004-managed-development-vms.md)
+- [0003 — Wrap nspawn for atomic-host development](adr/0003-wrap-nspawn-for-development.md)
+- [0002 — Agent-portable instruction surface](adr/0002-agent-portable-instruction-surface.md)
+- [0001 — Record architecture decisions](adr/0001-record-architecture-decisions.md)
 
 ### Design
 
+- [Machine lifecycle and host integration](design/lifecycle.md) — the shared VM, machines, files, ports and desktop.
 - [Image publication](design/image-publication.md) — KVM workflow, public artifact boundary and signing.
-
-- [Lifecycle and mounts](design/lifecycle.md)
 
 ### Specs
 
-- [Signed image delivery](specs/image-delivery.md) — authenticated selection, downloads and cache policy.
-
-- [Creation-time provisioning](specs/provisioning.md) — planned cloud-init interface and lifecycle.
-
-- [Guest image contract and acceptance levels](specs/guest-images.md)
-
-- [CLI contract](specs/cli.md)
-
-- [Machine CLI](specs/machine-cli.md) — planned successor under ADR-0016 and ADR-0017.
+- [CLI contract](specs/cli.md) — commands, rules and the `nsl.conf` configuration file.
+- [Agent protocol](specs/agent.md) — host-to-VM requests, command execution and exit status.
+- [VM image](specs/vm-image.md) — boot, data disk, identity, `/mnt/host` and acceptance.
+- [Machine images](specs/machine-images.md) — machine layer, family adapters, descriptor and acceptance.
+- [Signed image delivery](specs/image-delivery.md) — catalogue, artifacts, verification and cache.
+- [Creation-time provisioning](specs/provisioning.md) — deferred cloud-init interface.
 
 ### Plans
 
 - [Machines in a shared VM](plans/shared-vm-implementation.md) — implementation of ADR-0016 and ADR-0017; start here for new work.
-
 - [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; evidence for ADR-0017.
+- [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — deferred until cloud-init is re-validated in machines.
 
+Historical reports for the one-VM-per-environment design:
+
+- [Public image delivery results](plans/public-image-delivery.md) — exact v0.3.0 artifacts and release acceptance.
+- [Signed prebuilt image delivery](plans/image-distribution.md) — client and publication workflow.
+- [v0.2.0 and v0.3.0 release gates](plans/v0.2-v0.3-release.md)
 - [SUSE and Arch validation](plans/suse-and-arch.md)
-
-- [Fedora and CentOS Stream guests](plans/rpm-guests.md) — validated RPM adapters, SELinux and maintenance.
-
-- [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — planned project setup, status and restore support.
-
-- [v0.2.0 and v0.3.0 release gates](plans/v0.2-v0.3-release.md).
-
-- [Signed prebuilt image delivery](plans/image-distribution.md) — implemented client and publication workflow.
-
-- [Public image delivery results](plans/public-image-delivery.md) — exact artifacts and release acceptance.
-
+- [Fedora and CentOS Stream guests](plans/rpm-guests.md)
 - [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md)
-
 - [Broad distribution support](plans/distribution-support.md)
 - [Safe removal and disk growth](plans/storage-management.md)
-
 - [Backup/restore and daily-work reliability](plans/backup-and-reliability.md)
 - [vmspawn Go implementation and validation](plans/vmspawn-implementation.md)
-- [v0.1.0 retrospective](plans/v0.1.0.md)
 - [nspawn-derived image and vmspawn comparison](plans/vmspawn-comparison.md)
 - [VM proof of concept — experiment and results](plans/vm-proof-of-concept.md)
+- [v0.1.0 retrospective](plans/v0.1.0.md)
 - [WSL2-like environments on atomic Linux — research and roadmap](plans/wsl2-equivalent.md)
 
 New docs start from each category's `TEMPLATE.md`. While nsl is pre-release, ADRs, specs and plans are rewritten in place when decisions change ([ADR-0001](adr/0001-record-architecture-decisions.md)). Design docs evolve with implementation; specs evolve with code. Cross-link related documents in both directions. Canonical instructions: [AGENTS.md](../AGENTS.md).

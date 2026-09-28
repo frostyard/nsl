@@ -1,75 +1,168 @@
-# Spec: nsl vmspawn CLI
+# Spec: nsl CLI
 
-Contract for the binary and tests. Rationale: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md). Mechanisms: [lifecycle](../design/lifecycle.md).
+Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live. Until its Phase 5, the binary still implements the environment CLI that this contract replaces.
 
-The planned [machine CLI](machine-cli.md) replaces this contract under [ADR-0016](../adr/0016-wsl-style-machines.md). This document describes the implemented binary until then.
+Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent protocol](agent.md), the [VM image](vm-image.md), [machine images](machine-images.md) and [image delivery](image-delivery.md).
 
 ## Interface
 
 | Command | Behavior |
 | --- | --- |
-| `create NAME --image FILE --digest sha256:HEX [--project DIR] [--desktop] [--cpus N] [--memory GiB] [--disk GiB]` | Verify a local raw image and prepare an independent persistent VM. |
-| `images [--offline]` | List authenticated public catalogue selections. |
-| `pull DISTRO:RELEASE [--offline]` | Verify and cache a selected base without creating a VM. |
-| `create NAME --distro DISTRO:RELEASE [--offline] [resource/project flags]` | Prepare a VM from a verified catalogue selection. |
-| `list` | List owned environments and runtime state. |
-| `start NAME` | Launch if stopped; verify authenticated guest identity and restore forwarding. |
-| `shell NAME` | Start if needed; interactive Bash login shell in guest home. |
-| `exec NAME [--root] [--tty] [--workdir /PATH] -- COMMAND ...` | Execute argv as the guest user or explicit guest root. |
-| `gui NAME -- COMMAND ...` | Run an attached software-rendered Waypipe session. |
-| `stop NAME` | Shut down the owned VM and forwarding; preserve persistent state. |
-| `recover NAME` | Stop, resume preparation/check existing disk and restart; preserve identity and data. |
-| `export NAME FILE.nsl` | Export a stopped prepared VM as a private self-contained backup; never overwrite. |
-| `restore NAME FILE.nsl [--project DIR] [--desktop]` | Verify and restore under an unused name; new runtime identity, preserved guest identity, no image-cache dependency. |
-| `remove NAME [--yes]` | Preview permanent deletion; `--yes` removes a stopped owned VM and resumes interrupted deletion. |
-| `resize NAME --disk GiB` | Grow a stopped prepared disk; retain identity, refuse shrinking, resume pending growth. |
-| `ports NAME` | Show timestamped loopback forwarding status and bind conflicts. |
-| `logs NAME` | Show the last 100 journal entries for the VM and forwarding units. |
-| `ssh-config NAME` | Start if needed; print the owned SSH config path (alias `guest`). |
-| `doctor` | Check executables, group-based device access, user namespaces and the user systemd manager. |
-| `version`, `help` | Print build version or usage. |
+| `nsl [-m NAME]` | Login shell in NAME or the default machine, in the translated host directory or the guest home. |
+| `nsl run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv in the machine. A PTY is used when stdin and stdout are terminals. Flags precede COMMAND; `--` ends them. |
+| `nsl create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]` | Prepare a machine from a verified catalogue selection. `--image FILE --digest sha256:HEX` replaces `--distro` to select a local machine image. |
+| `nsl list` | Name, state, distro, trust tier and default marker for every owned machine, and any pending VM restart. |
+| `nsl default NAME` | Make NAME the default machine. |
+| `nsl start NAME` | Start a machine, and its VM if needed, and wait for readiness. |
+| `nsl stop NAME` | Stop one machine and preserve all state. |
+| `nsl shutdown` | Stop every running machine and every nsl VM. |
+| `nsl export NAME FILE` | Write an archive of a stopped machine; never overwrite. |
+| `nsl import NAME FILE [--isolated]` | Verify and import an archive under an unused name. |
+| `nsl remove NAME [--yes]` | Preview, then permanently remove a stopped machine. |
+| `nsl ports [NAME]` | Forwarding status and conflicts for one machine or all machines. |
+| `nsl logs [NAME]` | Recent host-side logs for one machine or all machines. |
+| `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
+| `nsl images [--offline]` | List authenticated machine-image selections and the VM image in effect. |
+| `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
+| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. |
+| `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
+| `nsl config` | Print the effective configuration, the source of each value and any change waiting for a VM restart. |
+| `nsl recover [NAME]` | Restart the shared VM, or isolated machine NAME's VM, check its data disk and resume interrupted work; preserve machines. |
+| `nsl resize [NAME] --disk GiB` | Grow the stopped shared VM's data disk, or isolated machine NAME's; never shrink. |
+| `nsl doctor`, `nsl version`, `nsl help` | Host checks, build version and usage. |
 
-Names start with a lowercase ASCII letter, contain lowercase letters/digits/interior hyphens and have at most 24 characters. Flags follow the name. CPUs: 1–64 (default 2); RAM: 1–128 GiB (default 2); disk: 4–4096 GiB (default 16), never smaller than the raw image. Creation requires x86_64. Images must implement the nsl boot-credential/command protocol; a local-image digest verifies selected bytes without publisher identity. Catalogue selection follows the [signed delivery contract](image-delivery.md).
+Guest commands installed by every machine image:
+
+| Command | Behavior |
+| --- | --- |
+| `nsl-open TARGET` | Open an `http`/`https` URL or a path under `/mnt/host` with the host's default handler. Also set as `BROWSER` and the `xdg-open` handler. |
+| `nsl-path [--host \| --guest] PATH` | Translate between host and guest paths using the `/mnt/host` prefix. |
+
+Machine names start with a lowercase ASCII letter, then lowercase letters, digits or interior hyphens, at most 24 characters. Flags follow the machine name. `--user` takes a POSIX account name: a lowercase letter or underscore, then lowercase letters, digits, underscores or hyphens, at most 32 characters. Machines and VMs are x86-64.
 
 ## Rules
 
+### Selection and entry
+
+- There MUST be zero or one default machine. The first machine created MUST become the default; `--default` MUST select it explicitly.
+- Removing the default MUST leave no default. Bare `nsl` without a default MUST fail and list machines; it MUST NOT pick one implicitly.
+- The host working directory MUST be matched against shared trees by the device and inode of its ancestors, so symlink and bind-mount aliases translate. For example, `/home` and `/var/home` can be two mounts of one subvolume. When it lies in a shared tree and the machine is not isolated, the guest directory MUST be `/mnt/host` followed by the tree's canonical path and the remaining components.
+- A shell whose directory cannot be translated MUST start in the guest home and say so on stderr.
+- `run` with an untranslatable directory and no `--cd` MUST fail without running anything. A command intended for the project directory must not run somewhere else.
+- `--cd` MUST take an absolute guest path.
+
+### Host files
+
+- Machines that are not isolated MUST see the user's home, `/run/media/USER` and `/mnt`, read-write, at their canonical host paths under `/mnt/host`. Nothing else from the host filesystem MAY be shared with machines.
+- Top-level host aliases of a shared tree, whether symlinks or bind mounts, SHOULD appear as matching relative symlinks under `/mnt/host`.
+- Files created through `/mnt/host` MUST be owned by the host user. Guest root MUST NOT gain host permissions beyond the host user's.
+- Unix sockets under shared trees MUST NOT be proxied.
+- Isolated machines MUST have no `/mnt/host` content, desktop session or broker access.
+- A VM MAY read the host's verified machine-image cache through a separate read-only share, which machines never see.
+
+### Account and execution
+
+- The guest account MUST use the host username unless `--user` overrides it, together with the host numeric UID and primary GID. Its home is `/home/USERNAME` on machine storage.
+- A username that conflicts with an existing guest account MUST fail creation clearly without changing that account.
+- The guest hostname MUST be the machine name.
+- Argv MUST be preserved literally. Binary streams, separate stdout/stderr, exit status and signals MUST survive execution. A command killed by signal N MUST exit 128+N.
+- `--root` MUST select guest root and never host root.
 - Host commands MUST run as the normal user, without implicit sudo or host configuration changes.
-- State and runtime unit identity MUST be validated before mutation. Existing names, foreign units and unsupported metadata MUST be rejected.
-- Lifecycle changes MUST serialize per environment; command sessions MAY run concurrently after readiness.
-- Freshly created environments MUST have independent disks and client keys. All environments MUST have distinct runtime units and CIDs within a state directory. Restored copies preserve their backup's guest identity/keypair and have independent disk files ([ADR-0006](../adr/0006-stopped-vm-backups.md)).
-- Images MUST supply a vsock SSH listener independently of early automatic detection. V6 uses an nsl-owned socket; launch retains explicit listener arguments for earlier images.
-- Readiness MUST verify the guest ID, UID, GID and image descriptor even for an already running unit. Reject incompatible schema, architecture, transport or command-protocol range before forwarding or executing user commands.
-- Interrupted preparation MUST retain state. Recovery MUST preserve an existing disk, private key and host-key trust; it MUST NOT silently repair corruption or regenerate lost keys.
-- Normal guest work MUST use the host numeric UID and primary GID. `--root` selects guest root, never host root.
-- Guest argv MUST retain spaces, quotes and metacharacters literally. Binary streams and exit status MUST survive non-PTY execution.
-- Only an explicit canonical project directory other than `/` MAY be shared. Unsupported path delimiters/control characters MUST be rejected.
-- GUI MUST require desktop opt-in and a host Wayland session. It MUST NOT change the persistent share.
-- Automatic service forwards MUST bind host loopback, report/retry conflicts and never evict an existing host listener.
-- Stop MUST preserve guest data and configuration and terminate that environment's forwarding service.
 
-## Offline storage management
+### Desktop and host actions
 
-Removal MUST require stopped owned VM and forwarding units, explicit `--yes`, and manager/environment locks. It MUST preserve external host projects, cached images and external archives. Projects inside the environment state MUST block removal. Interrupted removal MUST reserve the name under `removing/NAME`, appear as `Removing` in `list`, and resume only from validated metadata or an empty final directory. Waiting lifecycle calls MUST reject a newly allocated environment under the same name.
+- When the host has a Wayland session and the machine is not isolated, guest sessions MUST receive a `WAYLAND_DISPLAY` served by a persistent per-machine Waypipe session. Host display sockets MUST NOT be shared directly.
+- The broker MUST authenticate each machine. It MUST accept only `http`/`https` URLs and translatable `/mnt/host` paths, and refuse every other target.
+- `ssh-config` MUST print a host alias that reaches the machine account through nsl, with a key generated for that machine. It MUST NOT enable a network listener in the machine.
+- Launcher entries and terminal profiles MUST be user-scoped, nsl-prefixed and removed with their machine. They MUST NOT overwrite unrelated files. This work belongs to a later phase.
 
-Resize MUST require a prepared stopped standalone disk, refuse shrinking and invalid capacities, and persist the pending target before disk mutation. It MUST sync and validate the resulting disk before committing capacity. Pending growth MUST appear as `Resizing`, block start/export, and resume through the same resize target or `recover`. Capacity inconsistent with both committed and pending sizes MUST be refused. Guest filesystem growth is a separate boot operation supplied by the image; Debian v5 explicitly requires it before readiness. See [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0010](../adr/0010-explicit-guest-root-growth.md), and the [guest contract](guest-images.md).
+### Lifecycle
 
-## Backup version 1
+- Commands MUST start a stopped machine and wait for authenticated readiness.
+- The shared VM MUST start on first use. When it starts, it MUST start every machine unless `autostart` is `false`; machines then start on first use. The VM MUST stop when no machine is running.
+- A machine with no nsl command sessions and no connected GUI clients MUST stop after `idle_timeout`. Services started inside the machine do not keep it running.
+- `stop` and idle stop MUST preserve all machine state.
+- Automatic forwarding MUST bind host loopback, report and retry conflicts, and never evict an existing listener. Machines share the VM's network namespace, so the same port in two machines conflicts inside the VM, as in WSL.
+- Resource limits MUST come from the configuration: one budget for the shared VM, and one for each isolated machine's VM.
 
-`export` MUST hold the environment lock and refuse active, activating or stopping VMs. It MUST check a standalone qcow2 disk, write a compact independent copy and publish a mode-0600 archive without replacing an existing path. It MUST preserve the source. The archive contains `manifest.json`, `disk.qcow2`, `keys/identity`, `keys/identity.pub` and optional `known_hosts`; host shares are excluded.
+### State, ownership and locking
 
-`restore` MUST require x86_64 and matching numeric UID/primary GID. It MUST validate format version, names, entry types, resource/size bounds, file completeness, SHA256 checksums, keypair correspondence and a standalone qcow2 disk before publishing an environment. Links, duplicates, traversal, unexpected entries, trailing data and external disk references MUST be refused. Invalid archives MUST leave no named environment. Verified state interrupted during final preparation MAY be retained for `recover`.
+- State and runtime unit identity MUST be validated before mutation: owner, file type and permissions of state files, and the description of every unit before nsl controls it. Foreign units, unsupported metadata and existing names MUST be rejected.
+- Every VM and machine has a random 32-hex ID. Lifecycle changes MUST serialize per VM and per machine. A call that waited for a lock MUST reject a machine or VM whose ID changed while it waited. Command sessions MAY run concurrently after readiness.
+- Readiness MUST authenticate the VM and verify its ID, UID, GID, role and image descriptor, including for an already running unit. It MUST reject an agent protocol, architecture or transport that differs from the CLI's before forwarding ports or running commands.
+- Interrupted preparation MUST retain state. `recover` MUST preserve the data disk, keys and pinned host keys; it MUST NOT silently repair corruption or regenerate lost keys.
+- nsl MUST NOT overwrite an existing machine, image, archive or file it did not create.
 
-Restore MUST allocate new runtime identity and reconstruct local configuration. Guest binding, SSH keys, pinned host trust, packages and disk contents MUST be preserved. Host project and desktop access MUST default to absent and require explicit restore flags. The original base-image cache MUST NOT be required. Checksums are not publisher authentication; archives contain unencrypted guest data and credentials.
+### Storage
 
-## Planned provisioning extension
+- `remove --yes` MUST require a stopped owned machine and the manager and machine locks. It MUST reserve the name until deletion finishes, show the machine as `Removing` in `list`, and resume from the same command after interruption. It MUST preserve host files, cached images and exported archives.
+- `resize --disk` MUST require the VM to be stopped. It MUST refuse shrinking and invalid capacities (up to 4096 GiB), record the pending target before changing the disk, and validate the result before committing the new capacity. Pending growth MUST appear in `list`, block VM start, and complete through `resize` or `recover`. A capacity matching neither the committed nor the pending size MUST be refused.
+- The VM grows its data filesystem to the disk at boot; the CLI only changes and verifies virtual capacity. Machines share the data disk's capacity.
 
-The separate [provisioning contract](provisioning.md) defines optional `create --cloud-init FILE`, explicit wait flags and `provision status|wait|logs`. These commands are not implemented and do not change the current interface above. The plan preserves lazy creation, separates provisioning from management readiness, and requires versioned backup support before enabling the feature. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md), [implementation plan](../plans/cloud-init-provisioning.md).
+### Export and import
+
+- `export` MUST hold the machine lock and refuse a machine that is not stopped. It MUST publish a mode-0600 archive without replacing an existing path, and preserve the source.
+- The archive is a tar file with `manifest.json` and `rootfs.tar.zst`. The manifest records the format version, machine name, account name, UID and GID, image build ID and the SHA256 and size of `rootfs.tar.zst`. The root filesystem stream preserves numeric owners, modes, xattrs and ACLs.
+- `import` MUST require x86-64 and the archive's UID and primary GID to match the host user. Before publishing a machine, it MUST validate the format version, names, entry types, size bounds, checksums and every root filesystem entry. Absolute or `..` paths, links leaving the tree, duplicates, unexpected entries and trailing data MUST be refused. An invalid archive MUST leave no named machine.
+- Import MUST choose the trust tier from its flags, defaulting to not isolated. It MUST NOT read the tier from the archive. It MUST apply per-machine data for the new name: hostname, hosts entry, host time zone and nspawn settings.
+- Checksums detect damage; they do not authenticate the archive's origin. Archives are unencrypted and can contain credentials.
+
+### Images
+
+- `create --distro`, `pull` and `update` follow the [delivery contract](image-delivery.md): the catalogue and each image are authenticated against the Frostyard publishing identity before use. `--offline` MUST use only verified cached data and never download.
+- Local `--image FILE --digest sha256:HEX` verifies the selected bytes but not a publisher. It is an explicit developer path.
+- Creation MUST NOT need the network once the images are cached. A failed creation MUST remove its subvolume and leave the name free.
+- `update` MUST NOT start, stop or change a running VM. The selected VM image replaces each VM's root at that VM's next start, keeping its data disk. `config` and `list` MUST report the pending image.
+
+### Configuration
+
+The optional file `$XDG_CONFIG_HOME/nsl/nsl.conf` is separate from state in `NSL_HOME`. When `XDG_CONFIG_HOME` is unset, empty or relative, the file is `~/.config/nsl/nsl.conf`. nsl reads the file and never writes it.
+
+```ini
+# ~/.config/nsl/nsl.conf
+[vm]
+memory = 16
+cpus = 8
+
+[machines]
+idle_timeout = 0
+```
+
+| Section | Key | Value | Default |
+| --- | --- | --- | --- |
+| `vm` | `memory` | GiB ceiling for the shared VM, 1–128 | Half the host's memory, rounded down, from 2 to 128 |
+| `vm` | `cpus` | vCPUs for the shared VM, 1–64 | Every host CPU, at most 64 |
+| `machines` | `autostart` | `true` or `false`: start every machine when the VM starts | `true` |
+| `machines` | `idle_timeout` | Minutes without sessions before a machine stops, 0–1440; `0` disables | `15` |
+| `isolated` | `memory` | GiB for each isolated machine's VM, 1–128 | `2` |
+| `isolated` | `cpus` | vCPUs for each isolated machine's VM, 1–64 | `2` |
+
+Syntax:
+
+- The file is UTF-8 without NUL bytes, at most 64 KiB. Lines are trimmed of surrounding whitespace, including a CR before the LF.
+- Blank lines are ignored. A line starting with `#` is a comment; there are no inline comments.
+- `[section]` starts a section; each section appears at most once. `key = value` splits at the first `=`, and both sides are trimmed. Names are case-sensitive.
+- Numbers are decimal digits only: no sign, unit or quotes. Booleans are exactly `true` or `false`.
+
+Rules:
+
+- An absent file MUST mean defaults.
+- Unknown sections or keys, duplicate sections or keys, keys outside a section, invalid values and out-of-range numbers MUST be errors naming the file and line, as `PATH:LINE: message`. nsl MUST NOT start a VM with a partially understood file.
+- `nsl config` MUST print each setting, its value and its source: `default`, or `file` with its line.
+- A command-line flag MAY override a key for one invocation, with the source `flag`. nsl MUST NOT rewrite the file.
+- Changes to `vm` or `isolated` resources MUST apply at the next start of the affected VM, and `nsl config` and `nsl list` MUST report the pending restart. `autostart` applies at the next VM start; `idle_timeout` applies from the next nsl command.
+
+### Open interface questions
+
+- Whether to translate absolute host symlinks that point into shared trees; see the [experiment plan](../plans/shared-vm-experiment.md).
+- Whether to trigger host automounts for guest access. virtiofs lookups do not trigger them, so an unmounted autofs point appears empty until the host mounts it.
 
 ## Validation boundaries
 
-Unit tests use fake tools and local Python helper processes. Integration tests need disposable real VMs. They exercise first boot, growth, multiple identities, port conflicts and recovery; they do not establish arbitrary crash recovery or full desktop parity. Exact results: [implementation report](../plans/vmspawn-implementation.md).
+Unit tests use fake tools and local processes and need neither root nor a VM. Integration evidence comes from disposable real VMs and is recorded in the [implementation plan](../plans/shared-vm-implementation.md) as each phase completes.
 
 ## References
 
-- [Lifecycle](../design/lifecycle.md), [image build](../../image/README.md).
-- [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [roadmap](../plans/wsl2-equivalent.md).
+- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md).
+- Contracts: [agent](agent.md), [VM image](vm-image.md), [machine images](machine-images.md), [image delivery](image-delivery.md), [provisioning](provisioning.md) (deferred).
+- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](../plans/shared-vm-implementation.md).

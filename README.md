@@ -2,6 +2,8 @@
 
 `nsl` manages persistent Linux development VMs with terminal, project-file, localhost and Wayland integration. Each environment runs its distribution and applications directly inside one VM. The Go CLI uses systemd-vmspawn and QEMU/KVM, with Debian, Ubuntu, Fedora, CentOS Stream, openSUSE Leap/Tumbleweed and Arch images built from nspawn's mkosi recipes.
 
+nsl is being rebuilt as WSL-style machines in one shared VM ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)); the [CLI contract](docs/specs/cli.md) describes the target and the [implementation plan](docs/plans/shared-vm-implementation.md) tracks the work. This guide describes the current binary, which the plan replaces.
+
 This is a development prototype. The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland. Other atomic distributions remain to be tested. [Implementation and validation](docs/plans/vmspawn-implementation.md).
 
 ## Prerequisites
@@ -159,4 +161,4 @@ python3 scripts/measure-poc.py --nsl build/nsl \
 
 The measurement harness writes uniquely named test files, starts a temporary HTTP server, briefly opens a calculator and cycles the VM. It leaves the measured VM stopped. Unit tests use fake tools and local helper processes and need neither root nor a VM. Additional recovery and multi-VM checks are described in the [implementation report](docs/plans/vmspawn-implementation.md).
 
-[Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md) · [Earlier runtime comparison](docs/plans/vmspawn-comparison.md)
+[Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation index](docs/README.md) · [Target CLI contract](docs/specs/cli.md) · [Target architecture](docs/design/lifecycle.md) · [Earlier runtime comparison](docs/plans/vmspawn-comparison.md)

@@ -1,6 +1,6 @@
 # Plan: Broad Linux distribution support
 
-Make Ubuntu, Debian, Fedora, CentOS, Arch and SUSE-family guests work through the same nsl interface. This is near-term architecture work, alongside storage and before further Debian-only product features. [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md) defines the boundary; the [guest contract](../specs/guest-images.md) defines acceptance.
+Make Ubuntu, Debian, Fedora, CentOS, Arch and SUSE-family guests work through the same nsl interface. This is near-term architecture work, alongside storage and before further Debian-only product features. [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md) defines the boundary; the [machine-image contract](../specs/machine-images.md) defines acceptance.
 
 ## Current matrix
 

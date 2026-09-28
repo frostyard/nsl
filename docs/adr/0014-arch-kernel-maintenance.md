@@ -26,5 +26,5 @@ Kernel upgrades and reinstalls regenerate the actual boot files. Failed generati
 
 ## References
 
-- [SUSE and Arch validation](../plans/suse-and-arch.md), [guest contract](../specs/guest-images.md), [distribution plan](../plans/distribution-support.md).
+- [SUSE and Arch validation](../plans/suse-and-arch.md), [machine-image contract](../specs/machine-images.md), [distribution plan](../plans/distribution-support.md).
 - [Arch dracut package files](https://archlinux.org/packages/extra/x86_64/dracut/files/), [Arch systemd-ukify](https://archlinux.org/packages/core/x86_64/systemd-ukify/).

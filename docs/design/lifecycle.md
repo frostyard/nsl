@@ -1,111 +1,110 @@
-# VM lifecycle and host integration
+# Machine lifecycle and host integration
 
-Living document. Rationale: [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md). Contract: [CLI spec](../specs/cli.md).
+Living document for the design that [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) set. Contract: the [CLI spec](../specs/cli.md). The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live; until its Phase 5, the binary still runs the environment design this document replaces.
 
 ## Overview
 
-Each environment is a full distro VM with its own kernel and persistent disk. The Go CLI manages systemd user services that launch systemd-vmspawn/QEMU. SSH over vsock carries commands, terminal sessions and Waypipe. A second service discovers IPv4 TCP listeners and forwards them to host loopback.
+nsl runs one VM per state directory, the shared VM, and one more for each isolated machine. Each VM boots the [nsl VM image](../specs/vm-image.md) through systemd-vmspawn and QEMU under a systemd user unit. Machines are systemd-nspawn containers on the VM's data disk, created from signed [machine images](../specs/machine-images.md). SSH over vsock reaches the [agent](../specs/agent.md), which runs commands in machines and manages them. A forwarder per VM carries machine ports to host loopback, and a Waypipe session per machine carries its windows.
 
 ```mermaid
 flowchart LR
-    CLI[nsl Go CLI] --> Units[Per-environment user services]
-    Units --> VM[vmspawn + QEMU/KVM]
-    Image[nspawn-derived distro image] --> Disk[Independent qcow2 disk]
-    Disk --> VM
-    CLI --> SSH[SSH over vsock]
-    SSH --> VM
-    Project[Explicit project] --> FS[virtiofs /work]
-    FS --> VM
-    VM --> Waypipe[Waypipe]
+    CLI[nsl CLI] --> Unit[VM user unit]
+    Unit --> VM[vmspawn + QEMU/KVM]
+    VMImage[Signed VM image] --> Root[Replaceable root overlay]
+    Root --> VM
+    Data[Data disk: machines + state] --> VM
+    Cache[Verified image cache] -->|read-only virtiofs| VM
+    Home[Home, /run/media/USER, /mnt] -->|virtiofs /mnt/host| VM
+    CLI -->|vsock SSH| Agent[nsl agent]
+    Agent --> Machines[nspawn machines]
+    VM --> Ports[Loopback forwarding]
+    Machines --> Waypipe[Waypipe per machine]
     Waypipe --> Desktop[Host Wayland desktop]
-    VM --> Ports[Loopback TCP forwarding]
 ```
 
 ## State and ownership
 
-`NSL_HOME` defaults to `$XDG_DATA_HOME/nsl` or `~/.local/share/nsl`. `environments/NAME` holds schema-2 metadata, an independent `disk.qcow2`, an SSH keypair, boot credential, SSH config, pinned host key and forwarding status. Imported raw images are stored by SHA256 under `images/`. Runtime sockets live under `/run/user/UID/nsl/ID`, so long state paths do not extend socket names.
+`NSL_HOME` defaults to `$XDG_DATA_HOME/nsl` or `~/.local/share/nsl`. Settings live apart from state, in [`nsl.conf`](../specs/cli.md#configuration).
 
-Ownership, file type and permissions are checked before state changes. Metadata identity and resource limits are validated. The environment ID generates unique unit names and a stable vsock CID; creation avoids CID collisions with other environments in the same state directory. QEMU rejects an already occupied CID outside that directory. Unit descriptions must match the environment ID before nsl controls them.
+| Path | Content |
+| --- | --- |
+| `vm/` | The shared VM: its record, root overlay, data disk, SSH keypair, pinned host key, SSH configuration and boot credential. |
+| `isolated/NAME/` | The same for isolated machine NAME's VM. |
+| `machines/NAME.json` | A machine record: ID, trust tier, account, image build and digest. |
+| `default` | The default machine's name, when there is one. |
+| `removing/NAME` | A machine whose removal is in progress; the name stays reserved. |
+| `images/`, `delivery/` | The verified image cache and authenticated catalogue history. |
 
-A manager lock serializes image import and name allocation. Per-environment locks serialize preparation, startup, stop and recovery. Commands release the lock after readiness so sessions can run concurrently. Atomic metadata writes distinguish prepared state from interrupted preparation. Existing names, images and disks are never silently adopted or replaced. Old experimental state uses another schema and remains untouched.
+A VM record holds the VM's ID, owner, UID and GID, the image build its root overlay came from and any pending image, the memory and CPUs in effect, and the data disk's committed and pending capacity. Runtime sockets live under `/run/user/UID/nsl/ID`, so long state paths do not lengthen socket names.
 
-## Image and first boot
+Ownership, file type and permissions are checked before any change. The VM ID yields its unit names and a stable vsock CID, and creation avoids CIDs used by other VMs in the same state directory. Launch refuses a CID that already answers. Unit descriptions must name the ID before nsl controls a unit.
 
-The [image build](../../image/README.md) combines pinned nspawn disk recipes with common integration, family boot adapters and seven explicit distribution profiles. Lima is an optional build tool only. The runtime requires an explicit local raw image and SHA256. nsl verifies an imported copy, then converts it to an independent qcow2 disk and enlarges its virtual capacity. Existing environments do not depend on the cached raw image after conversion.
+A manager lock serializes image import, name allocation and the default. Per-VM and per-machine locks serialize lifecycle changes, and commands release them after readiness so sessions run concurrently. A call that waited for a lock reloads the record and rejects a changed ID. Atomic writes separate prepared state from interrupted preparation. nsl never adopts or replaces an existing name, image, disk or archive.
 
-Image v4 keeps `/boot` on btrfs and mounts a 1 GiB EFI partition at `/efi`. Debian package hooks use `systemd-ukify` and the UKI layout; first boot records the root UUID for later initramfs-tools boots without replacing administrator settings. Image v6 uses an nsl-owned vsock socket and inetd-style OpenSSH unit that require successful setup. The guest SSH generator is masked to prevent duplicate listeners. Older images still use the CLI's explicit listener kernel arguments. [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md). [ADR-0007](../adr/0007-maintainable-guest-boot.md). Existing v3 disks retain their earlier layout and require an explicit migration before kernel maintenance.
+## The VM
 
-The generic image contains no fixed development account or client key. vmspawn supplies a boot credential containing the environment ID, host UID/primary GID and public SSH key. The guest's `nsl-setup.service` validates the credential and configures the `nsl` account, home and guest sudo. It records the binding on disk and rejects a different identity on subsequent boots. Setup is idempotent, recovers partial account/home creation and preserves later authorized-key additions. Guest setup syncs its changes; first-use readiness also flushes guest storage before recording initialization, including generated SSH host keys. Client private keys remain on the host; The common setup helper generates guest host keys at first boot.
+The root is a qcow2 overlay on a cached, verified VM image. It holds no user state. `nsl update` records a pending image, and the next start discards the overlay and creates a new one from that image. The data disk is a separate qcow2 whose btrfs filesystem holds the machines and a state subvolume. That subvolume keeps the VM's binding, SSH host keys and machine records, so a new root keeps the pinned host key and every machine.
 
-`systemd-repart` grows the root partition; root growth supports btrfs on Debian and ext4 on Ubuntu to the virtual disk capacity. The guest image includes the Debian `systemd-repart` package explicitly. This step is independent of account setup. Debian v5 explicitly makes setup require `systemd-growfs-root.service` after repart/remount; kernel regeneration can bypass the automatic root discovery that previously scheduled this service. Earlier v4 guests need an explicit integration update. See [ADR-0010](../adr/0010-explicit-guest-root-growth.md).
+vmspawn passes the `nsl.vm` credential: the VM ID, role, host UID and GID, public key, autostart setting, shares and aliases. On first boot the VM formats a blank data disk and records the binding. On later boots it rejects a credential that differs, and it grows the data filesystem to the disk before readiness.
+
+Resources come from the configuration when the VM starts, and the record keeps what is in effect. When the file differs, `config` and `list` report a pending restart.
 
 ## Launch and readiness
 
-The user must already have KVM/vhost-vsock access through `kvm`. A fixed internal command opens the devices under that group, restores the account's primary group, and enters an unprivileged user namespace mapping the normal UID/GID to themselves. It verifies and passes the devices through vmspawn's named file descriptors. Capabilities are scoped to that user namespace. nsl changes no host permissions, groups, packages or sudoers.
+The user needs KVM and vhost-vsock access through the `kvm` group. A fixed internal command opens the devices under that group, restores the account's primary group, and enters an unprivileged user namespace that maps the user's UID and GID to themselves. It verifies the devices and passes them to vmspawn as named file descriptors. Capabilities stay scoped to that namespace. nsl changes no host permissions, groups, packages or sudoers.
 
-Every `start`, `exec`, `shell`, `gui` or `ssh-config` checks authenticated guest identity, including when a unit is already running. A newly launched VM gets up to 90 seconds to become ready. Readiness validates the guest environment ID, UID, GID and protocol. Failures preserve the disk and point to `logs` and `recover`. Forwarding is started or restored only after readiness succeeds.
+The unit `nsl-UID-vm-ID.service` runs vmspawn with the root overlay, the data disk as an extra drive, the virtiofs shares, the read-only image cache and the credential. A newly launched VM gets up to 90 seconds to become ready. Readiness is the agent's `identity` answer over authenticated vsock SSH. The host checks it for the VM's ID, UID, GID and role, and for the image descriptor's protocols and architecture, even when the unit was already running. Failures keep the disks and point to `logs` and `recover`. Forwarding starts only after readiness.
 
-`stop` first stops the forwarding service, requests guest shutdown, waits up to 30 seconds and falls back to stopping the owned unit. The unit's stop timeout bounds forced teardown. Command SSH multiplexers are closed afterward. Disks and configuration persist. Shell exit leaves the VM running.
+The shared VM starts on first use. At boot it starts every machine unless `autostart` is false. It stops when no machine is running, and `shutdown` stops it at once. A stop asks the VM to power off, waits up to 30 seconds, then stops the owned unit.
 
-`recover` stops the owned runtime, resumes missing preparation artifacts, checks an existing qcow2 disk without automatic repair, and starts it again. It preserves keys, pinned host trust and existing disk contents. It cannot reconstruct deleted keys, repair filesystem corruption or recover an orphan directory lacking valid metadata. Recovery is not backup/restore.
+`recover` stops the owned runtime, completes pending growth, checks the data disk without repairing it, and starts the VM again. It keeps keys, pinned host keys and machines. It cannot rebuild deleted keys or repair a corrupt filesystem, and it is not a backup.
 
-## Offline storage changes
+## Machines
 
-`remove` previews deletion; `--yes` requires both owned units stopped. Manager and environment locks protect a rename into `removing/NAME`. Deletion preserves metadata until the final step so it can resume safely; name reuse remains blocked until the tombstone is gone. External projects, cached images and backups survive. Lifecycle calls reload metadata after acquiring the lock and reject replacement IDs.
+`create` verifies a cached machine image and allocates a machine ID and record under the manager lock. The agent then imports the root filesystem from the read-only cache into a staging subvolume and applies per-machine data:
 
-`resize --disk GiB` records `resize_target_gib` before growing a stopped qcow2 disk, syncs and verifies the disk, then commits `disk_gib` and clears the target. Recovery accepts either the old or target capacity; other capacities fail inspection. Start/export refuse pending growth; `recover` or a repeated resize completes it. Guest root growth happens on boot. Shrinking is unsupported. [Storage decision](../adr/0008-offline-storage-management.md), [validation](../plans/storage-management.md).
+- the host time-zone link, before anything runs in the tree;
+- hostname and hosts entry;
+- the account, with the host username, UID and primary GID;
+- the `sudo` rule;
+- the VM-side record from which nspawn settings are generated.
 
-## Backup and restore
+It publishes the subvolume under the machine's name only after every step succeeds. A failure deletes the staging subvolume and leaves the name free. The first machine becomes the default.
 
-[ADR-0006](../adr/0006-stopped-vm-backups.md) defines whole-system backups. `export` locks a stopped environment, checks the standalone qcow2 disk and compacts it into private staging. A version-1 tar archive carries a bounded manifest, hashes/sizes, disk, client keypair and optional pinned trust. Atomic hard-link publication refuses an existing destination. Shared project files remain on the host and are excluded. Archives are unencrypted and include credentials.
+Machines run with `PrivateUsers=no` in the VM's network namespace with its resolver and, in the shared VM, bind `/mnt/host`. Machine root is effectively VM root, so machines are not isolated from one another. `start` waits for the machine's manager to report `running` or `degraded`. An idle monitor in the VM stops a machine after `idle_timeout` without `nsl-run-*` sessions or Waypipe clients.
 
-`restore` validates and extracts only the allowed regular files into a private temporary directory. Before QEMU sees the disk, nsl checks its header for external references, invalid geometry, dirty/corrupt flags and unsupported features; QEMU then checks disk metadata. The client keypair is checked with `ssh-keygen`. No arbitrary saved host config or paths are imported. Verified state is published under the manager lock, then normal preparation writes boot and SSH configuration. An interrupted final preparation can be resumed with `recover`.
+An isolated machine gets its own VM from the same image, with the `isolated` role, no shares, no display session and `[isolated]` resources.
 
-Schema-2 metadata has an optional `guest_id`: fresh environments use their runtime `id` as the guest binding; restored environments keep the backed-up binding and get a fresh runtime `id`. Readiness, boot credentials and SSH host-key aliases use the guest binding; units, sockets and CIDs use runtime identity. Restored copies preserve machine ID and SSH identities, so they are not independently authenticated clones. Version 1 requires matching UID/primary GID. Project sharing and desktop opt-in must be selected again. The independent restored disk does not need the base-image cache.
+## Commands and files
 
-The [backup milestone](../plans/backup-and-reliability.md) and [storage milestone](../plans/storage-management.md) record acceptance results. The [distribution plan](../plans/distribution-support.md) moves package, boot and filesystem differences into image adapters under a common [guest contract](../specs/guest-images.md); all seven profiles use the shared acceptance suite, with separate [Debian/Ubuntu](../plans/image-profiles-and-ubuntu.md), [RPM](../plans/rpm-guests.md) and [SUSE/Arch](../plans/suse-and-arch.md) reports.
+The host translates the working directory by the device and inode of its ancestors against the shared trees, including bind-mount aliases. A shell falls back to the guest home; `run` fails instead. The agent runs argv as a transient unit in the machine through systemd's D-Bus API: literally, with a PAM session through the image's `nsl` service, and with separate or PTY streams. Signal deaths return 128+N.
 
-## Commands, files and GUI
+Machines that are not isolated see the user's home, `/run/media/USER` and `/mnt` at `/mnt/host`, read-write through virtiofs, with relative symlinks for top-level aliases such as `/mnt/host/home → var/home`. virtiofsd runs as the host user, so guest root cannot exceed the host user's permissions. Unix sockets do not connect across the share. Host edits produce no inotify events in machines, so watched builds belong in the guest home. Edits between machines do produce events, because they share a kernel.
 
-Local tools receive argv arrays. A bounded base64 JSON request transports guest argv and an optional absolute working directory. The guest Python helper validates the request, sets the user's home/environment and calls `os.execvp`. Commands retain binary streams and exit status; SSH carries terminal sizing. Guest root is selected explicitly with `exec --root`.
+## Storage
 
-Only an explicitly selected project is shared at `/work`, fixed at creation. The guest user matches host numeric UID/primary GID; supplementary groups are not copied. No host home, session bus, agent or GPU is implicitly shared. Polling or guest-native source files are required for live reload because host inotify events do not cross the tested virtiofs boundary.
+`remove --yes` requires a stopped machine and the manager and machine locks. It renames the record into `removing/NAME`, and the agent deletes the subvolume and VM-side record. The host record goes last, so a repeated command resumes.
 
-GUI requires `--desktop` and an active host Wayland session. Waypipe software rendering carries individual windows over the same authenticated transport. The GUI remains attached until it exits. Clipboard, audio, GPU acceleration, portals and launcher export remain future work.
+`resize --disk` grows a stopped VM's data disk. It records the target before invoking `qemu-img`, then syncs and verifies the disk and commits the new capacity. `recover` or a repeated resize completes interrupted growth. The VM grows the filesystem at its next boot, and shrinking is unsupported. See [ADR-0008](../adr/0008-offline-storage-management.md).
+
+## Export and import
+
+[ADR-0006](../adr/0006-stopped-vm-backups.md) defines machine archives. `export` locks a stopped machine, and the agent streams its root filesystem as a zstd tar with numeric owners, xattrs and ACLs. The host writes it with a checksummed manifest to private staging, then publishes the archive with a hard link that refuses an existing path. `import` validates the manifest and checksums in staging. The agent then extracts into a staging subvolume, refusing unsafe entries, applies per-machine data for the new name, and publishes. The trust tier comes from the import flags.
 
 ## Networking
 
-User-mode networking supplies outbound access. A service tied to each VM polls guest IPv4 TCP listeners once per second and maintains a separate SSH forwarding connection. It forwards ports 1024–65535 to `127.0.0.1`, excluding 5353/5355. IPv6-only listeners and UDP are not implemented.
+vmspawn's user-mode networking supplies outbound access. A forwarder unit per VM discovers IPv4 TCP listeners in the VM, which include every machine's, once per second. It keeps an SSH forwarding connection and binds each port 1024–65535, except 5353 and 5355, on host `127.0.0.1`. A failed bind is reported by `ports` and retried, and never displaces an existing listener. Machines share the VM's namespace, so one port serves one machine at a time, as in WSL.
 
-A failed host bind is reported by `ports`, retried on subsequent polls and never displaces the existing listener. Disappearing guest listeners cancel their forwards. A lost SSH master resets the inventory and reconnects. The forwarding service's lifetime is tied to its VM; `start` can restore a missing service. Port reports carry timestamps and errors, and `logs` shows both units. `NSL_DEBUG=1` on startup additionally forwards the guest journal to the VM console for early-boot diagnosis.
+## Desktop and host actions
 
-## Release gates
+Each machine that is not isolated gets one persistent Waypipe session. It runs `waypipe server` in the VM on a display socket under `/run/nsl/wayland/`, and the socket's directory is bound into the running machine. Agent sessions receive `WAYLAND_DISPLAY`. The per-machine broker behind `nsl-open` accepts only `http`/`https` URLs and translatable `/mnt/host` paths.
 
-The tested target is Snow Linux, x86_64, systemd 261. Another atomic distribution, host reboot/suspend, newer-kernel upgrades beyond Arch and broader desktop integration remain release gates; backup round trips, kernel reinstallation and rootless Podman passed across seven profiles, and Arch passed a kernel-version upgrade. Results are recorded in the [distribution matrix](../plans/distribution-support.md) and its linked acceptance reports. See the [implementation report](../plans/vmspawn-implementation.md) for exact validation and remaining work.
+## Images
 
-## Planned provisioning lifecycle
-
-The proposed [cloud-init interface](../specs/provisioning.md) adds a separate provisioning state alongside VM readiness. User configuration is snapshotted at creation and executes on first boot through a local NoCloud seed; management access remains independent of completion. A dedicated persistent provisioning ID, input and guest execution markers survive restore even though runtime identity changes. Versioned archive support and per-image module/boot-order tests are required before enabling the feature. This is planned behavior under [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md); see the [implementation plan](../plans/cloud-init-provisioning.md).
+`images`, `pull`, `create --distro` and `update` follow the [signed delivery contract](../specs/image-delivery.md). The CLI verifies the catalogue and each descriptor against the embedded Sigstore root and the exact Frostyard workflow identity. It downloads by immutable digest, validates resumed bytes, and bounds decompression before publishing into the cache. Offline use requires fresh metadata and a complete verified cache.
 
 ## References
 
-- [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [CLI contract](../specs/cli.md).
-- [Comparison experiment](../plans/vmspawn-comparison.md), [roadmap](../plans/wsl2-equivalent.md).
-- Planned replacement: one shared VM running machines as containers, under [ADR-0017](../adr/0017-shared-vm-and-machine-images.md).
-
-## Signed base selection
-
-`images`, `pull` and `create --distro` use the [signed delivery contract](../specs/image-delivery.md).
-The CLI verifies the catalogue and image descriptor against the embedded Sigstore
-root and exact Frostyard workflow identity. It stores authenticated catalogue
-history under `delivery/`, downloads by immutable digest, validates resumed bytes,
-and bounds decompression before publishing a raw image into `images/`. Existing
-local imports and downloads share the manager lock for final cache publication.
-Per-artifact locks serialize transfers. Readiness checks the authenticated guest's
-image descriptor as well as the per-environment identity.
-
-A final check of locally authenticated catalogue state rejects an expired or
-concurrently withdrawn selection before a pull returns. A catalogue refresh that
-occurs after this decision applies to later selections. Explicit offline use
-requires fresh metadata, a signed receipt, evidence files and a rehashed raw image.
-All seven x86-64 images are public on GHCR. The local-image path remains available. See [publication results](../plans/public-image-delivery.md).
+- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md).
+- Contracts: [CLI](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md), [image delivery](../specs/image-delivery.md).
+- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md).

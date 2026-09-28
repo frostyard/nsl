@@ -70,6 +70,6 @@ All seven profiles passed the full VM suite and were signed/published by the mai
 
 - [v0.2.0 and v0.3.0 release gates](v0.2-v0.3-release.md).
 
-- Implements: [ADR-0012](../adr/0012-signed-image-distribution.md), [guest image contract](../specs/guest-images.md).
+- Implements: [ADR-0012](../adr/0012-signed-image-distribution.md), [machine-image contract](../specs/machine-images.md).
 - Related: [main roadmap](wsl2-equivalent.md), [distribution plan](distribution-support.md), [image build](../../image/README.md).
 - Primary references: [GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [ORAS publication](https://oras.land/docs/1.2/how_to_guides/remote_registries/), [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/).

@@ -1,37 +1,35 @@
 # 0013 — Offer optional cloud-init provisioning at creation
 
-- **Status:** Accepted
+- **Status:** Accepted; deferred until cloud-init is re-validated inside machines ([ADR-0017](0017-shared-vm-and-machine-images.md))
 - **Date:** 2026-09-26
 
 ## Context
 
-Prebuilt images provide a common starting point. Users and teams also need repeatable installation of packages, repositories, certificates and project configuration without maintaining a custom base for each project. Cloud-init provides an established guest provisioning format, including support for local NoCloud metadata.
+Machine images provide a common starting point. Users also need repeatable installation of packages, repositories, certificates and dotfiles without maintaining a custom image. Cloud-init provides an established format, including local NoCloud seeds. Under [ADR-0016](0016-wsl-style-machines.md), this is machine bootstrap, not project definition.
 
-nsl already owns the development account, host UID/primary GID mapping, management SSH identity, networking integration and filesystem growth. Backup restore allocates a new runtime ID while preserving guest identity. Provisioning must respect those boundaries.
+nsl owns the account, the host UID and GID mapping, and per-machine data. Export and import move a machine without changing its identity. Provisioning must respect those boundaries.
 
 ## Decision
 
-Add optional `create --cloud-init FILE` for images advertising a tested provisioning capability. Begin with a documented subset of YAML `#cloud-config` for packages, files, commands, repositories and certificates. Use a local read-only NoCloud seed; no metadata server or implicit network datasource discovery is required. Cloud-init and filesystem/seed integration belong in image profiles and the launcher, with no host cloud-init package dependency.
+Add optional `create --cloud-init FILE` for machine images that advertise a tested provisioning capability. Begin with a documented subset of `#cloud-config` for packages, files, commands, repositories and certificates. Use a local NoCloud seed in the machine's tree; no metadata server or network datasource. Cloud-init belongs to machine images; the host needs no cloud-init package.
 
-Creation snapshots the supplied bytes into private environment state. Ordinary creation remains lazy; first start runs provisioning. An explicit `--wait-provisioning` option boots and waits during creation. Expose provisioning status, wait and logs separately from VM readiness so installation failures leave management access available for diagnosis.
-
-Keep nsl-owned account, SSH, network and root-growth modules under image control. Reject conflicting declarative options rather than silently merging them. User commands execute as guest root and can modify guest state, including management access; accepted cloud-config is explicit guest administration.
-
-Give each fresh environment a persistent provisioning ID independent of runtime identity. Preserve it, the seed and cloud-init execution state on backup/restore. Recovery must not clean cloud-init state or invent a new instance ID. Introduce the required versioned archive support before enabling provisioning; arbitrary script effects are not guaranteed to execute exactly once across crashes.
+- **Input:** creation snapshots the supplied bytes into private state, and the machine's first boot runs provisioning. `--wait-provisioning` waits during creation. Status, wait and logs are separate from machine readiness, so a failed installation leaves the machine usable for diagnosis.
+- **Reserved:** nsl-owned account and network behavior stay under image control. Conflicting options are rejected, not merged. User commands run as machine root, which is explicit machine administration.
+- **Identity:** each machine has a persistent provisioning ID. It survives stop, start, `recover`, export and import, together with the seed and cloud-init's execution state. Recovery never cleans cloud-init state or invents a new instance ID. Arbitrary script effects are not guaranteed to run exactly once across crashes.
 
 ## Consequences
 
-The normal unprovisioned path remains available. Users gain reusable setup files and observable failures. Images need per-distro cloud-init tests, explicit module ownership and startup ordering. Provisioning adds private input/state to the backup contract. Image capability negotiation is a prerequisite; the feature should follow reliable image delivery in the product roadmap, while local-image tests can begin earlier.
+The unprovisioned path stays the default. Users gain reusable setup files and observable failures. Machine images need per-distro cloud-init tests and explicit module ownership. The feature waits until cloud-init is shown to work under nspawn in Debian and Fedora machines.
 
 ## Alternatives considered
 
-- **Custom nsl setup YAML:** duplicates an established format and its distro package-manager support.
-- **Make cloud-init responsible for all nsl bootstrap:** couples management access and identity to optional user provisioning.
-- **Reuse runtime ID as instance ID:** restore could incorrectly trigger first-boot configuration again.
-- **Automatically clean/retry failed provisioning:** can repeat partially applied, non-idempotent commands.
+- **Custom nsl setup YAML:** duplicates an established format and its package-manager support.
+- **Make cloud-init responsible for nsl bootstrap:** couples readiness and identity to optional user provisioning.
+- **Reuse the machine ID as instance ID:** conflates two identities with different lifetimes.
+- **Automatically clean and retry failed provisioning:** can repeat partly applied commands.
 
 ## References
 
-- [Provisioning interface](../specs/provisioning.md), [implementation plan](../plans/cloud-init-provisioning.md), [guest image contract](../specs/guest-images.md).
-- [Stopped VM backups](0006-stopped-vm-backups.md), [distribution boundary](0009-distribution-neutral-guest-contract.md), [image delivery](0012-signed-image-distribution.md).
+- [Provisioning contract](../specs/provisioning.md), [implementation plan](../plans/cloud-init-provisioning.md), [machine images](../specs/machine-images.md).
+- [Machine exports](0006-stopped-vm-backups.md), [distribution boundary](0009-distribution-neutral-guest-contract.md), [image delivery](0012-signed-image-distribution.md).
 - [NoCloud datasource](https://docs.cloud-init.io/en/latest/reference/datasources/nocloud.html), [module behavior](https://cloudinit.readthedocs.io/en/latest/reference/modules.html), [reported status](https://cloudinit.readthedocs.io/en/24.1/howto/status.html).
