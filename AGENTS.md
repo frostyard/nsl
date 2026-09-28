@@ -1,6 +1,6 @@
 # frostyard/nsl
 
-nsl is a Go CLI for WSL-style Linux machines on atomic Linux hosts: systemd-nspawn containers in one systemd-vmspawn/QEMU VM, from signed Frostyard machine images ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)). The [implementation plan](docs/plans/shared-vm-implementation.md) replaces the earlier one-VM-per-environment code phase by phase. Start at [docs/README.md](docs/README.md); user setup is in [README.md](README.md).
+nsl is a Go CLI for WSL-style Linux machines on atomic Linux hosts: systemd-nspawn containers in one systemd-vmspawn/QEMU VM, from signed Frostyard machine images ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)). The [implementation plan](docs/plans/shared-vm-implementation.md) records how it was built and what each phase proved; only publication and the first release remain. Start at [docs/README.md](docs/README.md); user setup is in [README.md](README.md).
 
 This is the canonical agent instruction file. `CLAUDE.md`, `GEMINI.md`, and `.github/copilot-instructions.md` link here; `.claude/skills` links to `.agents/skills` ([ADR-0002](docs/adr/0002-agent-portable-instruction-surface.md)). Edit the canonical targets only.
 
@@ -8,7 +8,7 @@ This is the canonical agent instruction file. `CLAUDE.md`, `GEMINI.md`, and `.gi
 
 Procedures belong in [.agents/skills/](.agents/skills/). Add a skill based on its template when a multi-step procedure repeats.
 
-- [validate-image](.agents/skills/validate-image/SKILL.md): build and exercise distribution images, record real VM evidence and diagnose guest integration failures.
+- [validate-image](.agents/skills/validate-image/SKILL.md): build the VM and machine images, accept them in disposable VMs, record the evidence and diagnose integration failures.
 
 ## Live code conventions
 

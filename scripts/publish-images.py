@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Build/test generic images, then sign and publish a complete catalogue in Actions."""
+"""Build and accept the nsl VM image and machine images, then sign and publish them with a catalogue in Actions.
+
+  publish-images.py build      make ci, build every image, run the acceptance probes and prepare public artifacts
+  publish-images.py publish    sign and push the prepared images, then sign and promote a catalogue of them
+  publish-images.py refresh    re-sign the current selections with a higher sequence and a renewed expiry
+  publish-images.py withdraw   remove REVOKE_DIGESTS from the catalogue and record them as revoked
+
+See docs/design/image-publication.md and docs/specs/image-delivery.md.
+"""
 import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -20,12 +28,19 @@ spec.loader.exec_module(compose)
 REPOSITORY = 'ghcr.io/frostyard/nsl-images'
 PUBLISHER = 'https://github.com/frostyard/nsl/.github/workflows/images.yml@refs/heads/main'
 ISSUER = 'https://token.actions.githubusercontent.com'
-ALIASES = {('debian', 'trixie'): ['debian:trixie', 'debian:13'],
-           ('ubuntu', 'noble'): ['ubuntu:noble', 'ubuntu:24.04'],
-           ('fedora', '44'): ['fedora:44'], ('centos', '10'): ['centos:10', 'centos-stream:10'],
-           ('opensuse', '16.0'): ['opensuse:16.0', 'opensuse-leap:16.0'],
-           ('opensuse', 'tumbleweed'): ['opensuse:tumbleweed', 'opensuse-tumbleweed:rolling'],
-           ('arch', 'rolling'): ['arch:rolling']}
+# Catalogue selectors for each machine profile; compose-image.py's MACHINES lists the profiles.
+SELECTORS = {('debian', 'trixie'): ['debian:trixie', 'debian:13'],
+             ('fedora', '44'): ['fedora:44'],
+             ('arch', 'rolling'): ['arch:rolling'],
+             ('opensuse', 'tumbleweed'): ['opensuse:tumbleweed', 'opensuse-tumbleweed:rolling']}
+# Payload files and the client's bounds (docs/specs/image-delivery.md#bounds).
+KINDS = {'vm': dict(payload='disk.raw.zst', media='application/zstd', uncompressed='raw', compressed_limit=8 << 30, raw_limit=32 << 30),
+         'machine': dict(payload='rootfs.tar.zst', media='application/zstd', uncompressed='rootfs', compressed_limit=4 << 30, raw_limit=16 << 30)}
+VM_CHECKS = {'readiness', 'formatting', 'allowlist', 'ownership', 'sockets', 'root_replacement', 'growth', 'refusal', 'binding'}
+# Every declared capability is accepted: gui by the gui check, nesting by podman.
+MACHINE_CHECKS = {'entry', 'system', 'tally', 'packages', 'podman', 'files', 'ports', 'translation', 'broker', 'ssh', 'gui', 'persistence'}
+ISOLATED_CHECKS = {'entry', 'system', 'tally', 'packages', 'podman', 'isolation', 'ssh', 'persistence'}
+EVIDENCE_LIMIT = 16 << 20
 
 
 def run(args, **kwargs):
@@ -44,52 +59,58 @@ def reference(path):
     return dict(digest='sha256:'+digest, size=path.stat().st_size)
 
 
-def acceptance(evidence, image, raw):
-    results = json.loads((evidence/'results.json').read_text())
-    lifecycle = json.loads((evidence/'lifecycle.json').read_text())
-    maintenance = json.loads((evidence/'maintenance.json').read_text())
-    storage = json.loads((evidence/'storage.json').read_text())
-    if results.get('passed') is not True or results.get('image_sha256') != raw['digest'][7:] or results.get('image') != image:
-        raise ValueError('acceptance does not match the generic image')
-    expected_cases = {'independent_vms_and_grown_roots', 'separate_homes', 'host_port_not_displaced',
-                      'conflict_retry', 'cross_vm_conflict_and_handoff',
-                      'forced_exit_recovery_preserves_data_and_peer', 'missing_forwarder_restarted'}
-    if set(lifecycle) != expected_cases | {'stop_dev', 'stop_peer'}:
-        raise ValueError('incomplete lifecycle coverage')
-    for name in expected_cases:
-        if lifecycle[name].get('pass') is not True:
-            raise ValueError(f'failed lifecycle case {name}')
-    if any(lifecycle[name].get('exit') != 0 for name in ('stop_dev', 'stop_peer')):
-        raise ValueError('guest shutdown failed')
-    for report in (maintenance, storage):
-        if report.get('passed') is not True:
-            raise ValueError('maintenance/storage acceptance failed')
-    if maintenance.get('image') != image:
-        raise ValueError('maintenance image mismatch')
-    # Explicit public fields only. Never publish logs, host paths, private keys,
-    # guest disks or the backup archives alongside the acceptance report.
-    return dict(schema=1, passed=True, raw=raw, image=image,
-                systemd=results['systemd'], root_filesystem=results['root_filesystem'],
-                argv_binary_streams_exit_and_pty=results['argv_binary_streams_exit_and_pty'],
-                share_ownership=results['share_ownership'],
-                selinux=results.get('selinux'), apparmor=bool(results.get('apparmor')),
-                lifecycle={key: lifecycle[key]['pass'] for key in sorted(expected_cases)},
-                maintenance={key: maintenance[key] for key in (
-                    'kernel_before', 'kernel_after', 'podman_version', 'rootless', 'storage_driver',
-                    'container_base_digest', 'build_bind_volume_dns_https', 'host_localhost_http',
-                    'kernel_reinstall_and_reboot', 'newer_kernel_upgrade_tested',
-                    'container_and_volume_survive_vm_restart')},
-                storage={key: storage[key] for key in (
-                    'root_bytes_before', 'root_bytes_after', 'running_mutations_refused',
-                    'growth_preserved_identity_and_data', 'grown_backup_restores_without_cache',
-                    'removal_preserved_project_cache_backups', 'name_reused_with_new_identity', 'peer_uninterrupted')})
+def passed(checks, required, what):
+    """Every required check ran and passed, and none was skipped."""
+    missing = required - set(checks)
+    failed = sorted(name for name in required & set(checks)
+                    if checks[name].get('pass') is not True or checks[name].get('skipped'))
+    if missing or failed:
+        raise ValueError(f'{what} did not pass acceptance: missing {sorted(missing)}, failed {failed}')
+    return {name: True for name in sorted(required)}
+
+
+def vm_acceptance(probe, image, raw, machines):
+    """The public report for the VM image: explicit fields only, never host paths or logs."""
+    if probe.get('digest') != raw['digest']:
+        raise ValueError('the VM probe tested other bytes than the published disk')
+    checks = passed(probe.get('results', {}), VM_CHECKS, image['build_id'])
+    if machines.get('vm', {}).get('digest') != raw['digest'][7:]:
+        raise ValueError('the machine probe ran on another VM image')
+    return dict(schema=1, passed=True, build_id=image['build_id'], raw=raw, checks=checks,
+                readiness_seconds=probe['results']['readiness'].get('first_boot_seconds'),
+                machine_images=sorted(m['build_id'] for m in machines['machines'].values()))
+
+
+def machine_acceptance(machines, image, compressed, measurements):
+    """The public report for a machine image, from its shared and isolated machines."""
+    tested = {name: m for name, m in machines.get('machines', {}).items() if m.get('digest') == compressed['digest'][7:]}
+    shared = [m for m in tested.values() if not m.get('isolated')]
+    isolated = [m for m in tested.values() if m.get('isolated')]
+    if len(shared) != 1 or any(m.get('build_id') != image['build_id'] for m in tested.values()):
+        raise ValueError(f'{image["build_id"]} was not probed exactly once as a shared machine')
+    report = dict(schema=1, passed=True, build_id=image['build_id'], compressed=compressed,
+                  vm_image=machines['vm']['descriptor']['build_id'],
+                  checks=passed(shared[0]['checks'], MACHINE_CHECKS, image['build_id']),
+                  latency_ms=shared[0]['checks']['entry'].get('latency_ms'),
+                  capabilities=sorted(image.get('capabilities', {})))
+    if isolated:
+        report['isolated_checks'] = passed(isolated[0]['checks'], ISOLATED_CHECKS, image['build_id'] + ' (isolated)')
+    report['measurements'] = measurements
+    return report
+
+
+def measurements_passed(evidence):
+    criteria = evidence.get('criteria', {})
+    if not criteria or any(c.get('pass') is not True for c in criteria.values()):
+        raise ValueError(f'memory or start-time regression: {criteria}')
+    return dict(idle_4_pss_mib=criteria['idle_machines']['pss_mib'], additional_machine_p95_seconds=criteria['additional_machine_p95']['seconds'])
 
 
 def require_actions():
     if (os.environ.get('GITHUB_REPOSITORY') != 'frostyard/nsl' or os.environ.get('GITHUB_REF') != 'refs/heads/main'
-            or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
+            or os.environ.get('GITHUB_EVENT_NAME') not in ('workflow_dispatch', 'schedule')
             or os.environ.get('GITHUB_WORKFLOW_REF') != 'frostyard/nsl/.github/workflows/images.yml@refs/heads/main'):
-        raise ValueError('publication requires the designated manually dispatched main-branch workflow')
+        raise ValueError('publication requires the designated main-branch workflow, dispatched or scheduled')
     for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_NUMBER', 'GITHUB_RUN_ATTEMPT'):
         if not re.fullmatch(r'[1-9][0-9]*', os.environ.get(key, '')):
             raise ValueError(f'invalid {key}')
@@ -101,48 +122,85 @@ def require_actions():
         raise ValueError('publication requires clean tracked source')
 
 
+def built_image(role, distribution=None, release=None):
+    profile = compose.select(ROOT, role, distribution, release)
+    name = compose.output_name(profile)
+    payload = ROOT/'build/image/share'/(name + ('.raw' if role == 'vm' else '.tar.zst'))
+    return name, payload, json.loads(payload.with_name(name + '.json').read_text())
+
+
+def prepare(base, kind, name, payload, image, acceptance, provenance, tool):
+    """Write an image's public directory: payload, evidence and unsigned descriptor."""
+    public = base/name
+    public.mkdir()
+    limits = KINDS[kind]
+    shutil.copyfile(payload.with_name(name + '.manifest'), public/'packages.json')
+    if kind == 'vm':
+        uncompressed = reference(payload)
+        run([tool, 'compress', payload, public/limits['payload']])
+    else:
+        shutil.copyfile(payload, public/limits['payload'])
+        measured = run([tool, 'measure', payload, limits['raw_limit']], capture_output=True, text=True).stdout
+        uncompressed = json.loads(measured)
+    compressed = reference(public/limits['payload'])
+    if uncompressed['size'] > limits['raw_limit'] or compressed['size'] > limits['compressed_limit']:
+        raise ValueError(f'{name} exceeds the client format bounds')
+    write(public/'acceptance.json', acceptance(uncompressed, compressed))
+    write(public/'provenance.json', dict(provenance, image=image, **{limits['uncompressed']: uncompressed}, compressed=compressed))
+    descriptor = dict(schema=1, kind=kind, image=image, **{limits['uncompressed']: uncompressed}, compressed=compressed,
+                      packages=reference(public/'packages.json'), provenance=reference(public/'provenance.json'),
+                      acceptance=reference(public/'acceptance.json'))
+    if any(descriptor[key]['size'] > EVIDENCE_LIMIT for key in ('packages', 'provenance', 'acceptance')):
+        raise ValueError('evidence exceeds client bounds')
+    write(public/'descriptor.json', descriptor)
+    return public
+
+
 def build(base):
     base.mkdir(parents=True)  # retries use a new run; never overwrite prior evidence
+    if not os.environ.get('WAYLAND_DISPLAY'):
+        raise ValueError('the gui capability needs a Wayland compositor on the runner; set WAYLAND_DISPLAY')
     run(['make', 'ci'])
     run(['make', 'build'])
-    run(['go', 'build', '-o', base/'compress-image', 'scripts/compress-image.go'])
-    built = []
-    for distribution, release in compose.PROFILES:
-        profile = compose.select(ROOT, distribution, release)
-        name = 'nsl-{distribution}-{release}-{architecture}-v{revision}'.format(**profile)
-        print(f'::group::Build and validate {name}', flush=True)
-        start = time.monotonic()
-        run(['scripts/build-image.sh', '--distribution', distribution, '--release', release])
-        raw_path = ROOT/'build/image/share'/f'{name}.raw'
-        image = json.loads(raw_path.with_suffix('.json').read_text())
-        evidence = base/name/'private-evidence'
-        run(['python3', 'scripts/probe-distribution.py', '--image', raw_path,
-             '--home', base/name/'vm-state', '--project', base/name/'project', '--evidence', evidence])
-        raw = reference(raw_path)
-        report = acceptance(evidence, image, raw)
-        public = base/name/'public'
-        public.mkdir()
-        shutil.copyfile(raw_path.with_suffix('.manifest'), public/'packages.json')
-        write(public/'acceptance.json', report)
-        run([base/'compress-image', raw_path, public/'disk.raw.zst'])
-        compressed = reference(public/'disk.raw.zst')
-        if raw['size'] > 32<<30 or compressed['size'] > 8<<30:
-            raise ValueError('image exceeds client format bounds')
-        host = {tool: run(args, capture_output=True, text=True).stdout.splitlines()[0]
-                for tool, args in [('systemd', ['systemctl', '--version']), ('qemu', ['qemu-system-x86_64', '--version']),
-                                   ('virtiofsd', ['/usr/libexec/virtiofsd', '--version'])]}
-        write(public/'provenance.json', dict(schema=1, source='https://github.com/frostyard/nsl',
-              revision=os.environ['GITHUB_SHA'], workflow=PUBLISHER, run_id=os.environ['GITHUB_RUN_ID'],
-              run_attempt=os.environ['GITHUB_RUN_ATTEMPT'], host=host, image=image,
-              raw=raw, compressed=compressed, build_test_compress_seconds=time.monotonic()-start))
-        descriptor = dict(schema=1, image=image, raw=raw, compressed=compressed,
-                          packages=reference(public/'packages.json'), provenance=reference(public/'provenance.json'),
-                          acceptance=reference(public/'acceptance.json'))
-        if any(descriptor[key]['size'] > 16<<20 for key in ('packages', 'provenance', 'acceptance')):
-            raise ValueError('evidence exceeds client bounds')
-        write(public/'descriptor.json', descriptor)
-        built.append(dict(name=name, selectors=ALIASES[distribution, release], architecture=image['architecture']))
-        print('::endgroup::', flush=True)
+    tool = base/'zstd-image'
+    run(['go', 'build', '-o', tool, 'scripts/zstd-image.go'])
+    started = time.monotonic()
+    print('::group::Build the images', flush=True)
+    run(['scripts/build-image.sh', '--role', 'vm'])
+    for distribution, release in compose.MACHINES:
+        run(['scripts/build-image.sh', '--role', 'machine', '--distribution', distribution, '--release', release])
+    print('::endgroup::', flush=True)
+    vm_name, vm_payload, vm_image = built_image('vm')
+    machine_images = [(key, *built_image('machine', *key)) for key in compose.MACHINES]
+    private = base/'private-evidence'
+    private.mkdir()
+    print('::group::Accept the images', flush=True)
+    run(['python3', 'scripts/probe-vm.py', '--nsl', 'build/nsl', '--image', vm_payload, '--evidence', private/'vm.json'])
+    images = [arg for _, _, payload, _ in machine_images for arg in ('--machine-image', payload)]
+    run(['python3', 'scripts/probe-machines.py', '--nsl', 'build/nsl', '--vm-image', vm_payload, *images,
+         '--isolated', machine_images[0][2], '--gui', '--evidence', private/'machines.json'])
+    run(['python3', 'scripts/measure-machines.py', '--nsl', 'build/nsl', '--vm-image', vm_payload, *images,
+         '--evidence', private/'measurements.json'])
+    print('::endgroup::', flush=True)
+    probe = json.loads((private/'vm.json').read_text())
+    machines = json.loads((private/'machines.json').read_text())
+    measurements = measurements_passed(json.loads((private/'measurements.json').read_text()))
+    host = {tool_name: run(args, capture_output=True, text=True).stdout.splitlines()[0]
+            for tool_name, args in [('systemd', ['systemctl', '--version']), ('qemu', ['qemu-system-x86_64', '--version']),
+                                    ('virtiofsd', ['/usr/libexec/virtiofsd', '--version'])]}
+    provenance = dict(schema=1, source='https://github.com/frostyard/nsl', revision=os.environ['GITHUB_SHA'], workflow=PUBLISHER,
+                      run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'], host=host,
+                      build_and_acceptance_seconds=round(time.monotonic() - started))
+    public = base/'public'
+    public.mkdir()
+    built = [dict(name=vm_name, kind='vm', architecture=vm_image['architecture'], build_id=vm_image['build_id'],
+                  agent_protocol=vm_image['agent_protocol'])]
+    prepare(public, 'vm', vm_name, vm_payload, vm_image, lambda raw, _: vm_acceptance(probe, vm_image, raw, machines), provenance, tool)
+    for key, name, payload, image in machine_images:
+        prepare(public, 'machine', name, payload, image,
+                lambda _, compressed, image=image: machine_acceptance(machines, image, compressed, measurements), provenance, tool)
+        built.append(dict(name=name, kind='machine', selectors=SELECTORS[key], architecture=image['architecture'],
+                          build_id=image['build_id'], machine_protocol=image['machine_protocol']))
     write(base/'built.json', built)
 
 
@@ -210,8 +268,12 @@ def next_catalogue(previous, sequence, now, entries=None, revoke=()):
     if previous and previous['sequence'] >= sequence:
         raise ValueError('new catalogue sequence must increase')
     approved = previous['images'] if entries is None else entries
+    # Catalogues before VM and machine images carry disks the CLI no longer reads;
+    # only a publication replaces them.
+    if any(entry.get('kind') not in ('vm', 'machine') for entry in approved):
+        raise ValueError('the current catalogue predates VM and machine images; publish before refreshing')
     revoked = set(previous['revoked'] if previous else [])
-    advertised = {entry['manifest'] for entry in approved}
+    advertised = {entry['manifest'] for entry in (previous['images'] if previous else [])} | {entry['manifest'] for entry in approved}
     if not set(revoke) <= advertised | revoked:
         raise ValueError('withdrawal digest must identify a currently approved or already revoked image')
     revoked.update(revoke)
@@ -221,10 +283,26 @@ def next_catalogue(previous, sequence, now, entries=None, revoke=()):
                 images=approved, revoked=sorted(revoked))
 
 
+def entry(item, manifest):
+    """The catalogue entry for a pushed image (docs/specs/image-delivery.md#catalogue)."""
+    if item['kind'] == 'vm':
+        return dict(kind='vm', architecture=item['architecture'], agent_protocol=item['agent_protocol'],
+                    manifest=manifest, build_id=item['build_id'])
+    return dict(kind='machine', selectors=item['selectors'], architecture=item['architecture'],
+                machine_protocol=item['machine_protocol'], manifest=manifest, build_id=item['build_id'])
+
+
+def complete(built):
+    """A publication carries one VM image and every machine profile."""
+    kinds = [item['kind'] for item in built]
+    selectors = {tuple(item['selectors']) for item in built if item['kind'] == 'machine'}
+    if kinds.count('vm') != 1 or selectors != {tuple(v) for v in SELECTORS.values()} or len(built) != 1 + len(SELECTORS):
+        raise ValueError('cannot promote an incomplete image matrix')
+
+
 def publish(base, operation='publish'):
     if operation != 'publish':
         base.mkdir(parents=True)
-
     tools = ROOT/'build/publisher/tools'
     auth = base/'registry.json'
     run([tools/'oras', 'login', '--registry-config', auth, '--username', os.environ['GITHUB_ACTOR'], '--password-stdin', 'ghcr.io'],
@@ -234,22 +312,23 @@ def publish(base, operation='publish'):
         entries = None
         if operation == 'publish':
             built = json.loads((base/'built.json').read_text())
-            if {tuple(item['selectors']) for item in built} != {tuple(v) for v in ALIASES.values()} or len(built) != 7:
-                raise ValueError('cannot promote an incomplete image matrix')
+            complete(built)
             entries = []
             for item in built:
-                directory = base/item['name']/'public'
+                directory = base/'public'/item['name']
                 descriptor = json.loads((directory/'descriptor.json').read_text())
-                for field, name in [('compressed','disk.raw.zst'), ('packages','packages.json'), ('provenance','provenance.json'), ('acceptance','acceptance.json')]:
+                payload = KINDS[item['kind']]['payload']
+                for field, name in [('compressed', payload), ('packages', 'packages.json'), ('provenance', 'provenance.json'),
+                                    ('acceptance', 'acceptance.json')]:
                     if reference(directory/name) != descriptor[field]:
                         raise ValueError('prepared payload changed before signing')
                 sign(tools, directory, 'descriptor')
                 tag = f'{item["name"]}-run{os.environ["GITHUB_RUN_NUMBER"]}'
-                digest = push(tools, auth, directory, 'image', tag,
+                digest = push(tools, auth, directory, item['kind'], tag,
                               ['descriptor.json:application/json', 'descriptor.sigstore.json:application/json',
-                               'disk.raw.zst:application/zstd', 'packages.json:application/json',
+                               f'{payload}:{KINDS[item["kind"]]["media"]}', 'packages.json:application/json',
                                'provenance.json:application/json', 'acceptance.json:application/json'])
-                entries.append(dict(selectors=item['selectors'], architecture=item['architecture'], manifest=digest, build_id=item['name']))
+                entries.append(entry(item, digest))
         catalogue = base/'catalogue'
         catalogue.mkdir()
         now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -262,14 +341,14 @@ def publish(base, operation='publish'):
         sign(tools, catalogue, 'catalogue')
         digest = push(tools, auth, catalogue, 'catalogue', 'catalogue-v1',
                       ['catalogue.json:application/json', 'catalogue.sigstore.json:application/json'])
-        write(base/'published.json', dict(catalogue_manifest=digest, images=document['images']))
-        print('Published catalogue '+digest, flush=True)
+        write(base/'published.json', dict(catalogue_manifest=digest, sequence=document['sequence'], images=document['images']))
+        print(f'Published catalogue {digest}, sequence {document["sequence"]}', flush=True)
     finally:
         auth.unlink(missing_ok=True)
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('phase', choices=['build', 'publish', 'refresh', 'withdraw'])
     a = p.parse_args()
     os.chdir(ROOT)

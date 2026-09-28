@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1–9 complete, 2026-09-28.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1–9 complete, 2026-09-28; Phase 10 is ready to publish, which the maintainer runs.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -406,6 +406,19 @@ Creating it, including its VM's first boot and data-disk formatting, took 10.5 s
 - **Rewrite the README, [AGENTS.md](../../AGENTS.md) live conventions, the [publication design](../design/image-publication.md) and the index** for the new system. Regenerate `THIRD_PARTY_NOTICES.txt` if the agent adds dependencies.
 - **Tag a release** when a clean host works end to end.
 - **Done when:** on a clean host with no local builds, `nsl create debian --distro debian:13` followed by `nsl` opens a shell in the current directory. `make ci`, image acceptance and the release checks all pass.
+
+**Progress, 2026-09-28: the local work is done; publishing and the release wait for the maintainer.**
+
+- **Publisher.** `scripts/publish-images.py build` runs `make ci`, builds the VM image and the four machine images, and accepts them with `probe-vm.py`, `probe-machines.py --gui --isolated` and `measure-machines.py`. It then writes a public directory per image. Acceptance reports list only check names and results, protocols and a few timings, and are refused unless every required check passed, none was skipped, and they tested the exact payload. `publish` signs and pushes each image with its kind's artifact type and promotes a catalogue with one `vm` entry and one `machine` entry per profile. `refresh` refuses the old disk catalogue, which only a publication replaces. `scripts/zstd-image.go` replaces `compress-image.go`: it compresses VM disks and measures a machine image's root filesystem as the client decodes it.
+- **Workflow.** `images.yml` also runs weekly, well inside the 30-day expiry. The runner must provide a Wayland compositor for the GUI checks; the build refuses to run without one.
+- **Checked locally:** the publisher's unit tests cover explicit reports, refusal of failed, skipped, missing or mismatched checks, the measurement gate, entries by kind, a complete matrix, and refresh and withdrawal history. `prepare()` ran on the real r8 VM disk and the Debian r3 machine image, and the CLI's own validation accepted both descriptors and decompressed both payloads to their recorded digests. The VM disk compresses from 2.9 GB to 488 MB.
+- **Docs.** The [publication design](../design/image-publication.md), [delivery contract](../specs/image-delivery.md), README, AGENTS.md and the index describe the finished system. `THIRD_PARTY_NOTICES.txt` is current; `make ci` checks it.
+- **Remaining, all outward-facing:**
+  1. merge this branch to `main` and prepare the `nsl-image-builder` runner with a Wayland compositor;
+  2. dispatch `images.yml`, make the GHCR packages public, and check anonymous access;
+  3. raise `catalogueMinimum` to that run's sequence;
+  4. run the done-when check on a clean host;
+  5. tag a release.
 
 ## Requirements carried from the experiment
 

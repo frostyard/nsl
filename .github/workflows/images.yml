@@ -1,5 +1,8 @@
 name: Images
 on:
+  # Weekly rebuilds pick up distro security updates well inside the catalogue's 30-day expiry.
+  schedule:
+    - cron: "23 5 * * 1"
   workflow_dispatch:
     inputs:
       operation:
@@ -36,17 +39,18 @@ jobs:
           go-version-file: go.mod
       - name: Prepare pinned local tools
         env:
-          OPERATION: ${{ inputs.operation }}
+          OPERATION: ${{ inputs.operation || 'publish' }}
         run: |
           if [ "$OPERATION" = publish ]; then scripts/bootstrap-poc.sh; fi
           python3 scripts/bootstrap-publisher.py
           echo "NSL_LIMACTL=$GITHUB_WORKSPACE/build/poc/tools/bin/limactl" >> "$GITHUB_ENV"
-      - name: Build and validate all profiles
-        if: inputs.operation == 'publish'
+      # The runner's session supplies KVM, vsock and a Wayland compositor (WAYLAND_DISPLAY) for the gui checks.
+      - name: Build and accept the VM image and every machine image
+        if: (inputs.operation || 'publish') == 'publish'
         run: python3 scripts/publish-images.py build
       - name: Sign, publish and promote the complete catalogue
         env:
           GHCR_TOKEN: ${{ github.token }}
-          OPERATION: ${{ inputs.operation }}
+          OPERATION: ${{ inputs.operation || 'publish' }}
           REVOKE_DIGESTS: ${{ inputs.revoke }}
         run: python3 scripts/publish-images.py "$OPERATION"

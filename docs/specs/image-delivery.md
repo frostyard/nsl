@@ -91,7 +91,8 @@ Decompression uses a 128 MiB window and memory bound and an exact output-size li
 
 ### Publication
 
-- The main-branch workflow builds the VM image and every machine image from pinned recipes. It records resolved package versions and runs `scripts/probe-vm.py` and `scripts/probe-machines.py` on KVM. Then it signs and publishes the tested images.
+- The main-branch workflow builds the VM image and every machine image from pinned recipes. It records resolved package versions and runs, on KVM, `scripts/probe-vm.py`, `scripts/probe-machines.py` with the GUI and isolated checks, and `scripts/measure-machines.py`. Then it signs and publishes the tested images.
+- An acceptance report MUST show every required check passed, none skipped, including the checks for every capability the image declares. It MUST name the exact payload it tested.
 - The catalogue is promoted only after every image passes. Test machines, data disks, archives and private evidence MUST NOT be uploaded.
 - Images are rebuilt at least weekly for distro security updates, within the 30-day catalogue window. Manual dispatch supports urgent rebuilds.
 - Keep all promoted digests available. Emergency withdrawal publishes a higher sequence that removes the selection and adds its digest to `revoked`.

@@ -1,88 +1,41 @@
 # Image publication
 
-Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md). Contract: [signed image delivery](../specs/image-delivery.md).
+Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). Contract: [signed image delivery](../specs/image-delivery.md).
 
 ## Overview
 
-The manually dispatched `.github/workflows/images.yml` workflow builds all seven
-x86-64 profiles, runs the common KVM acceptance suite, then signs and publishes
-tested generic images. The signed catalogue is promoted only after every profile
-passes. The [first public publication](../plans/public-image-delivery.md) completed on 2026-09-27 with catalogue sequence 3.
+`.github/workflows/images.yml` builds the nsl VM image and every machine image, accepts them together on KVM, then signs and publishes them and a catalogue that selects them. It runs weekly and on manual dispatch, from `main` only. The catalogue is promoted only when every image passes. No catalogue carrying VM and machine images has been published yet; the earlier disk catalogues, up to sequence 3, belong to the retired prototype.
 
 ## Design
 
-A runner labeled `nsl-image-builder` supplies the existing host VM prerequisites
-and user systemd session. Keep the account's normal primary GID when launching
-the runner so Lima can map exported file ownership; nsl handles its own KVM group
-entry. Clear inherited `GOROOT`/`GOBIN` so Actions selects its requested Go toolchain.
-Use a temporary runner restricted to this trusted
-manual main-branch workflow; remove it after the job. Pull requests do not invoke
-this workflow. The runner installs no host packages or services. Pinned Lima,
-ORAS and cosign binaries are downloaded into ignored build output and checked
-against SHA256 values. Guest build packages remain inside the owned Lima VM.
+A self-hosted runner labeled `nsl-image-builder` supplies the host prerequisites of `nsl doctor`, a user systemd session and a Wayland compositor, headless or not, named by `WAYLAND_DISPLAY`. The GUI acceptance opens windows on it. Keep the account's normal primary GID when launching the runner so Lima can map exported file ownership; nsl handles its own KVM group entry. Clear inherited `GOROOT` and `GOBIN` so Actions selects its requested Go toolchain. Use a temporary runner restricted to this trusted main-branch workflow and remove it afterwards. Pull requests do not invoke this workflow. The runner installs no host packages or services. Pinned Lima, ORAS and cosign binaries are downloaded into ignored build output and checked against SHA256 values. Guest build packages stay inside the owned Lima VM.
 
-`scripts/publish-images.py build` runs CI, builds each profile from pinned upstream
-recipes, and exercises disposable guests with `probe-distribution.py`. It checks
-all lifecycle cases, maintenance and storage outcomes against the exact generic
-raw image and descriptor. Each public directory contains only compressed raw,
-package inventory, provenance, acceptance report and signed descriptor. Public
-reports use an explicit field list; private logs and backup archives are excluded.
-The integration checksum covers selected source inputs, their executable modes
-and the composer. Unrelated profiles and documentation do not alter it.
+`scripts/publish-images.py build`:
 
-The separate publication step receives a repository-scoped Actions token and uses
-GitHub OIDC to sign with the exact workflow identity. It verifies signatures
-against the CLI's embedded root, uploads immutable image tags, then signs and
-promotes `catalogue-v1`. Tags include the profile revision and workflow run number.
-All promoted digests must be retained. Signatures bind both disk forms and the
-package/provenance/acceptance evidence.
+1. runs `make ci`, then builds the VM image and the four machine images from pinned recipes;
+2. runs `probe-vm.py` on the VM image;
+3. runs `probe-machines.py` with every machine image, an isolated machine and `--gui`, so every declared capability is accepted: `gui` by the GUI check and `nesting` by the Podman check;
+4. runs `measure-machines.py`: four idle machines at or below 950 MiB, and an additional machine at p95 ≤ 2 s;
+5. writes one public directory per image.
+
+A public directory holds the payload, the package inventory, provenance, the acceptance report and the unsigned descriptor. VM disks are compressed with a pinned zstd (`scripts/zstd-image.go`). Machine images are published as built, and the same tool measures the root filesystem the descriptor records. Acceptance reports use an explicit field list: check names and results, protocols and a few timings. Probe logs, host paths, test state and archives stay in private evidence.
+
+The publication step receives a repository-scoped Actions token and uses GitHub OIDC to sign with the exact workflow identity. It verifies each signature against the CLI's embedded root, pushes immutable image tags named by build ID and workflow run number, then signs and promotes `catalogue-v1` with one `vm` entry and one `machine` entry per profile. All promoted digests are kept.
 
 ## Operational notes
 
-- Dispatch a new main-branch run for a rebuild; rerunning an old sequence is
-  refused. Profile revisions change when integration inputs change. Image
-  publication is independent of CLI release tags.
-- The workflow needs `contents: read`, `packages: write` and `id-token: write`.
-  Registry credentials are available only to the publication step; temporary
-  registry config is deleted afterward.
-- Initial GHCR package creation may default to private. Set the package public,
-  verify anonymous catalogue/blob access, and exercise CLI pull/create/start/exec
-  from a clean cache before claiming public delivery. Run the complete public
-  acceptance command below; it checks independent machine IDs and SSH host keys
-  from two VMs per base, records download/boot timings and removes passing
-  disposable guests:
-
-  ```sh
-  make build
-  python3 scripts/probe-published-images.py --home /absolute/unused/nsl-state \
-    --output build/native/evidence/public-delivery.json
-  ```
-- Each catalogue expires after 30 days. Dispatch `operation=refresh` before
-  expiry to re-sign the same authenticated selections with a higher sequence and
-  renewed expiry. Use `operation=publish` for integration or package refreshes.
-  Refresh verifies the prior bundle; it never substitutes untested image bytes.
-- For emergency withdrawal, dispatch `operation=withdraw` with `revoke` set to
-  the affected full OCI manifest digests (space or comma separated). The job
-  verifies the current catalogue, removes those selections, preserves earlier
-  revocations and signs a higher sequence. Online clients reject withdrawn
-  selections after refresh; offline clients remain bounded by expiry. Running
-  guests are unaffected. Do not delete retained artifacts as a substitute for
-  publishing a withdrawal.
-- Publication, refresh and withdrawal share a workflow concurrency group. A
-  sequence cannot be reused; the prior signed sequence must be smaller. Preserve
-  this workflow's run-number history. Removing/recreating it requires coordinated
-  sequence handling and, when necessary, a CLI minimum-sequence update.
-- Preserve private evidence locally for failures, stop diagnostic guests, and
-  inspect the image-validation skill. Never upload the evidence directory as a
-  general Actions artifact.
-- The generic raw image is never booted directly. Tests create independent guest
-  disks; published payloads contain no per-environment private key or identity.
-- Embedded root updates use `go run scripts/refresh-sigstore-root.go`, review,
-  verification against current publications, and a CLI release. See
-  [trust inputs](../../trust/README.md).
+- A scheduled or dispatched run publishes; rerunning an old sequence is refused. Profile revisions change when integration inputs change. Image publication is independent of CLI release tags.
+- The workflow needs `contents: read`, `packages: write` and `id-token: write`. Registry credentials reach only the publication step, and its registry configuration is deleted afterwards.
+- The first catalogue with VM and machine images sets the CLI's minimum sequence: raise `catalogueMinimum` in `image_contract.go` to its sequence in the next CLI release, so no client accepts the disk catalogues again.
+- GHCR may create new packages as private. Make the package public, then check anonymous catalogue and blob access and `nsl create NAME --distro debian:13` on a host with an empty cache before claiming public delivery.
+- Each catalogue expires after 30 days, and weekly runs replace it. Dispatch `operation=refresh` to re-sign the same selections with a higher sequence without rebuilding; refresh never substitutes untested bytes, and refuses a catalogue from before VM and machine images.
+- For an emergency withdrawal, dispatch `operation=withdraw` with `revoke` set to the affected OCI manifest digests. The job verifies the current catalogue, removes those selections, keeps earlier revocations and signs a higher sequence. Online clients reject withdrawn selections after refresh; offline clients stay bounded by expiry. Existing machines are unaffected. Do not delete artifacts instead of withdrawing them.
+- Publication, refresh and withdrawal share a concurrency group. A sequence is never reused, and the prior signed sequence must be smaller. Preserve this workflow's run-number history; recreating it needs coordinated sequence handling and a CLI minimum-sequence update.
+- Keep private evidence locally after a failure, stop diagnostic VMs, and follow the image-validation skill. Never upload the evidence directory as an Actions artifact.
+- Published payloads hold no machine, VM or SSH identity: machine images carry no machine ID or host keys, and the VM image keeps its identity on the data disk, which is never published.
+- Embedded root updates use `go run scripts/refresh-sigstore-root.go`, review, verification against current publications, and a CLI release. See [trust inputs](../../trust/README.md).
 
 ## References
 
-- [Delivery plan](../plans/image-distribution.md), [release gates](../plans/v0.2-v0.3-release.md).
-- [Image builder](../../image/README.md), [distribution acceptance](../plans/distribution-support.md).
-- [Image-validation skill](../../.agents/skills/validate-image/SKILL.md).
+- [Implementation plan](../plans/shared-vm-implementation.md), Phase 10. History: [delivery plan](../plans/image-distribution.md), [release gates](../plans/v0.2-v0.3-release.md).
+- [Image builder](../../image/README.md), [image-validation skill](../../.agents/skills/validate-image/SKILL.md).
