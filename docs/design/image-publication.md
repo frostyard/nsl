@@ -24,7 +24,7 @@ The publication step receives a repository-scoped Actions token and uses GitHub 
 
 ## Operational notes
 
-- A scheduled or dispatched run publishes; rerunning an old sequence is refused. Profile revisions change when integration inputs change. Image publication is independent of CLI release tags.
+- A scheduled or dispatched run publishes; rerunning an old sequence is refused. A scheduled run can fire hours late and waits, queued, until a runner is online; it builds the commit it was queued for, so cancel it when a dispatched run for a newer commit is behind it in the concurrency group. Profile revisions change when integration inputs change. Image publication is independent of CLI release tags.
 - The workflow needs `contents: read`, `packages: write` and `id-token: write`. Registry credentials reach only the publication step, and its registry configuration is deleted afterwards.
 - `catalogueMinimum` in `image_contract.go` is 6, the first catalogue with VM and machine images, so no client accepts the disk catalogues. Raise it only with a CLI release, for example after recreating the workflow.
 - The `nsl-images` package is public. After changing the workflow or the images, check anonymous catalogue access and `nsl create NAME --distro debian:13` on a host with an empty cache.
