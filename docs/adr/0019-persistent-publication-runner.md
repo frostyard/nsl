@@ -17,7 +17,7 @@ The job holds `packages: write` and signs with the workflow's GitHub OIDC identi
 
 **An organization runner group.** The runner is registered to the frostyard organization in the `nsl-image-builder` runner group, labeled `nsl-image-builder`. The group admits only frostyard/nsl and, where the plan offers workflow restrictions, only `.github/workflows/images.yml` at `refs/heads/main`. The workflow's `runs-on` is unchanged.
 
-**The runner account.** A normal account with a login shell and the `kvm` group, and no `docker` group. Linger keeps its user manager running. The runner and a headless weston are user services, so jobs get the user manager, the account's primary group and `WAYLAND_DISPLAY`. A job-completed hook empties the work directory after every job; the Lima builder under `~/.local/share/nsl-publication-build` persists, as the workflow intends.
+**The runner account.** A normal account with a login shell and the `kvm` group, and no `docker` group. Linger keeps its user manager running. The runner and a headless sway, which advertises a `wl_seat` without input devices as the GUI acceptance needs, are user services, so jobs get the user manager, the account's primary group and `WAYLAND_DISPLAY`. A job-completed hook empties the work directory after every job, first keeping each publication's private evidence outside it for diagnosis; the Lima builder under `~/.local/share/nsl-publication-build` persists, as the workflow intends.
 
 **Acceptance decides fitness.** The measurement gates do not change for nested virtualization. The first publication on the new runner is the evidence that it can publish; until then, a temporary runner in the same group remains the fallback.
 
