@@ -211,7 +211,7 @@ func testApp(t *testing.T) (*app, *fakeRunner) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(host, "config"))
 	t.Setenv("WAYLAND_DISPLAY", "") // desktop sessions only where a test asks
 	os.MkdirAll(filepath.Join(host, "home", "u"), 0700)
-	a := &app{home: filepath.Join(t.TempDir(), "nsl"), runtimeDir: t.TempDir(), self: "/test/nsl", waypipe: "waypipe", uid: os.Getuid(), gid: os.Getgid(),
+	a := &app{home: filepath.Join(t.TempDir(), "nsl"), runtimeDir: t.TempDir(), self: "/test/nsl", waypipe: "waypipe", groupSwitch: "sg", uid: os.Getuid(), gid: os.Getgid(),
 		user: "u", group: "u", r: f, in: strings.NewReader(""), out: io.Discard, err: io.Discard, host: &hostFacts{memoryKiB: 16 << 20, cpus: 8}, hostRoot: host}
 	os.Chmod(a.runtimeDir, 0700)
 	if a.uid == 0 {

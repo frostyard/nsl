@@ -408,9 +408,20 @@ func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
 		return err
 	}
 	script := "exec " + shellQuote(a.self) + " _devices " + v.ID
-	return a.call(nil, a.err, "systemd-run", "--user", "--quiet", "--unit="+vmUnit(v), "--description="+vmDescription(v), "--collect",
+	args := append([]string{"--user", "--quiet", "--unit=" + vmUnit(v), "--description=" + vmDescription(v), "--collect",
 		"--property=Type=exec", "--property=TimeoutStopSec=30", "--property=KillMode=mixed",
-		"--setenv=NSL_HOME="+a.home, "--setenv=NSL_DEBUG="+os.Getenv("NSL_DEBUG"), "--", "sg", "kvm", "-c", script)
+		"--setenv=NSL_HOME=" + a.home, "--setenv=NSL_DEBUG=" + os.Getenv("NSL_DEBUG"), "--"}, a.inGroup("kvm", script)...)
+	return a.call(nil, a.err, "systemd-run", args...)
+}
+
+// inGroup is the argv that runs script with group as the primary group, keeping
+// inherited descriptors. util-linux's newgrp takes the group after -c COMMAND and
+// runs it with the user's shell rather than /bin/sh; the scripts are plain execs.
+func (a *app) inGroup(group, script string) []string {
+	if a.groupSwitch == "newgrp" {
+		return []string{"newgrp", "-c", script, group}
+	}
+	return []string{"sg", group, "-c", script}
 }
 
 // runningVM starts the shared VM if needed and returns it ready.
@@ -589,7 +600,8 @@ func (a *app) devices(args []string) error {
 	}
 	defer vsock.Close()
 	script := "exec unshare --user --map-current-user --keep-caps " + shellQuote(a.self) + " _launch " + args[0]
-	c := exec.Command("sg", group.Name, "-c", script)
+	argv := a.inGroup(group.Name, script)
+	c := exec.Command(argv[0], argv[1:]...)
 	c.Env = os.Environ()
 	c.ExtraFiles = []*os.File{kvm, vsock}
 	c.Stdin, c.Stdout, c.Stderr = a.in, a.out, a.err
@@ -638,7 +650,7 @@ func (a *app) launch(args []string) error {
 	if err = cred.Validate(); err != nil {
 		return err
 	}
-	// ExtraFiles from _devices are 3/4, inherited through sg/unshare. Verify the
+	// ExtraFiles from _devices are 3/4, inherited through the group switch and unshare. Verify the
 	// actual devices before advertising them to vmspawn's socket activation API.
 	for i, path := range []string{"/dev/kvm", "/dev/vhost-vsock"} {
 		var got, want syscall.Stat_t
@@ -668,10 +680,13 @@ func (a *app) launch(args []string) error {
 
 func (a *app) doctor() error {
 	failed := false
-	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", "sg", "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
+	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", a.groupSwitch, "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
 		p, err := exec.LookPath(tool)
 		if err != nil {
 			failed = true
+			if tool == a.groupSwitch {
+				tool = "sg, or util-linux newgrp"
+			}
 			fmt.Fprintln(a.out, "MISSING", tool)
 		} else {
 			fmt.Fprintln(a.out, "OK", p)
@@ -680,14 +695,15 @@ func (a *app) doctor() error {
 	for _, path := range []string{"/dev/kvm", "/dev/vhost-vsock"} {
 		f, err := os.OpenFile(path, os.O_RDWR, 0)
 		if err != nil {
-			fmt.Fprintf(a.out, "SESSION %s: %v (launch uses existing kvm membership through sg)\n", path, err)
+			fmt.Fprintf(a.out, "SESSION %s: %v (launch uses existing kvm membership through %s)\n", path, err, a.groupSwitch)
 		} else {
 			f.Close()
 			fmt.Fprintln(a.out, "OK", path)
 		}
 	}
 	// Check refreshed group access without changing membership or device modes.
-	if _, err := a.capture(5*time.Second, "sg", "kvm", "-c", "test -r /dev/kvm && test -w /dev/kvm && test -r /dev/vhost-vsock && test -w /dev/vhost-vsock"); err != nil {
+	check := a.inGroup("kvm", "test -r /dev/kvm && test -w /dev/kvm && test -r /dev/vhost-vsock && test -w /dev/vhost-vsock")
+	if _, err := a.capture(5*time.Second, check[0], check[1:]...); err != nil {
 		failed = true
 		fmt.Fprintln(a.out, "KVM/vsock group access:", err)
 	}
