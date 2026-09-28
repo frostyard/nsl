@@ -17,6 +17,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 
 ### Decisions
 
+- [0019 — Persistent publication runner](adr/0019-persistent-publication-runner.md)
 - [0018 — User documentation site](adr/0018-user-documentation-site.md)
 - [0017 — Shared VM and Frostyard machine images](adr/0017-shared-vm-and-machine-images.md)
 - [0016 — WSL-style machines trusted as the user](adr/0016-wsl-style-machines.md)
