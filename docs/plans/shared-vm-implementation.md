@@ -413,6 +413,7 @@ Creating it, including its VM's first boot and data-disk formatting, took 10.5 s
 - **Workflow.** `images.yml` also runs weekly, well inside the 30-day expiry. The runner must provide a Wayland compositor for the GUI checks; the build refuses to run without one.
 - **Checked locally:** the publisher's unit tests cover explicit reports, refusal of failed, skipped, missing or mismatched checks, the measurement gate, entries by kind, a complete matrix, and refresh and withdrawal history. `prepare()` ran on the real r8 VM disk and the Debian r3 machine image, and the CLI's own validation accepted both descriptors and decompressed both payloads to their recorded digests. The VM disk compresses from 2.9 GB to 488 MB.
 - **Docs.** The [publication design](../design/image-publication.md), [delivery contract](../specs/image-delivery.md), README, AGENTS.md and the index describe the finished system. `THIRD_PARTY_NOTICES.txt` is current; `make ci` checks it.
+- **First publication run** ([run 5](https://github.com/frostyard/nsl/actions/runs/36376347934)): every acceptance check passed on the runner, including GUI and the isolated machine, but four idle machines measured 984 MiB against the 950 MiB budget. The runner had a Wayland session, so every machine also had a desktop session. Locally, the same images measured 853 MiB without desktop sessions and 972 MiB with them. The VM's Waypipe links 102 libraries, including ffmpeg and the AV1 codecs, and the first session pulls about 100 MiB of them into guest page cache; later sessions add about 6 MiB each. The experiment that set the budget ran no desktop sessions, so `measure-machines.py` now gates that configuration and records four idle machines with desktop sessions, and the difference, ungated: 844 and 992 MiB, a 149 MiB overhead, locally.
 - **Remaining, all outward-facing:**
   1. merge this branch to `main` and prepare the `nsl-image-builder` runner with a Wayland compositor;
   2. dispatch `images.yml`, make the GHCR packages public, and check anonymous access;
@@ -441,6 +442,7 @@ Each item was found by a failing check and must not regress.
 ## Later / ideas
 
 - Size the VM to its running machines (virtio-mem or balloon targets); one machine currently costs twice a single VM.
+- Trim the desktop's memory: the first desktop session costs about 100 MiB, mostly ffmpeg and codec libraries that `waypipe --no-gpu` never uses. A Waypipe built without video support, or free-page reporting to the host, would recover it.
 - Keep agent sessions warm to recover the experiment's 48 ms transport overhead.
 - Fold readiness and `start` into the first request: each command now makes three SSH round trips (`identity`, `start`, `run`), which costs most of the 89 ms no-op median.
 - Measure and bound virtiofsd memory under file load.

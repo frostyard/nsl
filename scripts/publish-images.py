@@ -103,7 +103,8 @@ def measurements_passed(evidence):
     criteria = evidence.get('criteria', {})
     if not criteria or any(c.get('pass') is not True for c in criteria.values()):
         raise ValueError(f'memory or start-time regression: {criteria}')
-    return dict(idle_4_pss_mib=criteria['idle_machines']['pss_mib'], additional_machine_p95_seconds=criteria['additional_machine_p95']['seconds'])
+    return dict(idle_4_pss_mib=criteria['idle_machines']['pss_mib'], additional_machine_p95_seconds=criteria['additional_machine_p95']['seconds'],
+                desktop_overhead_mib=evidence.get('desktop_overhead_mib'))
 
 
 def require_actions():

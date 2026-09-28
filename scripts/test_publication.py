@@ -70,7 +70,8 @@ class Publication(unittest.TestCase):
     def test_measurements_gate_publication(self):
         good = {'criteria': {'idle_machines': {'pass': True, 'pss_mib': 853.1},
                              'additional_machine_p95': {'pass': True, 'seconds': 0.67}}}
-        self.assertEqual(pub.measurements_passed(good), {'idle_4_pss_mib': 853.1, 'additional_machine_p95_seconds': 0.67})
+        self.assertEqual(pub.measurements_passed(dict(good, desktop_overhead_mib=118.6)),
+                         {'idle_4_pss_mib': 853.1, 'additional_machine_p95_seconds': 0.67, 'desktop_overhead_mib': 118.6})
         bad = copy.deepcopy(good)
         bad['criteria']['idle_machines']['pass'] = False
         for evidence in (bad, {}):

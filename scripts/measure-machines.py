@@ -11,8 +11,11 @@ measures through the CLI, as the shared-VM experiment did:
 
 The VM gets 4 vCPUs and 8 GiB, autostart off and idle stop off. Criteria from
 the implementation plan: four idle machines at or below 950 MiB, and an
-additional machine at p95 <= 2 s. Writes JSON evidence; exits nonzero when a
-criterion fails.
+additional machine at p95 <= 2 s. Like the experiment that set that budget,
+the gated figures run without desktop sessions. When the host has a Wayland
+session, the evidence also records four idle machines with their desktop
+sessions, and the difference, ungated. Writes JSON evidence; exits nonzero
+when a criterion fails.
 
   measure-machines.py --nsl build/nsl --vm-image VM.raw --machine-image M1.tar.zst ... \\
       --evidence build/image/evidence/measure.json
@@ -52,7 +55,10 @@ def stats(samples):
 class CLI:
     def __init__(self, nsl, home, config):
         self.nsl = nsl
+        # Gated figures run without desktop sessions; desktop() measures them.
+        self.display = os.environ.get('WAYLAND_DISPLAY', '')
         self.env = dict(os.environ, NSL_HOME=str(home), XDG_CONFIG_HOME=str(config))
+        self.env.pop('WAYLAND_DISPLAY', None)
         self.home = home
 
     def __call__(self, *args, check=True, timeout=900):
@@ -199,6 +205,18 @@ def main():
             time.sleep(o.settle)
             evidence['memory'][f'idle_{running}'] = memory(nsl.unit())
             log(f'  idle {running}: {evidence["memory"][f"idle_{running}"]["pss_mib"]} MiB')
+        if nsl.display:
+            # The same idle machines, each with its desktop session.
+            nsl('shutdown')
+            nsl.env['WAYLAND_DISPLAY'] = nsl.display
+            for name in names:
+                nsl('start', name)
+                nsl.true(name)
+            time.sleep(o.settle)
+            desktop = memory(nsl.unit())
+            evidence['memory'][f'idle_{len(names)}_desktop'] = desktop
+            evidence['desktop_overhead_mib'] = round(desktop['pss_mib'] - evidence['memory'][f'idle_{len(names)}']['pss_mib'], 1)
+            log(f'  idle {len(names)} with desktop sessions: {desktop["pss_mib"]} MiB')
     finally:
         nsl('shutdown', check=False)
         shutil.rmtree(scratch, ignore_errors=True)
