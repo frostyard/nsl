@@ -1,3 +1,5 @@
+<img src="assets/nsl.svg" alt="nsl icon" width="112" align="right">
+
 # nsl — WSL-style Linux machines for atomic Linux
 
 `nsl` gives atomic Linux hosts persistent Linux machines, as WSL does for Windows. Machines are systemd-nspawn containers in one nsl-owned VM, launched with systemd-vmspawn and QEMU/KVM, and are trusted as your user: they see your home and removable media at `/mnt/host` ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)).
