@@ -19,7 +19,7 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 | `fedora:44` | `rpm` | `systemd-pam`, `shadow-utils`, `tzdata`; Fedora 44 tools tree. |
 | `centos:10`, `centos-stream:10` | `rpm` | The rpm family's packages, and `libglvnd-gles`: GTK 4 renders through GLES, and CentOS Stream 10's `gtk4` does not require it. It brings Mesa and LLVM, about 60 MB compressed. The recipe adds EPEL, which stays enabled in the machine. Fedora 44 tools tree. |
 | `arch:rolling` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
-| `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`; openSUSE Tumbleweed tools tree. |
+| `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`, and `glibc-locale-base` for `C.UTF-8`; openSUSE Tumbleweed tools tree. |
 | `opensuse:16.0`, `opensuse-leap:16.0` | `suse` | The suse family's packages; openSUSE Tumbleweed tools tree. |
 
 Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
@@ -36,6 +36,7 @@ Every image supplies:
 - **Network:** `systemd-networkd`, `systemd-resolved` and every other networkd or resolved unit the image installs masked, sockets included. Machines use the VM's network namespace and its resolver. Masking survives the first boot's presets; the recipes enable both.
 - **Nesting:** `run-nsl-proc.mount`, a fully visible procfs at `/run/nsl/proc`, and `/etc/containers/containers.conf.d/50-nsl-nspawn.conf` with `keyring = false` and `default_sysctls = []`.
 - **Presets:** a preset for every integration unit. Images apply presets on first boot, and a distro's disable-all preset would otherwise undo an enable.
+- **Locale:** a compiled `C.UTF-8`. The agent uses it for a host locale the machine lacks ([agent](agent.md#run)); users install other locales with their distro's packages.
 - **Desktop:** zone data, a font, a cursor theme and the Wayland client libraries, for the `gui` capability.
 - **Guest commands:** `nsl-path`, and `nsl-open`, a shell script that sends its target to the host's broker with `varlinkctl` (systemd 255 or newer). `nsl-open` turns a relative path into an absolute one and resolves `/mnt/host` aliases first. `nsl-open.desktop` and `/etc/xdg/mimeapps.list` make it the handler for `http` and `https`; the agent sets `BROWSER=nsl-open` while the desktop session lasts.
 - **Remote editors:** an OpenSSH server binary with no enabled service or socket, for `ssh-config`.
@@ -102,7 +103,7 @@ Workload checks:
 | Podman | Rootless build; `--userns=keep-id` volume ownership; HTTPS from a container; a published port reachable from the machine, the VM and a peer machine. |
 | Files | `/mnt/host` spaces and Unicode, relative symlinks, executable bits, rename, delete and fsync; an edit seen by a peer machine; host ownership. |
 | Ports | A user service's port forwarded to host loopback; the same port in a peer machine fails with `Address already in use`. |
-| GUI | `wayland-info` lists `wl_compositor` and `xdg_wm_base`; a GUI application starts. |
+| GUI | `wayland-info` lists `wl_compositor` and `xdg_wm_base`; the command's logind session has type `wayland` and class `background`; a GUI application starts. |
 | Translation | The working directory maps by device and inode, including a bind-mount alias; `/usr/share` is refused. |
 | Persistence | Packages, home, an enabled system service and a Podman image survive a VM restart. |
 
@@ -118,6 +119,7 @@ Checks that an image does not repeat the [hub image tally](../plans/shared-vm-ex
 | Session | `pam_systemd` in `/etc/pam.d/nsl`, `sudo`, a user bus, a font and the nesting mount are present. |
 | Hostname | The machine resolves its own hostname without warnings. |
 | Time zone | `/etc/localtime` links to the host's zone; installing or updating zone data succeeds. |
+| Locale | With `LANG=en_US.UTF-8` and a missing `LC_TIME`, `locale` warns about nothing, the charmap is `UTF-8`, and `LANG` is `en_US.UTF-8` if the image has it or `C.UTF-8`. |
 
 ## References
 

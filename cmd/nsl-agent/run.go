@@ -52,7 +52,7 @@ func (a *agent) runCommand(req *protocol.Request) (int, error) {
 	if spec.Directory == "" {
 		spec.Directory = home
 	}
-	for k, v := range req.Env {
+	for k, v := range a.localeEnv(req.Machine, req.Env) {
 		spec.Env = append(spec.Env, k+"="+v)
 	}
 	spec.Env = append(spec.Env, a.desktopEnv(req.Machine)...)
