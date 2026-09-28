@@ -64,27 +64,27 @@ A server listening in a machine on port 1024 or above is reachable at the same p
 
 `update` verifies and caches the image, then selects it for the VM's next start. The VM's root is replaceable and holds no user state; machines and the VM's identity live on its data disk. See the [image build](image/README.md).
 
-| Command | Behavior |
-| --- | --- |
-| `[-m NAME]` | Login shell in NAME or the default machine, in the translated current directory or the home. |
-| `run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv literally in the machine; exit status, streams and signals pass through. |
-| `create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]` | Create a machine from a local machine image, offline. |
-| `create NAME --distro DISTRO:RELEASE [--offline]` | Create a machine from a signed catalogue image. |
-| `create NAME ... --isolated`, `import NAME FILE --isolated` | Give the machine its own VM, without `/mnt/host`, desktop or `nsl-open`, for untrusted software. |
-| `start NAME`, `stop NAME`, `default NAME` | Start or stop a machine, or make it the default. |
-| `export NAME FILE`, `import NAME FILE` | Write a stopped machine to a new private archive, or create a machine from one. |
-| `remove NAME [--yes]` | Preview, then permanently remove a stopped machine. |
-| `ports [NAME]` | Machine ports forwarded to host `127.0.0.1`, and any conflicts. |
-| `ssh-config NAME` | Print an SSH host alias, `nsl-NAME`, for remote editors; nothing listens in the machine. |
-| `logs [NAME]` | Recent logs of the VM, the forwarder and desktop sessions. |
-| `list` | The VM's state, image, resources and data disk, anything pending until its next start, and every machine. |
-| `update --image FILE --digest sha256:HEX` | Select a local VM image for the next start; `update` alone selects the catalogue's. |
-| `images`, `pull DISTRO:RELEASE` | List the signed catalogue, or verify and cache a machine image. |
-| `recover [NAME]` | Restart the shared VM, or isolated machine NAME's, from a fresh root, check its data disk and finish interrupted growth. |
-| `resize [NAME] --disk GiB` | Grow the stopped VM's data disk; it never shrinks. |
-| `shutdown` | Stop every machine and every VM. |
-| `config` | Show the effective configuration and its sources. |
-| `doctor`, `version`, `help` | Host checks, build version and usage. |
+| Command                                                                  | Behavior                                                                                                                 |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `[-m NAME]`                                                              | Login shell in NAME or the default machine, in the translated current directory or the home.                             |
+| `run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]`                   | Run argv literally in the machine; exit status, streams and signals pass through.                                        |
+| `create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]` | Create a machine from a local machine image, offline.                                                                    |
+| `create NAME --distro DISTRO:RELEASE [--offline]`                        | Create a machine from a signed catalogue image.                                                                          |
+| `create NAME ... --isolated`, `import NAME FILE --isolated`              | Give the machine its own VM, without `/mnt/host`, desktop or `nsl-open`, for untrusted software.                         |
+| `start NAME`, `stop NAME`, `default NAME`                                | Start or stop a machine, or make it the default.                                                                         |
+| `export NAME FILE`, `import NAME FILE`                                   | Write a stopped machine to a new private archive, or create a machine from one.                                          |
+| `remove NAME [--yes]`                                                    | Preview, then permanently remove a stopped machine.                                                                      |
+| `ports [NAME]`                                                           | Machine ports forwarded to host `127.0.0.1`, and any conflicts.                                                          |
+| `ssh-config NAME`                                                        | Print an SSH host alias, `nsl-NAME`, for remote editors; nothing listens in the machine.                                 |
+| `logs [NAME]`                                                            | Recent logs of the VM, the forwarder and desktop sessions.                                                               |
+| `list`                                                                   | The VM's state, image, resources and data disk, anything pending until its next start, and every machine.                |
+| `update --image FILE --digest sha256:HEX`                                | Select a local VM image for the next start; `update` alone selects the catalogue's.                                      |
+| `images`, `pull DISTRO:RELEASE`                                          | List the signed catalogue, or verify and cache a machine image.                                                          |
+| `recover [NAME]`                                                         | Restart the shared VM, or isolated machine NAME's, from a fresh root, check its data disk and finish interrupted growth. |
+| `resize [NAME] --disk GiB`                                               | Grow the stopped VM's data disk; it never shrinks.                                                                       |
+| `shutdown`                                                               | Stop every machine and every VM.                                                                                         |
+| `config`                                                                 | Show the effective configuration and its sources.                                                                        |
+| `doctor`, `version`, `help`                                              | Host checks, build version and usage.                                                                                    |
 
 ## Configuration
 
@@ -124,3 +124,13 @@ python3 scripts/probe-machines.py --nsl build/nsl --vm-image "$image" --machine-
 Unit tests use fake tools and local processes and need neither root nor a VM. The probes boot disposable VMs in private state directories and remove them.
 
 [Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation site](https://frostyard.github.io/nsl/) · [Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md)
+
+## Credits and Inspiration
+
+Obviously the original [WSL](https://wsl.dev/) is the biggest inspiration.
+
+Other notable projects:
+
+- [nspawn.org](https://nspawn.org) which recently re-launched and gave me the idea
+- [systemd](https://systemd.io) does nearly all the heavy lifting with systemd-vmspawn and systemd-nspawn
+- [lima](https://github.com/lima-vm/lima) an early pioneer in this space with a slightly different intended use
