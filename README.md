@@ -8,6 +8,8 @@
 
 The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
 
+**Documentation: [frostyard.github.io/nsl](https://frostyard.github.io/nsl/)** — installation, guides, the trust model and the command reference. Its source is in [`site/`](site/content/).
+
 ## Prerequisites
 
 - systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` and util-linux `unshare`.
@@ -105,7 +107,6 @@ Comments take whole lines. Resource changes apply at the VM's next start, and `n
 
 ## Current limits
 
-- Port forwarding, GUI sessions, `nsl-open`, `ssh-config`, `logs` and isolated machines are not wired into the CLI yet; see the plan's phases.
 - A machine stops after `idle_timeout` minutes without nsl commands or GUI clients, and the VM stops a minute after its last machine. Services inside a machine do not keep it running.
 - Archives are unencrypted and can contain credentials; import requires your UID and GID.
 - Host file changes through virtiofs do not produce inotify events in the VM. Watched builds belong in machine storage.
@@ -122,4 +123,4 @@ python3 scripts/probe-machines.py --nsl build/nsl --vm-image "$image" --machine-
 
 Unit tests use fake tools and local processes and need neither root nor a VM. The probes boot disposable VMs in private state directories and remove them.
 
-[Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md)
+[Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation site](https://frostyard.github.io/nsl/) · [Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md)

@@ -1,4 +1,4 @@
-.PHONY: build agent test fmt verify ci clean release-check
+.PHONY: build agent test fmt verify ci clean release-check site site-serve
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -32,6 +32,20 @@ ci: verify
 
 release-check:
 	goreleaser check
+
+# The documentation site (site/), built with pinned ProperDocs and MaterialX.
+SITE_VENV := build/site-venv
+
+$(SITE_VENV)/bin/properdocs: site/requirements.txt
+	python3 -m venv $(SITE_VENV)
+	$(SITE_VENV)/bin/pip install -q --require-hashes -r site/requirements.txt
+	touch $@
+
+site: $(SITE_VENV)/bin/properdocs
+	$(SITE_VENV)/bin/properdocs build --strict -f site/properdocs.yml
+
+site-serve: $(SITE_VENV)/bin/properdocs
+	$(SITE_VENV)/bin/properdocs serve -f site/properdocs.yml
 
 clean:
 	go clean
