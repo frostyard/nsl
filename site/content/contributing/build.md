@@ -6,11 +6,14 @@ description: Build nsl and its images from source, run the tests, and edit this 
 
 ## The CLI
 
-Building needs Go 1.25.8 or newer.
+Building needs Go 1.25.8 or newer. The checks also need the golangci-lint release pinned in `mise.toml`; [mise ↗](https://mise.jdx.dev) installs it, verified against `mise.lock`.
 
 ```sh
-make build   # build/nsl
-make ci      # the checks CI runs: tests, vet, formatting, license notices, cross builds
+mise install  # the pinned golangci-lint and svu
+make build    # build/nsl
+make check    # format, then verify
+make verify   # tidiness, license notices, vet, formatting, lint and tests; changes nothing
+make ci       # what CI runs: verify, race-enabled tests with coverage, cross builds
 ```
 
 Unit tests use fake tools and local processes. They need neither root nor a VM.

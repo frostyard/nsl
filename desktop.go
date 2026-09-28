@@ -187,10 +187,10 @@ type varlinkCall struct {
 // broker answers one Varlink call from a machine's nsl-open.
 func (a *app) broker(c net.Conn, machine string, shares []protocol.Share) {
 	defer c.Close()
-	c.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
 	reply := func(v any) {
 		b, _ := json.Marshal(v)
-		c.Write(append(b, 0))
+		_, _ = c.Write(append(b, 0))
 	}
 	refuse := func(reason string) {
 		reply(map[string]any{"error": "io.frostyard.nsl.Broker.Refused", "parameters": map[string]string{"reason": reason}})

@@ -143,6 +143,6 @@ func (a *app) logs(args []string) error {
 		fmt.Fprintf(a.err, "nsl: the machine's own journal: nsl run -m %s --root journalctl -n 100\n", m.Name)
 	}
 	out, err := a.capture(30*time.Second, "journalctl", append([]string{"--user", "--no-pager", "-n", "200", "-o", "short-iso"}, units...)...)
-	a.out.Write(out)
+	_, _ = a.out.Write(out)
 	return err
 }

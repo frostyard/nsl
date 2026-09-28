@@ -115,6 +115,7 @@ Comments take whole lines. Resource changes apply at the VM's next start, and `n
 ## Validate
 
 ```sh
+mise install   # the pinned golangci-lint and svu
 make ci
 python3 scripts/probe-vm.py --nsl build/nsl --image "$image" --evidence build/image/evidence/probe.json
 python3 scripts/probe-machines.py --nsl build/nsl --vm-image "$image" --machine-image "$machine" \

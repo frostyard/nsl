@@ -6,5 +6,7 @@ idiomatic_version_file_enable_tools = ["go"]
 lockfile = true
 
 [tools]
-# make bump: the next version from conventional commits, per .svu.yaml.
+# make lint, and so make verify and make ci; the Makefile checks this release.
+golangci-lint = "2.13.1"
+# make bump: the next version from conventional commits, per .svu.yml.
 svu = "3.4.1"

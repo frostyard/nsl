@@ -159,7 +159,7 @@ func (a *app) forward(args []string) error {
 		return err
 	}
 	f := &forwarder{a: a, v: v, forwarded: map[int]string{}}
-	defer f.ssh("-O", "exit", "vm")
+	defer func() { _ = f.ssh("-O", "exit", "vm") }()
 	for {
 		if state, err := a.vmState(v); err != nil || state != "running" {
 			return err

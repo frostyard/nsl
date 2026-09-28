@@ -281,7 +281,7 @@ func (m *dbusManager) Wait(ctx context.Context, unit string) (int32, int32, erro
 	if err = m.conn.AddMatchSignal(match...); err != nil {
 		return 0, 0, err
 	}
-	defer m.conn.RemoveMatchSignal(match...)
+	defer func() { _ = m.conn.RemoveMatchSignal(match...) }()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {

@@ -156,7 +156,7 @@ func (a *agent) display(req *protocol.Request, binding *protocol.Binding) error 
 	// no command gets a display that is gone.
 	ended := make(chan struct{})
 	go func() {
-		io.Copy(io.Discard, a.stdin)
+		_, _ = io.Copy(io.Discard, a.stdin)
 		close(ended)
 	}()
 	signals, stop := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGTERM)

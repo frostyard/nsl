@@ -21,7 +21,7 @@ Procedures belong in [.agents/skills/](.agents/skills/). Add a skill based on it
 - Storage and archives follow [ADR-0008](docs/adr/0008-offline-storage-management.md) and [ADR-0006](docs/adr/0006-stopped-vm-backups.md): stopped units only, resumable removal and growth, no shrinking, and validation before publishing. Lifecycle calls must reject a replacement ID after waiting for a lock. Never take a trust tier or host share from an archive.
 - Keep the host CLI and the agent independent of guest distribution. Distro differences belong in image adapters under the [machine-image contract](docs/specs/machine-images.md) ([ADR-0009](docs/adr/0009-distribution-neutral-guest-contract.md)).
 - Regenerate `THIRD_PARTY_NOTICES.txt` with `python3 scripts/license-notices.py` when Go dependencies change; CI checks it against shipped packages.
-- Run `make ci` before claiming a change is complete. CI runs the same recipe. GoReleaser Pro (not OSS) validates `.goreleaser.yaml` in CI using the org secret; run Pro's `goreleaser check` when changing release configuration.
+- Run `make ci` before claiming a change is complete. CI runs the same recipe. It is the last of the gate triad (frostyard/core ADR-0043, ADR-0044): `make verify` is credential-free and leaves a clean checkout clean (module tidiness, license notices, vet, formatting, the pinned golangci-lint, script and unit tests), `make check` formats and then verifies, and `make ci` adds race-enabled tests with coverage and the cross builds. `mise install` provides the pinned linter; fix a finding rather than loosening `.golangci.yml`. GoReleaser Pro (not OSS) validates `.goreleaser.yaml` in CI using the org secret; run Pro's `goreleaser check` when changing release configuration.
 
 ## Repository boundary
 

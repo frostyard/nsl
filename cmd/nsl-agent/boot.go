@@ -50,7 +50,7 @@ func deref(s *string) string {
 // storage prepares the data disk before it is mounted: a blank disk becomes
 // btrfs nsl-data with its subvolumes; any other signature is refused.
 func (a *agent) storage() error {
-	a.output("udevadm", "settle", "--timeout=30")
+	_, _ = a.output("udevadm", "settle", "--timeout=30")
 	source, err := a.output("findmnt", "--noheadings", "--nofsroot", "--output", "SOURCE", "/")
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func (a *agent) storage() error {
 	if _, err = a.output("mount", "-t", "btrfs", disk, mount); err != nil {
 		return err
 	}
-	defer a.output("umount", mount)
+	defer func() { _, _ = a.output("umount", mount) }()
 	for _, subvolume := range []string{"machines", "state"} {
 		if err = a.btrfs("subvolume", "create", mount+"/"+subvolume); err != nil {
 			return err

@@ -177,7 +177,7 @@ func manifestFiles(m ociManifest, expected map[string]int64) (map[string]blobRef
 	for _, layer := range m.Layers {
 		name := layer.Annotations["org.opencontainers.image.title"]
 		max, ok := expected[name]
-		if !ok || !layer.blobRef.valid(max) {
+		if !ok || !layer.valid(max) {
 			return nil, errors.New("unexpected or oversized OCI layer")
 		}
 		if _, ok = files[name]; ok {

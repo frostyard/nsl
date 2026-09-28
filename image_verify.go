@@ -43,7 +43,7 @@ func verifyPublisherSignature(signature []byte, trusted root.TrustedMaterial, is
 		return fmt.Errorf("invalid Sigstore bundle: %w", err)
 	}
 	if !b.HasInclusionProof() {
-		return fmt.Errorf("Sigstore bundle lacks an inclusion proof")
+		return fmt.Errorf("bundle lacks a Sigstore inclusion proof")
 	}
 	verifier, err := verify.NewVerifier(trusted, verify.WithSignedCertificateTimestamps(1), verify.WithTransparencyLog(1), verify.WithObserverTimestamps(1))
 	if err != nil {
