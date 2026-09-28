@@ -22,7 +22,7 @@ func TestGroupSwitcherPrefersSgAndFallsBackToNewgrp(t *testing.T) {
 	}{
 		{[]string{"sg", "newgrp"}, "sg"},
 		{[]string{"sg"}, "sg"},
-		{[]string{"newgrp"}, "newgrp"}, // Debian 14 ships only util-linux's newgrp
+		{[]string{"newgrp"}, "newgrp"}, // util-linux's newgrp without an sg
 		{nil, "sg"},                    // doctor reports the missing tool
 	} {
 		if got := groupSwitcher(has(c.tools...)); got != c.want {
