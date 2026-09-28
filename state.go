@@ -276,6 +276,7 @@ func (a *app) prepareVM(v *vmRecord) error {
     IdentityFile %s
     IdentitiesOnly yes
     BatchMode yes
+    LogLevel ERROR
     StrictHostKeyChecking accept-new
     UserKnownHostsFile %s
     HostKeyAlias nsl-vm-%s

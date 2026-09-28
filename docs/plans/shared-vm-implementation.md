@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1, 2, 3 and 5 complete, 2026-09-27; Phase 6's agent is built.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1–6 complete, 2026-09-27; Phase 7's machine lifecycle is partly built.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -144,8 +144,8 @@ Not in this phase:
 
 **Result, 2026-09-27: complete, with the Phase 5 CLI.** `image/vm/` is the VM layer on the Debian trixie recipe, and `scripts/compose-image.py --role vm` composes it with the agent built by `make agent`. The descriptor's `integration_sha256` covers the composer, the layer and the agent binary. The VM's boot services are the agent itself (`nsl-agent storage`, `setup` and `boot`), so no Python helper ships.
 
-- **Build:** `nsl-vm-trixie-x86-64-r2`, SHA256 `a8e27e30258a3453a522117066dcd3b2254ebcd47bdc86fc10017ed68003862e`, a 2.7 GiB sparse raw disk holding 1.8 GiB (a 133 MiB UKI). It has systemd 257.13, kernel 6.12.107, OpenSSH 10.0p1, btrfs-progs 6.14 and Waypipe 0.9.2. The first build, including creating the Lima builder, took about 3.5 minutes; a rebuild took 77 s.
-- **Acceptance:** `probe-vm.py` passed all nine checks on Snow 13 (host kernel 7.1.8, systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2):
+- **Build:** `nsl-vm-trixie-x86-64-r5`, SHA256 `69e79cb3c0db3a90f7a4830f3760e371001fa1424c9e609a1008420da9101c82`, a 2.7 GiB sparse raw disk holding 1.8 GiB (a 133 MiB UKI). r3–r5 carry the Phase 6 agent fixes, LLMNR off, and remote Unix-socket forwarding for Waypipe. It has systemd 257.13, kernel 6.12.107, OpenSSH 10.0p1, btrfs-progs 6.14 and Waypipe 0.9.2. The first build, including creating the Lima builder, took about 3.5 minutes; a rebuild took 77 s.
+- **Acceptance:** `probe-vm.py` passed all nine checks on r2 and again on r5 (`nsl-vm-trixie-x86-64-r5-probe.json`). Snow 13: host kernel 7.1.8, systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2. r2's figures:
 
 | Check | Result |
 | --- | --- |
@@ -192,6 +192,37 @@ Not in this phase:
   - `pam_systemd`, `sudo`, a user bus, fonts and the nesting mount present.
 - **Done when:** Debian 13, Fedora 44, Arch and Tumbleweed images build locally and pass `probe-machines.py` with every tally item verified absent.
 
+**Result, 2026-09-27: complete.**
+
+- **Composition:** `image/machines/` composes a common machine layer, a family adapter and a profile with `scripts/compose-image.py --role machine`. `scripts/build-image.sh --role machine` builds each from the recipe's container output as a zstd tar.
+- **Machine layer:** one `nsl` PAM service serves all four families, using only modules every family ships. A finalize script runs after the recipes' own post-install scripts. It masks networkd and resolved, disables SSH services, removes SSH host keys, sets the machine ID to `uninitialized` and fills in the descriptor.
+- **Arch adapter:** it deletes the keyring the recipe populates, private master key included, and ships `nsl-pacman-keyring.service` for first boot.
+
+| Image | Compressed | SHA256 (prefix) | systemd | First start | Workload install |
+| --- | --- | --- | --- | --- | --- |
+| `nsl-machine-debian-trixie-x86-64-r2` | 96 MB | `d62559a63c66` | 257.13 | 0.91 s | 14.6 s |
+| `nsl-machine-fedora-44-x86-64-r2` | 119 MB | `9e5139f6473a` | 259.9 | 1.17 s | 23.5 s |
+| `nsl-machine-arch-rolling-x86-64-r3` | 212 MB | `6fc1f25b9366` | 262 | 4.16 s (keyring) | 14.5 s |
+| `nsl-machine-opensuse-tumbleweed-x86-64-r2` | 86 MB | `61c4c5152efe` | 261.2 | 1.48 s | 6.1 s |
+
+The four total 513 MB against the hub's 464 MB; they add `sudo`, PAM, zone data, fonts, cursors, Wayland client libraries and OpenSSH. Builds with a warm cache take 30–70 s each.
+
+- **Acceptance:** `probe-machines.py` passed all 40 checks, ten per image, on VM image r5 (evidence `machines-probe-3.json`, 2026-09-28T02:12Z). They cover the system, packages, rootless Podman, `/mnt/host` files, forwarded ports, translation, a Waypipe window and persistence across a VM restart.
+- **Tally:** on every image, the probe verified:
+  - root has no usable password;
+  - no image carries a keyring private key;
+  - networkd and resolved are masked;
+  - the image has no machine ID, and the four machines have distinct ones;
+  - there are no SSH host keys or enabled SSH units;
+  - `pam_systemd`, `sudo`, a user bus, a font and the nesting mount are present;
+  - the machine resolves its own name;
+  - `/etc/localtime` follows the host, and zone data reinstalls.
+- **Found and fixed:**
+  - **Arch hostname:** Arch's nsswitch asked resolved before `/etc/hosts` and stopped at its answer, so the machine could not resolve its own name. Its adapter now puts `files myhostname` first.
+  - **Tools tree key:** Tumbleweed's tools tree needed `RepositoryKeyFetch=yes`.
+  - **File modes:** overlay files carried the checkout's umask, so the composer now normalizes modes to 0755 or 0644, and the integration hash no longer depends on the umask.
+- **Not yet:** `nsl-open` arrives with the broker in Phase 8. Capability declarations are checked against acceptance only when Phase 10 publishes.
+
 ## Phase 5 — VM lifecycle in the CLI
 
 - **Rewrite `state.go` and `vm.go`** around one VM record per state directory: ID, CID, image version, the data disk and the resources in effect. Delete the environment record, its schema checks and the environment commands.
@@ -235,11 +266,26 @@ Not in this phase:
 - **Delete** `guest/exec.py` and the old `shell`, `exec` and `gui` paths once the agent replaces them.
 - **Done when:** the experiment's entry matrix passes through the CLI on all four machine images: argv, exit and signal status, separate and binary streams, identity, session, PTY and Ctrl-C. Latency is recorded against the experiment's 65 ms.
 
-**Progress, 2026-09-27:**
+**Result, 2026-09-27: complete.**
 
-- **Built:** the agent (`cmd/nsl-agent`) and the shared request package (`internal/protocol`). The agent answers `identity`, `vm`, `machines`, `start`, `stop`, `run`, `create` and `remove`. `export` and `import` answer "not implemented" until Phase 7.
-- **Unit tests:** framing and validation on both ends, and exit mapping. Also start, stop, list and remove against a fake systemd, and `run`'s unit specification. And creation with a real `tar`: verified copy, per-machine data, refusal of every unsafe archive entry, cleanup after each failure, and writes that stay inside a hostile tree.
-- **Integration so far:** the agent's `identity`, `vm` and boot services pass in the VM through Phase 3's probe.
+- **Agent:** `cmd/nsl-agent` answers `identity`, `vm`, `machines`, `start`, `stop`, `run`, `create` and `remove`, with request types and validation shared through `internal/protocol`. `export` and `import` answer "not implemented" until Phase 7.
+- **Host side:**
+  - Bare `nsl` and `nsl run` translate the working directory by device and inode, with a home fallback for shells.
+  - A PTY is used when stdin and stdout are terminals.
+  - `TERM`, `COLORTERM` and locale variables are forwarded.
+- **Entry matrix:** it passed on all four images through the CLI:
+  - literal argv (19 hostile arguments), exit 42, and SIGTERM, INT, HUP, PIPE, KILL and SEGV as 143, 130, 129, 141, 137 and 139;
+  - separate streams and 1 MiB of binary data;
+  - identity, a logind session with a running user manager, and a clean PTY;
+  - Ctrl-C ending a command in about 10 ms.
+- **Latency:** a no-op `nsl run` takes a median of 69–92 ms and p95 of 116–133 ms, against the experiment's 65 ms for `systemd-run` over SSH and 66 ms at the CLI. It is three SSH sessions over one ControlMaster (VM identity, `start` and `run`), plus a transient unit with a PAM session. Folding readiness into the first request is the obvious saving.
+- **Found and fixed in the VM:**
+  - **Manager socket:** a machine's `/run/systemd/private` refuses peers from another PID namespace, so the agent uses the machine's system bus.
+  - **Start job:** a queued start job leaves the unit inactive for a moment, which the first version took for an exit.
+  - **PTY hangup:** reading a PTY master before the slave is opened reports a hangup, so the agent holds the slave open, through the leader's root, until the command's output is drained.
+  - **LLMNR:** sshd resolves the vsock peer ("UNKNOWN") for every PTY session, and LLMNR made that take 4–12 s. The VM image turns LLMNR and mDNS off.
+  - **SSH message:** the host's SSH configuration logs at `ERROR`, so sessions do not print "Shared connection closed".
+- **Tests:** unit tests cover the host commands against a fake agent. That includes argv, the translated directory, root, forwarded environment, refusal outside shared trees and the shell fallback.
 
 ## Phase 7 — Machines in the CLI
 
@@ -250,11 +296,21 @@ Not in this phase:
 - **Remove `experiments/shared-vm/`** once everything it holds is ported.
 - **Done when:** four machines are created offline from the cache and pass `probe-machines.py` through the CLI. An export and import round trip preserves packages, home and services. Four idle machines stay at or below the experiment's 950 MiB, and another machine starts at p95 ≤ 2 s.
 
+**Progress, 2026-09-27, built with Phases 4 and 6 because their acceptance runs through the CLI:**
+
+- **Built:**
+  - `create NAME --image FILE --digest sha256:HEX`: offline, from the verified cache, with cleanup after failure and the first machine becoming the default;
+  - `list`, `default`, `start`, `stop` and resumable `remove`;
+  - autostart through the boot credential;
+  - `experiments/shared-vm/` is not yet removed.
+- **Evidence:** four machines were created offline and passed `probe-machines.py` (Phase 4). Creation took 2.8–11.5 s, the longest including the VM's first boot. After a VM restart, every machine autostarted.
+- **Remaining:** `create --distro` from the catalogue, `export` and `import`, the idle monitor, the memory and start-time measurements, and removing the experiment code.
+
 ## Phase 8 — Host integration
 
 - **Files.** Allowlist binds, top-level alias symlinks under `/mnt/host` (such as `home → var/home`), and `nsl-path`.
 - **Ports.** One forwarder for the VM, reusing `ports.go` discovery; conflicts are reported per port.
-- **Desktop.** One persistent Waypipe session per machine, with its display socket attached through `machinectl bind`, and `WAYLAND_DISPLAY` in agent sessions. GUI is on by default for machines that are not isolated.
+- **Desktop.** One persistent Waypipe session per machine, with its display socket attached through `machinectl bind`, and `WAYLAND_DISPLAY` in agent sessions. GUI is on by default for machines that are not isolated. The Phase 4 probe proved the mechanism by hand: the host's `waypipe client` socket reaches the VM through `ssh -R`, and `waypipe server` runs as VM root. Its display socket must then be handed to the host UID before the machine account can connect.
 - **Broker.** `nsl-open`, authenticated per machine; it accepts only `http`/`https` URLs and translatable `/mnt/host` paths.
 - **Remote editors.** `ssh-config` prints a host alias whose proxy runs `sshd -i` in the machine through the agent, with a per-machine key.
 - **Agent operations.** Specify `listeners` and `display` in the [agent protocol](../specs/agent.md) before implementing them.
@@ -307,7 +363,7 @@ Each item was found by a failing check and must not regress.
 
 | Question | Default proposal | Resolve by |
 | --- | --- | --- |
-| Agent language and D-Bus library? | Resolved in Phase 1: Go with a pinned `godbus/dbus/v5`, sharing request types with the CLI ([agent protocol](../specs/agent.md#implementation)). | Phase 1 |
+| Agent language and D-Bus library? | Resolved in Phase 1: Go with a pinned `godbus/dbus/v5`, sharing request types with the CLI ([agent protocol](../specs/agent.md#implementation)). Built in Phase 6. | Phase 1 |
 | Where do VM identity and host keys live? | Specified in Phase 1: the data disk's `state` subvolume ([VM image](../specs/vm-image.md#disks-and-state)). Phase 3 validates it across a root replacement. | Phase 3 |
 | Machine archive encoding? | Resolved in Phase 1: tar with numeric owners, xattrs and ACLs rather than `btrfs send` ([ADR-0006](../adr/0006-stopped-vm-backups.md)). | Phase 1 |
 | Idle-session accounting? | Specified in Phase 1: the VM's idle monitor counts `nsl-run-*` units and Waypipe clients ([VM image](../specs/vm-image.md#machines)). | Phase 7 |

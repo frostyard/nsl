@@ -23,12 +23,14 @@ def agent(directory, content=b'\x7fELF agent'):
 
 class VMImage(unittest.TestCase):
     def test_unsupported_inputs_are_rejected(self):
-        for args in [('machine',), ('../vm',), ('vm', 'ubuntu'), ('vm', 'debian', 'bookworm'), ('vm', None, None, 'arm64')]:
+        for args in [('machine',), ('../vm',), ('vm', 'debian'), ('vm', None, 'trixie'), ('vm', None, None, 'arm64'),
+                     ('machine', 'ubuntu'), ('machine', 'debian', 'bookworm'), ('machine', '../vm')]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 compose.select(ROOT, *args)
 
     def test_builder_rejects_unsupported_options_before_tools(self):
-        for args in [('--role', 'machine'), ('--distribution', 'debian'), ('--release', 'trixie'), ('--destination', '/should-not-exist')]:
+        for args in [(), ('--role', 'machine'), ('--distribution', 'debian'), ('--release', 'trixie'), ('--role', 'vm', '--distribution', 'debian'),
+                     ('--role', 'machine', '--distribution', 'ubuntu'), ('--role', 'vm', '--destination', '/should-not-exist')]:
             with self.subTest(args=args):
                 result = subprocess.run(['bash', str(ROOT/'scripts/build-image.sh'), *args],
                                         env=dict(os.environ, NSL_LIMACTL='/must-not-run'),
@@ -87,9 +89,44 @@ class VMImage(unittest.TestCase):
             (root/'image/README.md').write_text('Unrelated docs')
             self.assertEqual(first, fingerprint(2))
             self.assertNotEqual(first, fingerprint(3, b'another agent'))
+            # A checkout's umask does not change the image, but an execute bit does.
+            unit = root/'image/vm/overlay/etc/systemd/system/nsl-setup.service'
+            unit.chmod(0o664)
+            self.assertEqual(first, fingerprint(4))
             path = root/'image/vm/nsl-postinst.chroot'
             path.chmod(path.stat().st_mode ^ 0o100)
-            self.assertNotEqual(first, fingerprint(4))
+            self.assertNotEqual(first, fingerprint(5))
+
+    def test_machine_images_compose_each_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for distribution, family in [('debian', 'debian'), ('fedora', 'rpm'), ('arch', 'arch'), ('opensuse', 'suse')]:
+                destination = Path(tmp)/distribution
+                profile = compose.select(ROOT, 'machine', distribution)
+                name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin')
+                descriptor = json.loads((destination/'overlay/usr/lib/nsl/machine.json').read_text())
+                self.assertEqual((descriptor['role'], descriptor['family'], descriptor['build_id'], descriptor['machine_protocol']),
+                                 ('machine', family, name, compose.MACHINE_PROTOCOL))
+                self.assertEqual(descriptor['systemd'], '@SYSTEMD@')
+                config = (destination/'mkosi.local.conf').read_text()
+                self.assertIn('Format=tar', config)
+                self.assertIn('CompressOutput=zstd', config)
+                self.assertIn('FinalizeScripts=nsl-finalize.chroot', config)
+                self.assertFalse((destination/'overlay/usr/lib/nsl/nsl-agent').exists())
+                pam = destination/'overlay/etc/pam.d/nsl'
+                self.assertIn('pam_systemd.so', pam.read_text())
+                self.assertEqual(pam.stat().st_mode & 0o777, 0o644)
+                self.assertEqual((destination/'overlay/usr/bin/nsl-path').stat().st_mode & 0o777, 0o755)
+                self.assertEqual((destination/'mkosi.tools.conf').is_file(), family != 'debian')
+            self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch/mkosi.local.conf').read_text())
+
+    def test_nsl_path_translates_both_ways(self):
+        script = str(ROOT/'image/machines/common/overlay/usr/bin/nsl-path')
+        run = lambda *args: subprocess.run(['sh', script, *args], capture_output=True, text=True)
+        self.assertEqual(run('/mnt/host/var/home/u/x').stdout, '/var/home/u/x\n')
+        self.assertEqual(run('/home/u/x').stdout, '/mnt/host/home/u/x\n')
+        self.assertEqual(run('--guest', '/var/home/u').stdout, '/mnt/host/var/home/u\n')
+        self.assertEqual(run('--host', '/etc/passwd').returncode, 1)
+        self.assertEqual(run().returncode, 2)
 
 
 if __name__ == '__main__':

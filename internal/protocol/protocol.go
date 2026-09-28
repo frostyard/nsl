@@ -68,6 +68,7 @@ func (a *Account) validate() error {
 }
 
 // Image names a verified machine image in the VM's read-only image share.
+// BuildID is empty for a local image; the agent reports the descriptor's.
 type Image struct {
 	Path    string `json:"path"`
 	Digest  string `json:"digest"`
@@ -78,7 +79,7 @@ type Image struct {
 func (i *Image) validate() error {
 	dir, file := path.Split(i.Path)
 	if dir != ImageShare+"/" || !imageFile.MatchString(file) || !digestPattern.MatchString(i.Digest) ||
-		"sha256:"+strings.TrimSuffix(file, ".tar.zst") != i.Digest || i.Size < 1 || !buildPattern.MatchString(i.BuildID) {
+		"sha256:"+strings.TrimSuffix(file, ".tar.zst") != i.Digest || i.Size < 1 || (i.BuildID != "" && !buildPattern.MatchString(i.BuildID)) {
 		return errors.New("invalid image")
 	}
 	return nil
@@ -436,6 +437,14 @@ type MachineStatus struct {
 	Sessions int    `json:"sessions"`
 	BuildID  string `json:"build_id"`
 }
+
+// CreateResult is the answer to create.
+type CreateResult struct {
+	BuildID string `json:"build_id"`
+}
+
+// ValidBuildID reports whether s is an image build ID.
+func ValidBuildID(s string) bool { return buildPattern.MatchString(s) }
 
 // StartResult is the answer to start.
 type StartResult struct {

@@ -1,0 +1,34 @@
+#!/bin/sh
+# nsl-path [--host | --guest] PATH: translate between host paths and /mnt/host.
+# Without a flag, a path under /mnt/host becomes a host path and any other
+# absolute path becomes a guest path.
+set -eu
+mode=
+case ${1:-} in
+--host|--guest) mode=$1; shift ;;
+esac
+if [ $# -ne 1 ]; then
+  echo 'usage: nsl-path [--host | --guest] PATH' >&2
+  exit 2
+fi
+path=$1
+case $path in
+/*) ;;
+*) path=$(pwd -P)/$path ;;
+esac
+if [ -z "$mode" ]; then
+  case $path in
+  /mnt/host|/mnt/host/*) mode=--host ;;
+  *) mode=--guest ;;
+  esac
+fi
+if [ "$mode" = --guest ]; then
+  printf '/mnt/host%s\n' "$path"
+  exit 0
+fi
+# Resolve aliases such as /mnt/host/home -> var/home inside the machine.
+resolved=$(realpath -m -- "$path")
+case $resolved in
+/mnt/host/*) printf '%s\n' "${resolved#/mnt/host}" ;;
+*) echo "nsl-path: $path is not under /mnt/host" >&2; exit 1 ;;
+esac

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -19,7 +21,7 @@ type system interface {
 	StopUnit(unit string) error
 	KillMachine(name string, signal int) error
 	TerminateMachine(name string) error
-	OpenPTY(name string) (*os.File, string, error)
+	OpenPTY(name string) (master, slave *os.File, path string, err error)
 	Machine(name string) (manager, error)
 }
 
@@ -102,35 +104,65 @@ func (s *dbusSystem) TerminateMachine(name string) error {
 	return s.conn.Object(machinedName, machinedPath).Call(machinedIface+".TerminateMachine", 0, name).Err
 }
 
-func (s *dbusSystem) OpenPTY(name string) (*os.File, string, error) {
+var ptyPath = regexp.MustCompile(`^/dev/pts/[0-9]+$`)
+
+// OpenPTY allocates a PTY in the machine. It also opens the slave side through
+// the machine's root: reading a master whose slave was never opened fails, so
+// the agent holds the slave until the command has exited and its output drained.
+func (s *dbusSystem) OpenPTY(name string) (*os.File, *os.File, string, error) {
 	var fd dbus.UnixFD
 	var path string
 	if err := s.conn.Object(machinedName, machinedPath).Call(machinedIface+".OpenMachinePTY", 0, name).Store(&fd, &path); err != nil {
-		return nil, "", fmt.Errorf("opening a PTY in %s: %w", name, err)
+		return nil, nil, "", fmt.Errorf("opening a PTY in %s: %w", name, err)
 	}
-	return os.NewFile(uintptr(fd), "pty"), path, nil
+	master := os.NewFile(uintptr(fd), "pty")
+	leader, err := s.leader(name)
+	if err == nil && !ptyPath.MatchString(path) {
+		err = errors.New("unexpected PTY path " + path)
+	}
+	var slave *os.File
+	if err == nil {
+		slave, err = os.OpenFile("/proc/"+strconv.FormatUint(uint64(leader), 10)+"/root"+path, os.O_RDWR|syscall.O_NOCTTY, 0)
+	}
+	if err != nil {
+		master.Close()
+		return nil, nil, "", err
+	}
+	return master, slave, path, nil
 }
 
-// Machine connects to the machine's service manager through its private
-// socket. Machines run without a user namespace, so VM root is machine root.
-func (s *dbusSystem) Machine(name string) (manager, error) {
+func (s *dbusSystem) leader(name string) (uint32, error) {
 	var path dbus.ObjectPath
 	if err := s.conn.Object(machinedName, machinedPath).Call(machinedIface+".GetMachine", 0, name).Store(&path); err != nil {
-		return nil, err
+		return 0, err
 	}
 	v, err := s.conn.Object(machinedName, path).GetProperty("org.freedesktop.machine1.Machine.Leader")
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	leader, ok := v.Value().(uint32)
 	if !ok || leader == 0 {
-		return nil, errors.New("machine has no leader")
+		return 0, errors.New("machine has no leader")
 	}
-	conn, err := dbus.Dial("unix:path=/proc/" + strconv.FormatUint(uint64(leader), 10) + "/root/run/systemd/private")
+	return leader, nil
+}
+
+// Machine connects to the machine's system bus through its leader's root. The
+// manager's private socket refuses peers from another PID namespace; the bus
+// accepts VM root, which is machine root without a user namespace.
+func (s *dbusSystem) Machine(name string) (manager, error) {
+	leader, err := s.leader(name)
 	if err != nil {
 		return nil, err
 	}
-	if err = conn.Auth([]dbus.Auth{dbus.AuthExternal(strconv.Itoa(os.Getuid()))}); err != nil {
+	conn, err := dbus.Dial("unix:path=/proc/" + strconv.FormatUint(uint64(leader), 10) + "/root/run/dbus/system_bus_socket")
+	if err != nil {
+		return nil, err
+	}
+	if err = conn.Auth([]dbus.Auth{dbus.AuthExternal(strconv.Itoa(os.Getuid()))}); err == nil {
+		err = conn.Hello()
+	}
+	if err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -227,13 +259,18 @@ func (m *dbusManager) unit(unit string) (dbus.BusObject, error) {
 
 // Wait returns the main process's ExecMainCode and ExecMainStatus once it exits.
 func (m *dbusManager) Wait(ctx context.Context, unit string) (int32, int32, error) {
-	signals := make(chan *dbus.Signal, 16)
-	m.conn.Signal(signals)
-	defer m.conn.RemoveSignal(signals)
 	obj, err := m.unit(unit)
 	if err != nil {
 		return 0, 0, err
 	}
+	signals := make(chan *dbus.Signal, 16)
+	m.conn.Signal(signals)
+	defer m.conn.RemoveSignal(signals)
+	match := []dbus.MatchOption{dbus.WithMatchObjectPath(obj.Path()), dbus.WithMatchInterface("org.freedesktop.DBus.Properties"), dbus.WithMatchMember("PropertiesChanged")}
+	if err = m.conn.AddMatchSignal(match...); err != nil {
+		return 0, 0, err
+	}
+	defer m.conn.RemoveMatchSignal(match...)
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {

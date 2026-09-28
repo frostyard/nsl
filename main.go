@@ -93,7 +93,14 @@ func (a *app) call(in io.Reader, out io.Writer, bin string, args ...string) erro
 func usage(w io.Writer) {
 	fmt.Fprintln(w, `nsl — WSL-style Linux machines (experimental)
 
+  [-m NAME]                       login shell in NAME or the default machine
+  run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]
+  create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]
   list
+  default NAME
+  start NAME
+  stop NAME
+  remove NAME [--yes]
   shutdown
   update --image FILE --digest sha256:HEX
   config
@@ -110,7 +117,10 @@ state and tool locations; $XDG_CONFIG_HOME/nsl/nsl.conf holds settings.`)
 }
 
 func (a *app) execute(args []string) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
+	if len(args) == 0 || args[0] == "-m" {
+		return a.run(args, true)
+	}
+	if args[0] == "help" || args[0] == "--help" {
 		usage(a.out)
 		return nil
 	}
@@ -151,6 +161,14 @@ func (a *app) execute(args []string) error {
 		return a.recover()
 	case "resize":
 		return a.resize(rest)
+	case "run":
+		return a.run(rest, false)
+	case "create":
+		return a.create(rest)
+	case "remove":
+		return a.remove(rest)
+	case "start", "stop", "default":
+		return a.machineCommand(args[0], rest)
 	case "update":
 		return a.update(rest)
 	case "_devices":

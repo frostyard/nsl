@@ -3,15 +3,15 @@
 nsl builds its images from pinned [nspawn/mkosi-definitions](https://github.com/nspawn/mkosi-definitions) recipes with mkosi v27, inside a disposable Lima builder. There are two kinds ([ADR-0017](../docs/adr/0017-shared-vm-and-machine-images.md)):
 
 - **The nsl VM image** (`vm/`): the Debian trixie disk that every nsl VM boots. It hosts machines as systemd-nspawn containers and runs the nsl agent. Contract: [VM image](../docs/specs/vm-image.md).
-- **Machine images**: distro root filesystems that run as machines. They arrive with Phase 4 of the [implementation plan](../docs/plans/shared-vm-implementation.md). Contract: [machine images](../docs/specs/machine-images.md).
+- **Machine images** (`machines/`): distro root filesystems that run as machines: Debian 13, Fedora 44, Arch and openSUSE Tumbleweed. Contract: [machine images](../docs/specs/machine-images.md).
 
 ## Build the VM image
 
 ```sh
 source build/poc/env.sh  # NSL_LIMACTL, when using the locally downloaded Lima
 scripts/build-image.sh --role vm
-python3 scripts/probe-vm.py --nsl build/nsl --image build/image/share/nsl-vm-trixie-x86-64-r2.raw \
-  --evidence build/image/evidence/nsl-vm-trixie-x86-64-r2-probe.json
+python3 scripts/probe-vm.py --nsl build/nsl --image build/image/share/nsl-vm-trixie-x86-64-r5.raw \
+  --evidence build/image/evidence/nsl-vm-trixie-x86-64-r5-probe.json
 ```
 
 The script builds the agent (`make agent`), composes the build input with `scripts/compose-image.py`, and builds `nsl-vm-trixie-x86-64-rN.raw` under `build/image/share/`. Next to it are the mkosi package manifest (`.manifest`) and the descriptor as built (`.json`), and the raw SHA256 is in `build/image/evidence/`. Bump `vm/profile.json`'s revision when inputs change; the script refuses to overwrite an existing artifact.
@@ -21,7 +21,7 @@ The builder needs Lima 2.2.0, Python 3, Git, Go and `flock`. It lives in `${XDG_
 To run a local build, select it and start the VM:
 
 ```sh
-nsl update --image build/image/share/nsl-vm-trixie-x86-64-r2.raw --digest sha256:HEX
+nsl update --image build/image/share/nsl-vm-trixie-x86-64-r5.raw --digest sha256:HEX
 nsl recover
 ```
 
@@ -38,6 +38,25 @@ Live package repositories mean builds are not bit-for-bit reproducible. Checksum
 - **Boot:** the ESP mounts at `/efi` and `/boot` stays on the root filesystem ([ADR-0007](../docs/adr/0007-maintainable-guest-boot.md)). The root partition grows to the host's 16 GiB overlay through `systemd-repart`. The initramfs loads the vsock driver.
 
 The composer copies the agent to `/usr/lib/nsl/nsl-agent` and writes `/usr/lib/nsl/image.json`. That descriptor's `integration_sha256` covers the composer, the layer and the agent binary, and the finalize script records the installed systemd and kernel versions. [ADR-0011](../docs/adr/0011-image-profiles-and-portable-vsock.md).
+
+## Build machine images
+
+```sh
+scripts/build-image.sh --role machine --distribution debian     # also fedora, arch, opensuse
+python3 scripts/probe-machines.py --nsl build/nsl --vm-image build/image/share/nsl-vm-trixie-x86-64-r5.raw \
+  --machine-image build/image/share/nsl-machine-debian-trixie-x86-64-r2.tar.zst \
+  --evidence build/image/evidence/machines-probe.json [--gui]
+```
+
+A machine build uses the recipe's container output without the disk profile, as a zstd tar: `nsl-machine-DISTRIBUTION-RELEASE-x86-64-rN.tar.zst`, with its manifest and the descriptor as built. Debian builds with the builder's own tools. Fedora and Arch use a Fedora 44 tools tree, and Tumbleweed an openSUSE one; the builder keeps mkosi's cache in `/var/cache/nsl-mkosi` between builds. Bump the profile's revision in `machines/profiles/NAME/profile.json` when inputs change.
+
+`machines/` composes three layers:
+
+1. `common/`: the machine layer. It holds the `nsl` PAM service, the nesting mount and its preset, the Podman drop-in and `nsl-path`. Its finalize script, which runs after the recipes' own scripts, masks networkd and resolved and disables SSH services. It also removes SSH host keys and the random seed, sets the machine ID to `uninitialized`, and fills in the descriptor.
+2. `families/FAMILY/`: packages, the tools tree and family fixes, such as Arch's keyring deletion and first-boot `nsl-pacman-keyring.service`.
+3. `profiles/NAME/`: the distribution, release and revision.
+
+Create a machine from a local build with `nsl create NAME --image FILE --digest sha256:HEX`. `probe-machines.py` runs the agent's entry matrix, the hub-image tally checks and the workload checks through the CLI.
 
 ## Publication
 

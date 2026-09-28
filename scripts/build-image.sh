@@ -14,29 +14,36 @@ mkosi=4736cd836108a97772142c461c49f1ddb4172348
 selection=()
 while (($#)); do
   case "$1" in
-    --role)
+    --role|--distribution|--release)
       (($# >= 2)) || { echo "Missing value for $1" >&2; exit 2; }
       selection+=("$1" "$2"); shift 2 ;;
     --help|-h)
-      echo 'Usage: scripts/build-image.sh [--role vm]'
+      echo 'Usage: scripts/build-image.sh --role vm | --role machine --distribution debian|fedora|arch|opensuse [--release RELEASE]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 profile=$(python3 scripts/compose-image.py "${selection[@]}")
 field() { python3 -c 'import json,sys; print(json.loads(sys.argv[1])[sys.argv[2]])' "$profile" "$1"; }
+role=$(field role)
 distribution=$(field distribution)
 release=$(field release)
 architecture=$(field architecture)
-output="nsl-vm-$release-$architecture-r$(field revision)"
+if [[ $role == vm ]]; then
+  output="nsl-vm-$release-$architecture-r$(field revision)"
+  payload=raw
+else
+  output="nsl-machine-$distribution-$release-$architecture-r$(field revision)"
+  payload=tar.zst
+fi
 mkdir -p "$work/src" "$work/share" "$work/evidence" "$LIMA_HOME"
 exec 9>"$work/builder.lock"
 flock -n 9 || { echo 'Image builder is already in use.' >&2; exit 1; }
-for suffix in raw manifest json; do
+for suffix in $payload manifest json; do
   path="$work/share/$output.$suffix"
   [[ ! -e $path && ! -L $path ]] || { echo "Artifact exists: $path; refusing to overwrite." >&2; exit 1; }
 done
-make -s agent
+[[ $role != vm ]] || make -s agent
 for item in mkosi-definitions mkosi; do
   if [[ $item == mkosi-definitions ]]; then
     url=https://github.com/nspawn/mkosi-definitions.git
@@ -88,23 +95,31 @@ trap '"$limactl" --tty=false stop "$builder" >&2 || true' EXIT
 "$limactl" shell --workdir / "$builder" sudo -n sh -c '
 set -eu
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git systemd-container systemd-ukify systemd-repart systemd-boot bubblewrap dosfstools mtools fdisk uidmap zstd cpio btrfs-progs e2fsprogs debootstrap openssl kmod
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git systemd-container systemd-ukify systemd-repart systemd-boot bubblewrap dosfstools mtools fdisk uidmap zstd cpio btrfs-progs e2fsprogs debootstrap openssl kmod dnf rpm policycoreutils
 build_dir=$(mktemp -d /root/nsl-build.XXXXXX)
 tar -xf "$1/sources.tar" -C "$build_dir"
 cp -a "$1/." "$build_dir/mkosi-definitions/"
 cd "$build_dir/mkosi-definitions"
-PYTHONPATH="$build_dir/mkosi" python3 -m mkosi --profile=disk -d "$2" -r "$3" --architecture "$4" build
-# Publish the raw disk, the package manifest and the descriptor as built.
-cp --sparse=always "mkosi.output/$5.raw" "$1/$5.raw"
+# Keep downloads and tools trees across builds; outputs stay per build.
+mkdir -p /var/cache/nsl-mkosi
+if [ "$6" = vm ]; then
+  PYTHONPATH="$build_dir/mkosi" python3 -m mkosi --cache-directory=/var/cache/nsl-mkosi --profile=disk -d "$2" -r "$3" --architecture "$4" build
+  cp --sparse=always "mkosi.output/$5.raw" "$1/$5.raw"
+  systemd-dissect --copy-from "mkosi.output/$5.raw" /usr/lib/nsl/image.json "$1/$5.json"
+else
+  PYTHONPATH="$build_dir/mkosi" python3 -m mkosi --cache-directory=/var/cache/nsl-mkosi -d "$2" -r "$3" --architecture "$4" build
+  cp "mkosi.output/$5.tar.zst" "$1/$5.tar.zst"
+  tar --zstd -xOf "mkosi.output/$5.tar.zst" ./usr/lib/nsl/machine.json > "$1/$5.json"
+fi
+# Publish the payload, the package manifest and the descriptor as built.
 cp "mkosi.output/$5.manifest" "$1/$5.manifest"
-systemd-dissect --copy-from "mkosi.output/$5.raw" /usr/lib/nsl/image.json "$1/$5.json"
-chown nsl:nsl "$1/$5.raw" "$1/$5.manifest" "$1/$5.json"
+chown nsl:nsl "$1/$5".*
 rm -rf "$build_dir"
-' sh "/work/$(basename "$staging")/tree" "$distribution" "$release" "$architecture" "$output"
+' sh "/work/$(basename "$staging")/tree" "$distribution" "$release" "$architecture" "$output" "$role"
 # Hard links publish complete artifacts without replacing another build.
-for suffix in raw manifest json; do
+for suffix in $payload manifest json; do
   ln "$integration/$output.$suffix" "$work/share/$output.$suffix"
 done
 rm -rf "$staging" "$source_tree"
-sha256sum "$work/share/$output.raw" > "$work/evidence/$output.sha256"
-printf 'Built %s\n' "$work/share/$output.raw"
+sha256sum "$work/share/$output.$payload" > "$work/evidence/$output.sha256"
+printf 'Built %s\n' "$work/share/$output.$payload"

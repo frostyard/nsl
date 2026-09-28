@@ -8,16 +8,18 @@ The host and the agent stay distribution-neutral. Everything distro-specific is 
 
 ### Artifact
 
-A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a signed artifact under the [delivery contract](image-delivery.md#artifacts). It is built from the pinned `nspawn/mkosi-definitions` recipes without the disk profile, plus the nsl machine layer and one family adapter. It contains no kernel, bootloader, initramfs or partition table.
+A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a signed artifact under the [delivery contract](image-delivery.md#artifacts). It is built from the pinned `nspawn/mkosi-definitions` recipes without the disk profile, as mkosi's zstd tar output, plus the nsl machine layer and one family adapter. It contains no kernel, bootloader, initramfs or partition table. Local builds are named `nsl-machine-DISTRIBUTION-RELEASE-x86-64-rN.tar.zst`.
 
 ### Initial catalogue
 
 | Selectors | Family | Adapter |
 | --- | --- | --- |
-| `debian:trixie`, `debian:13` | `debian` | `libpam-systemd`, `dbus-user-session`, `tzdata`. |
-| `fedora:44` | `rpm` | `systemd-pam`, `tzdata`. |
-| `arch:rolling` | `arch` | No `/etc/pacman.d/gnupg` in the image. A first-boot unit runs `pacman-key --init` and `pacman-key --populate`. |
-| `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`. |
+| `debian:trixie`, `debian:13` | `debian` | `libpam-systemd`, `dbus-user-session`, `tzdata`; native Debian build tools. |
+| `fedora:44` | `rpm` | `systemd-pam`, `shadow-utils`, `tzdata`; Fedora 44 tools tree. |
+| `arch:rolling` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
+| `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`; openSUSE Tumbleweed tools tree. |
+
+Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
 Other distros join after they pass acceptance.
 
@@ -27,14 +29,16 @@ Every image supplies:
 
 - **Accounts:** root locked with no usable password; shadow tools (`useradd`, `groupadd`, `usermod`); `sudo`, reading `/etc/sudoers.d`.
 - **Identity:** `/etc/machine-id` absent, empty or `uninitialized`, so each machine gets its own on first boot. No SSH host key or package-keyring private key.
-- **Sessions:** a PAM service `/etc/pam.d/nsl`, built from the family's account and session stacks, that runs `pam_systemd`. It gives an nsl command a logind session, `XDG_RUNTIME_DIR` and a user manager. A system D-Bus and a user D-Bus session.
-- **Network:** `systemd-networkd` and `systemd-resolved` disabled, with their sockets. Machines use the VM's network namespace and its resolver.
+- **Sessions:** a PAM service `/etc/pam.d/nsl` that runs `pam_systemd`. It uses only modules every family ships (`pam_rootok`, `pam_unix`, `pam_keyinit`, `pam_limits`, `pam_env`, `pam_systemd`), so one file serves them all. It gives an nsl command a logind session, `XDG_RUNTIME_DIR` and a user manager. A system D-Bus and a user D-Bus session.
+- **Network:** `systemd-networkd` and `systemd-resolved` masked, with their sockets. Machines use the VM's network namespace and its resolver. Masking survives the first boot's presets; the recipes enable both.
 - **Nesting:** `run-nsl-proc.mount`, a fully visible procfs at `/run/nsl/proc`, and `/etc/containers/containers.conf.d/50-nsl-nspawn.conf` with `keyring = false` and `default_sysctls = []`.
 - **Presets:** a preset for every integration unit. Images apply presets on first boot, and a distro's disable-all preset would otherwise undo an enable.
 - **Desktop:** zone data, a font, a cursor theme and the Wayland client libraries, for the `gui` capability.
-- **Guest commands:** `nsl-open`, set as `BROWSER` and the `xdg-open` handler, and `nsl-path`.
+- **Guest commands:** `nsl-path`; `nsl-open`, set as `BROWSER` and the `xdg-open` handler, arrives with the broker (Phase 8).
 - **Remote editors:** an OpenSSH server binary with no enabled service or socket, for `ssh-config`.
 - **Descriptor:** `/usr/lib/nsl/machine.json`.
+
+The layer is applied by a finalize script, which runs after the recipes' post-install scripts, so it overrides them. Files from the layer get mode 0755 or 0644 by their execute bit, whatever the checkout's umask.
 
 ### Per-machine data
 
@@ -42,11 +46,11 @@ The agent applies only these at `create` and `import`, in this order, before any
 
 1. `/etc/localtime`, a relative link to the host's zone under `/usr/share/zoneinfo`;
 2. `/etc/hostname`, the machine name, and `127.0.1.1 NAME` in `/etc/hosts`;
-3. the account and its primary group: host username, UID and GID, home `/home/USER`, shell `/bin/bash`;
+3. the account and its primary group: host username, UID and GID, home `/home/USER`, shell `/bin/bash`. An existing group with that GID is reused; an existing account with that name or UID fails creation;
 4. `/etc/sudoers.d/nsl`, mode 0440, giving the account passwordless `sudo`;
 5. the VM-side record from which the machine's nspawn settings are generated.
 
-Offline nspawn runs for these steps use `--timezone=off`, `--register=no` and the VM's resolver.
+Offline nspawn runs for these steps use `--timezone=off`, `--register=no` and `--resolv-conf=off`, so they change nothing but the account.
 
 ### Descriptor
 
@@ -54,9 +58,9 @@ Offline nspawn runs for these steps use `--timezone=off`, `--register=no` and th
 {
   "schema": 1,
   "role": "machine",
-  "build_id": "nsl-machine-debian-13-x86-64-r1",
+  "build_id": "nsl-machine-debian-trixie-x86-64-r1",
   "distribution": "debian",
-  "release": "13",
+  "release": "trixie",
   "architecture": "x86-64",
   "family": "debian",
   "revision": 1,
@@ -71,7 +75,7 @@ Offline nspawn runs for these steps use `--timezone=off`, `--register=no` and th
 }
 ```
 
-`machine_protocol` versions the machine layer and per-machine data. It MUST equal the VM descriptor's `machine_protocol`; a mismatch is rejected. A capability is present only after its acceptance checks pass on that image. The initial capabilities are `gui`, a Wayland client with fonts, and `nesting`, rootless Podman. `provisioning.cloud_init` is reserved for the [deferred provisioning contract](provisioning.md).
+`machine_protocol` versions the machine layer and per-machine data. It MUST equal the VM descriptor's `machine_protocol`; a mismatch is rejected. An image declares the capabilities its profile intends. Publication refuses an image unless the acceptance checks for every declared capability pass. The initial capabilities are `gui`, a Wayland client with fonts, and `nesting`, rootless Podman. `provisioning.cloud_init` is reserved for the [deferred provisioning contract](provisioning.md).
 
 ## Rules
 

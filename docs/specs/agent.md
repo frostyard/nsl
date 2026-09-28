@@ -9,7 +9,7 @@ Callers: the [CLI](cli.md). Host: the [VM image](vm-image.md). Targets: [machine
 ### Transport
 
 - The host reaches the VM over vsock SSH ([ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md)) as VM `root`, with that VM's client key and pinned host key.
-- The VM's sshd forces `/usr/lib/nsl/nsl-agent` for every session of that key and permits no password or interactive login. The key allows local TCP forwarding to VM loopback, and remote Unix-socket forwarding under `/run/nsl/`. It allows no X11 or agent forwarding.
+- The VM's sshd forces `/usr/lib/nsl/nsl-agent` for every session of that key and permits no password or interactive login. The key allows local TCP forwarding to VM loopback (`permitopen="127.0.0.1:*"`) and remote Unix-socket forwarding, which the host places under `/run/nsl/` for Waypipe. sshd grants a remote Unix-socket forward only when `AllowTcpForwarding` permits remote forwarding too. It allows no X11 or agent forwarding. The key is VM root in any case; the limits keep mistakes narrow rather than draw a trust boundary.
 - The host sends exactly one request per SSH session as the session's command string. The agent reads it from `SSH_ORIGINAL_COMMAND`.
 - The session's stdin, stdout and stderr belong to the operation: a command's streams for `run`, JSON results for the others. The SSH exit status is the result.
 
@@ -30,7 +30,7 @@ A request is the standard padded base64 encoding of one UTF-8 JSON object of at 
 | `env` | object | `run` | Environment from the host. Names are `TERM`, `COLORTERM`, `LANG`, `LANGUAGE` or `LC_` followed by capital letters; values are at most 256 bytes without NUL or newline. Any other name is rejected. |
 | `idle_timeout` | integer | `start`, `run` | Minutes, 0–1440, from the [configuration](cli.md#configuration). The VM's idle monitor uses the latest value it receives. |
 | `account` | object | `create`, `import` | `user`, `group`, `uid`, `gid` of the host user, as in [account rules](cli.md#account-and-execution). |
-| `image` | object | `create` | `path` under the read-only image share, `digest` and `size` of the compressed root filesystem, and `build_id`. |
+| `image` | object | `create` | `path` under the read-only image share, `digest` and `size` of the compressed root filesystem, and `build_id`. An empty `build_id` accepts the image's own; otherwise the descriptor must match it. |
 | `time_zone` | string | `create`, `import` | The host's IANA zone name, or `Etc/UTC`. |
 
 Example `run` request, before base64 encoding:
@@ -51,7 +51,7 @@ Example `run` request, before base64 encoding:
 | `start` | `machine`, `id`, `idle_timeout` | Rewrites the machine's nspawn settings, starts it if needed and waits up to 60 s for its manager to report `running` or `degraded`. JSON: `state`, `seconds`. |
 | `stop` | `machine`, `id` | Powers the machine off, waiting up to 30 s before terminating it. |
 | `run` | see below | The command's streams and exit status. |
-| `create` | `machine`, `id`, `account`, `image`, `time_zone` | Imports the image into a new subvolume and applies per-machine data. |
+| `create` | `machine`, `id`, `account`, `image`, `time_zone` | Imports the image into a new subvolume and applies per-machine data. JSON: `build_id`, from the image's descriptor. |
 | `export` | `machine`, `id` | `rootfs.tar.zst` of a stopped machine on stdout. |
 | `import` | `machine`, `id`, `account`, `time_zone`; `rootfs.tar.zst` on stdin | Validates and extracts into a new subvolume, then applies per-machine data. |
 | `remove` | `machine`, `id` | Deletes a stopped machine's subvolume, settings and record. Resumable. |
@@ -109,7 +109,7 @@ An agent error writes one line to stderr, `nsl-agent: CODE: message`, and exits 
 
 ## Implementation
 
-The agent is written in Go (`cmd/nsl-agent`) and uses a pinned `github.com/godbus/dbus/v5` for systemd and machined. It reaches a machine's service manager through the machine leader's `/run/systemd/private` socket, as root, and machined through the VM's system bus. It is statically linked and installed in the VM image, and it shares the request types and their validation with the CLI through `internal/protocol`. The same binary provides the VM's boot services: `nsl-agent storage`, `setup` and `boot`. A Python agent using `jeepney` was the alternative. Go avoids a second implementation of the framing and validation, and avoids interpreter startup on every command.
+The agent is written in Go (`cmd/nsl-agent`) and uses a pinned `github.com/godbus/dbus/v5` for systemd and machined. It reaches a machine's service manager through the machine's system bus, at the leader's `/run/dbus/system_bus_socket`, as root. The manager's private socket refuses peers from another PID namespace. It reaches machined through the VM's system bus. It is statically linked and installed in the VM image, and it shares the request types and their validation with the CLI through `internal/protocol`. The same binary provides the VM's boot services: `nsl-agent storage`, `setup` and `boot`. A Python agent using `jeepney` was the alternative. Go avoids a second implementation of the framing and validation, and avoids interpreter startup on every command.
 
 ## Test cases
 

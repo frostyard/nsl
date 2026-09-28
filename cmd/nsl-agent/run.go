@@ -57,13 +57,14 @@ func (a *agent) runCommand(req *protocol.Request) (int, error) {
 		if !isTerminal(a.stdin) {
 			return 0, &protocol.Error{Code: protocol.CodeBadRequest, Message: "tty requires a terminal on the session"}
 		}
-		master, path, err := a.sys.OpenPTY(req.Machine)
+		master, slave, path, err := a.sys.OpenPTY(req.Machine)
 		if err != nil {
 			return 0, err
 		}
 		defer master.Close()
+		defer slave.Close()
 		spec.TTY = path
-		if pty, err = forwardPTY(a.stdin, a.stdout, master); err != nil {
+		if pty, err = forwardPTY(a.stdin, a.stdout, master, slave); err != nil {
 			return 0, err
 		}
 		defer pty.restore()
@@ -78,7 +79,10 @@ func (a *agent) runCommand(req *protocol.Request) (int, error) {
 		return 0, &protocol.Error{Code: protocol.CodeFailed, Message: "command interrupted: " + err.Error()}
 	}
 	if pty != nil {
+		// Stop leftover processes, then release the slave: the master reads
+		// what is still buffered and then reports the hangup.
 		m.Discard(unit)
+		pty.slave.Close()
 		pty.drain(time.Second)
 	}
 	if step, ok := systemdSteps[status]; ok && code == 1 {
@@ -95,13 +99,13 @@ func isTerminal(f *os.File) bool {
 // ptyForwarder copies bytes unchanged between the session's terminal and a
 // PTY in the machine. It adds no title, color or other escape sequences.
 type ptyForwarder struct {
-	in, out, master *os.File
-	saved           *unix.Termios
-	winch           chan os.Signal
-	output          chan struct{}
+	in, out, master, slave *os.File
+	saved                  *unix.Termios
+	winch                  chan os.Signal
+	output                 chan struct{}
 }
 
-func forwardPTY(in, out, master *os.File) (*ptyForwarder, error) {
+func forwardPTY(in, out, master, slave *os.File) (*ptyForwarder, error) {
 	saved, err := unix.IoctlGetTermios(int(in.Fd()), unix.TCGETS)
 	if err != nil {
 		return nil, err
@@ -118,7 +122,7 @@ func forwardPTY(in, out, master *os.File) (*ptyForwarder, error) {
 	if err = unix.IoctlSetTermios(int(in.Fd()), unix.TCSETS, &raw); err != nil {
 		return nil, err
 	}
-	p := &ptyForwarder{in: in, out: out, master: master, saved: saved, winch: make(chan os.Signal, 1), output: make(chan struct{})}
+	p := &ptyForwarder{in: in, out: out, master: master, slave: slave, saved: saved, winch: make(chan os.Signal, 1), output: make(chan struct{})}
 	p.resize()
 	signal.Notify(p.winch, syscall.SIGWINCH)
 	go func() {

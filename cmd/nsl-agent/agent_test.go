@@ -99,8 +99,8 @@ func (s *fakeSystem) KillMachine(name string, signal int) error {
 	return nil
 }
 func (s *fakeSystem) TerminateMachine(name string) error { return nil }
-func (s *fakeSystem) OpenPTY(name string) (*os.File, string, error) {
-	return nil, "", errors.New("no PTY in tests")
+func (s *fakeSystem) OpenPTY(name string) (*os.File, *os.File, string, error) {
+	return nil, nil, "", errors.New("no PTY in tests")
 }
 func (s *fakeSystem) Machine(name string) (manager, error) {
 	if s.units[unitOf(name)] != "active" {
@@ -354,7 +354,7 @@ func goodRootfs() []entry {
 		{name: "./usr/", kind: tar.TypeDir},
 		{name: "./usr/lib/", kind: tar.TypeDir},
 		{name: "./usr/lib/nsl/", kind: tar.TypeDir},
-		{name: "./usr/lib/nsl/machine.json", kind: tar.TypeReg, body: `{"schema":1,"role":"machine","architecture":"x86-64","machine_protocol":1}`},
+		{name: "./usr/lib/nsl/machine.json", kind: tar.TypeReg, body: `{"schema":1,"role":"machine","build_id":"nsl-machine-debian-trixie-x86-64-r1","architecture":"x86-64","machine_protocol":1}`},
 		{name: "./usr/bin/", kind: tar.TypeDir},
 		{name: "./usr/bin/sh", kind: tar.TypeReg, body: "#!", mode: 0755},
 		{name: "./usr/bin/dash", kind: tar.TypeLink, link: "./usr/bin/sh"},
@@ -485,7 +485,7 @@ func createAgent(t *testing.T, role string, image []byte) (*testAgent, protocol.
 	}
 	req := protocol.Request{Op: "create", Machine: "debian", ID: machineID, TimeZone: "Europe/Berlin",
 		Account: &protocol.Account{User: "bjk", Group: "bjk", UID: 1000, GID: 1000},
-		Image:   &protocol.Image{Path: protocol.ImageShare + "/" + digest + ".tar.zst", Digest: "sha256:" + digest, Size: int64(len(image)), BuildID: "nsl-machine-debian-13-x86-64-r1"}}
+		Image:   &protocol.Image{Path: protocol.ImageShare + "/" + digest + ".tar.zst", Digest: "sha256:" + digest, Size: int64(len(image)), BuildID: ""}}
 	return ta, req
 }
 
@@ -523,8 +523,11 @@ func TestCreate(t *testing.T) {
 		t.Fatal("image symlink changed:", link)
 	}
 	r, err := ta.loadRecord("debian")
-	if err != nil || r.ID != machineID || r.Account.User != "bjk" || r.BuildID != "nsl-machine-debian-13-x86-64-r1" {
+	if err != nil || r.ID != machineID || r.Account.User != "bjk" || r.BuildID != "nsl-machine-debian-trixie-x86-64-r1" {
 		t.Fatal(err, r)
+	}
+	if !strings.Contains(ta.output(), `"build_id":"nsl-machine-debian-trixie-x86-64-r1"`) {
+		t.Fatal(ta.output())
 	}
 	if ta.r.ran("systemd-nspawn") != 4 {
 		t.Fatal(ta.r.calls)
@@ -548,10 +551,11 @@ func TestCreateFailuresLeaveNothing(t *testing.T) {
 		change  func(*testAgent, *protocol.Request)
 		message string
 	}{
-		"digest":     {goodRootfs(), func(ta *testAgent, r *protocol.Request) { os.WriteFile(ta.root+r.Image.Path, []byte("tampered"), 0644) }, "does not match its verified digest"},
-		"size":       {goodRootfs(), func(ta *testAgent, r *protocol.Request) { r.Image.Size-- }, "does not match"},
-		"traversal":  {append(goodRootfs(), entry{name: "../x", kind: tar.TypeReg}), nil, "leaves the tree"},
-		"descriptor": {goodRootfs()[:7], nil, "not an nsl machine image"},
+		"digest":      {goodRootfs(), func(ta *testAgent, r *protocol.Request) { os.WriteFile(ta.root+r.Image.Path, []byte("tampered"), 0644) }, "does not match its verified digest"},
+		"size":        {goodRootfs(), func(ta *testAgent, r *protocol.Request) { r.Image.Size-- }, "does not match"},
+		"traversal":   {append(goodRootfs(), entry{name: "../x", kind: tar.TypeReg}), nil, "leaves the tree"},
+		"descriptor":  {goodRootfs()[:7], nil, "not an nsl machine image"},
+		"other build": {goodRootfs(), func(ta *testAgent, r *protocol.Request) { r.Image.BuildID = "nsl-machine-fedora-44-x86-64-r1" }, "not the selected"},
 		"account": {goodRootfs(), func(ta *testAgent, r *protocol.Request) {
 			handler := ta.r.handler
 			ta.r.handler = func(argv []string, stdin io.Reader, stdout io.Writer) error {

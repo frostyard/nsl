@@ -1,0 +1,11 @@
+#%PAM-1.0
+# nsl command sessions. systemd opens them as root for the machine account,
+# so no password is asked; pam_systemd gives each a logind session.
+auth     sufficient pam_rootok.so
+auth     required   pam_deny.so
+account  required   pam_unix.so
+session  optional   pam_keyinit.so force revoke
+session  required   pam_limits.so
+session  required   pam_unix.so
+session  optional   pam_env.so
+session  required   pam_systemd.so

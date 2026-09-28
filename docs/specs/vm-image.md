@@ -84,6 +84,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 - sshd MUST listen only on the nsl-owned vsock socket ([ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md)). It MUST accept only the credential's key, for `root`, forced to the agent as the [agent protocol](agent.md#transport) specifies.
 - Files that must survive a crash, including the binding and host keys, MUST be flushed to the data disk before sshd starts.
 - The VM runs on UTC; machines show the host's zone.
+- The VM's resolver MUST NOT use LLMNR or mDNS. The user-mode network has no link-local peers, and sshd resolves the vsock peer name for every PTY session; LLMNR made that take seconds.
 
 ### Data disk
 

@@ -1,0 +1,17 @@
+#!/bin/sh
+# The machine layer: runs after the recipes' post-install scripts, so it wins.
+set -eu
+# Machines share the VM's network namespace and bind its resolver.
+for unit in systemd-networkd.service systemd-networkd.socket systemd-networkd-varlink.socket \
+    systemd-networkd-wait-online.service systemd-resolved.service systemd-resolved-monitor.socket \
+    systemd-resolved-varlink.socket; do
+  ln -sf /dev/null "/etc/systemd/system/$unit"
+done
+# sshd serves ssh-config per connection; nothing listens.
+systemctl disable ssh.service ssh.socket sshd.service sshd.socket 2>/dev/null || true
+# Every machine generates its own identity on first boot.
+rm -f /etc/ssh/ssh_host_* /var/lib/systemd/random-seed
+printf 'uninitialized\n' > /etc/machine-id
+. /usr/lib/os-release
+systemd=$(systemctl --version | sed -n '1s/^systemd [0-9]* (\([^)]*\)).*/\1/p')
+sed -i -e "s|@OS_ID@|$ID|" -e "s|@OS_VERSION@|${VERSION_ID:-${BUILD_ID:-rolling}}|" -e "s|@SYSTEMD@|$systemd|" /usr/lib/nsl/machine.json

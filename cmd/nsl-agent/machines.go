@@ -189,12 +189,14 @@ func (a *agent) start(req *protocol.Request, binding *protocol.Binding) error {
 // waitRunning waits for the machine's manager to finish starting.
 func (a *agent) waitRunning(name string, deadline float64) (string, error) {
 	last := "unreachable"
+	began := a.now()
 	for a.now() < deadline {
-		state, err := a.state(name)
+		unit, err := a.sys.UnitState(unitOf(name))
 		if err != nil {
 			return "", err
 		}
-		if state == "stopped" || state == "stopping" {
+		// A queued start job leaves the unit inactive for a moment.
+		if unit == "failed" || unit == "deactivating" || (unit == "inactive" && a.now()-began > 5) {
 			return "", fmt.Errorf("%s exited while starting; see journalctl -u %s in the VM", name, unitOf(name))
 		}
 		if m, err := a.sys.Machine(name); err == nil {
@@ -326,15 +328,19 @@ func (a *agent) create(req *protocol.Request, binding *protocol.Binding) (err er
 	if err = a.extract(copied, staging); err != nil {
 		return err
 	}
-	if err = checkMachineDescriptor(staging); err != nil {
+	buildID, err := checkMachineDescriptor(staging, req.Image.BuildID)
+	if err != nil {
 		return err
 	}
 	if err = a.personalize(staging, name, *req.Account, req.TimeZone, true); err != nil {
 		return err
 	}
-	record := protocol.MachineRecord{Schema: 1, Name: name, ID: req.ID, Account: *req.Account, BuildID: req.Image.BuildID,
+	record := protocol.MachineRecord{Schema: 1, Name: name, ID: req.ID, Account: *req.Account, BuildID: buildID,
 		Created: time.Now().UTC().Format(time.RFC3339)}
-	return a.publish(staging, record, binding.Role, &published)
+	if err = a.publish(staging, record, binding.Role, &published); err != nil {
+		return err
+	}
+	return json.NewEncoder(a.stdout).Encode(protocol.CreateResult{BuildID: buildID})
 }
 
 // publish records the machine, then moves its tree under its name.
@@ -507,24 +513,29 @@ func (a *agent) addAccount(dir string, account protocol.Account) error {
 		"--create-home", "--shell", "/bin/bash", account.User)
 }
 
-// checkMachineDescriptor refuses an image built for another machine layer.
-func checkMachineDescriptor(dir string) error {
+// checkMachineDescriptor refuses an image built for another machine layer, or
+// another build than the host selected, and returns the image's build ID.
+func checkMachineDescriptor(dir, expected string) (string, error) {
 	t, err := openTree(dir)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer t.close()
 	b, err := t.readFile("usr/lib/nsl/machine.json")
 	if err != nil {
-		return &protocol.Error{Code: protocol.CodeRefused, Message: "not an nsl machine image: " + err.Error()}
+		return "", &protocol.Error{Code: protocol.CodeRefused, Message: "not an nsl machine image: " + err.Error()}
 	}
 	var d struct {
 		Role            string `json:"role"`
+		BuildID         string `json:"build_id"`
 		Architecture    string `json:"architecture"`
 		MachineProtocol int    `json:"machine_protocol"`
 	}
-	if err = json.Unmarshal(b, &d); err != nil || d.Role != "machine" || d.Architecture != "x86-64" || d.MachineProtocol != protocol.MachineVersion {
-		return &protocol.Error{Code: protocol.CodeRefused, Message: fmt.Sprintf("machine image needs machine protocol %d on x86-64", protocol.MachineVersion)}
+	if err = json.Unmarshal(b, &d); err != nil || d.Role != "machine" || d.Architecture != "x86-64" || d.MachineProtocol != protocol.MachineVersion || !protocol.ValidBuildID(d.BuildID) {
+		return "", &protocol.Error{Code: protocol.CodeRefused, Message: fmt.Sprintf("machine image needs machine protocol %d on x86-64", protocol.MachineVersion)}
 	}
-	return nil
+	if expected != "" && d.BuildID != expected {
+		return "", &protocol.Error{Code: protocol.CodeRefused, Message: "the image is " + d.BuildID + ", not the selected " + expected}
+	}
+	return d.BuildID, nil
 }

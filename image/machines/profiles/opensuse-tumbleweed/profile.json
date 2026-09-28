@@ -1,0 +1,7 @@
+{
+  "distribution": "opensuse",
+  "release": "tumbleweed",
+  "architecture": "x86-64",
+  "family": "suse",
+  "revision": 2
+}

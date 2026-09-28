@@ -1,0 +1,8 @@
+#!/bin/sh
+# The recipe populates a pacman keyring with a local master private key, which
+# every machine from the image would share. Each machine makes its own.
+set -eu
+rm -rf /etc/pacman.d/gnupg
+# Arch asks resolved before /etc/hosts and stops at its answer. Machines use the
+# VM's resolver, which does not know them, so their own name must come first.
+sed -i -E 's/^hosts:.*/hosts: mymachines files myhostname resolve [!UNAVAIL=return] dns/' /etc/nsswitch.conf

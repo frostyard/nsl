@@ -365,5 +365,6 @@ func (a *app) list() error {
 	for _, p := range a.pending(v, c, state == "running") {
 		fmt.Fprintln(a.out, "Pending at the next VM start:", p)
 	}
-	return nil
+	fmt.Fprintln(a.out)
+	return a.listMachines(a.out, v)
 }

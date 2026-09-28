@@ -1,0 +1,16 @@
+[Unit]
+Description=Fully visible procfs for nested container runtimes
+Documentation=https://github.com/frostyard/nsl/blob/main/docs/specs/machine-images.md
+# The kernel allows a new procfs in a user namespace only while a fully visible
+# one exists, and nspawn masks /proc. LXC and Incus nest the same way.
+DefaultDependencies=no
+Before=local-fs.target
+
+[Mount]
+What=proc
+Where=/run/nsl/proc
+Type=proc
+Options=nosuid,nodev,noexec
+
+[Install]
+WantedBy=local-fs.target

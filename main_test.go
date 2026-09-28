@@ -32,6 +32,7 @@ type fakeRunner struct {
 	vm                   *vmRecord // the VM whose identity the fake agent reports
 	identity             func(*protocol.Identity)
 	agent                func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error
+	requests             []*protocol.Request
 	failResize           bool
 	failCheck            bool
 	onResize             func()
@@ -113,12 +114,13 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 		if err != nil {
 			return err
 		}
+		f.requests = append(f.requests, req)
+		// The hook answers with an error, or lets the default answer through.
 		if f.agent != nil {
 			if err := f.agent(req, in, out); err != nil {
 				fmt.Fprintln(stderr, err.Error())
 				return errors.New("exit status 255")
 			}
-			return nil
 		}
 		switch req.Op {
 		case "identity":
@@ -132,6 +134,15 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			if reflect.DeepEqual(req.Argv, []string{"systemctl", "poweroff"}) {
 				f.states[vmUnit(f.vm)] = "inactive"
 			}
+		case "create":
+			_, err := io.WriteString(out, `{"build_id":"nsl-machine-debian-trixie-x86-64-r1"}`+"\n")
+			return err
+		case "start":
+			_, err := io.WriteString(out, `{"state":"running","seconds":0.5}`+"\n")
+			return err
+		case "machines":
+			_, err := io.WriteString(out, "[]\n")
+			return err
 		}
 	}
 	return nil

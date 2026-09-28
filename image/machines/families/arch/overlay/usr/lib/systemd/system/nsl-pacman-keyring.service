@@ -1,0 +1,14 @@
+[Unit]
+Description=Initialize this machine's pacman keyring
+ConditionPathExists=!/etc/pacman.d/gnupg
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pacman-key --init
+ExecStart=/usr/bin/pacman-key --populate archlinux
+ExecStartPost=/usr/bin/gpgconf --homedir /etc/pacman.d/gnupg --kill all
+
+[Install]
+WantedBy=multi-user.target

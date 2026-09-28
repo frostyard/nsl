@@ -26,4 +26,8 @@ Work from the repository root. Read [the VM image contract](../../../docs/specs/
 
 ## Machine images
 
-Phase 4 of the implementation plan adds machine-image builds and `scripts/probe-machines.py`. Until then this skill covers only the VM image.
+1. Keep distro details in `image/machines/families/` and `profiles/`; the machine layer in `common/` stays distribution-neutral. Bump the profile's revision when inputs change.
+2. Build with `scripts/build-image.sh --role machine --distribution NAME`. A first Fedora, Arch or Tumbleweed build downloads its tools tree.
+3. Run `scripts/probe-machines.py` with the current VM image and every machine image you changed, plus one other image, so that the cross-machine checks have a peer. `--gui` opens a window from each machine on your desktop for three seconds; say so before running it. The probe needs about five minutes per machine, mostly package installs.
+4. Every check must pass: the entry matrix, the tally, and the system, package, Podman, file, port, translation, GUI and persistence workloads. Record the evidence file, digests and latency in the implementation plan.
+5. Diagnose inside a machine with `nsl run -m NAME`, and in the VM through the agent's `vm` operation; `journalctl -M NAME` in the VM shows a machine's journal.

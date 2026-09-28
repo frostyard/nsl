@@ -1,0 +1,7 @@
+# Machine images apply presets on first boot; keep the nsl units as intended.
+enable run-nsl-proc.mount
+enable nsl-pacman-keyring.service
+disable ssh.service
+disable ssh.socket
+disable sshd.service
+disable sshd.socket

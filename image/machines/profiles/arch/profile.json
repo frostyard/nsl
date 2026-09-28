@@ -1,0 +1,7 @@
+{
+  "distribution": "arch",
+  "release": "rolling",
+  "architecture": "x86-64",
+  "family": "arch",
+  "revision": 3
+}

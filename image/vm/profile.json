@@ -2,5 +2,5 @@
   "distribution": "debian",
   "release": "trixie",
   "architecture": "x86-64",
-  "revision": 2
+  "revision": 5
 }
