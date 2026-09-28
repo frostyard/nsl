@@ -104,4 +104,4 @@ The optional file `$XDG_CONFIG_HOME/nsl/nsl.conf` (default `~/.config/nsl/nsl.co
 ## References
 
 - Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). Current contract: [CLI](cli.md), [guest images](guest-images.md), [provisioning](provisioning.md).
-- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md).
+- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](../plans/shared-vm-implementation.md).

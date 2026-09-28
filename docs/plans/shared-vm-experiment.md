@@ -1,6 +1,6 @@
 # Experiment: machines as containers in one shared VM
 
-**Status: all four phases complete, 2026-09-27. The decision rule is met, and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts the shared VM and Frostyard machine images.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
+**Status: all four phases complete, 2026-09-27. The decision rule is met, and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopts the shared VM and Frostyard machine images. The [implementation plan](shared-vm-implementation.md) carries the work forward.** This plan chooses the machine topology for [ADR-0016](../adr/0016-wsl-style-machines.md) from measured evidence. The options are [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)'s one VM per machine, or WSL2's shape: one nsl-owned VM that runs each machine as a systemd-nspawn container. The result is a new ADR that either supersedes ADR-0005's topology or records why it stands.
 
 [ADR-0004](../adr/0004-managed-development-vms.md) deferred the shared VM because no benefit had been demonstrated. The [machine CLI](../specs/machine-cli.md) now makes several running machines a primary workflow, which changes that trade.
 
