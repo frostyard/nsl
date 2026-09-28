@@ -8,3 +8,4 @@
 /.mcp.json
 /.env
 __pycache__/
+/site/dist/

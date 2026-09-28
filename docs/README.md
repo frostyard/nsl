@@ -17,6 +17,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 
 ### Decisions
 
+- [0018 — User documentation site](adr/0018-user-documentation-site.md)
 - [0017 — Shared VM and Frostyard machine images](adr/0017-shared-vm-and-machine-images.md)
 - [0016 — WSL-style machines trusted as the user](adr/0016-wsl-style-machines.md)
 - [0015 — Image verification and catalogue policy](adr/0015-image-verification-and-catalogue-policy.md)
@@ -72,4 +73,4 @@ Historical reports for the one-VM-per-environment design:
 - [v0.1.0 retrospective](plans/v0.1.0.md)
 - [WSL2-like environments on atomic Linux — research and roadmap](plans/wsl2-equivalent.md)
 
-New docs start from each category's `TEMPLATE.md`. While nsl is pre-release, ADRs, specs and plans are rewritten in place when decisions change ([ADR-0001](adr/0001-record-architecture-decisions.md)). Design docs evolve with implementation; specs evolve with code. Cross-link related documents in both directions. Canonical instructions: [AGENTS.md](../AGENTS.md).
+User guides live in the [documentation site](../site/content/), published at [frostyard.github.io/nsl](https://frostyard.github.io/nsl/) ([ADR-0018](adr/0018-user-documentation-site.md)). New docs start from each category's `TEMPLATE.md`. While nsl is pre-release, ADRs, specs and plans are rewritten in place when decisions change ([ADR-0001](adr/0001-record-architecture-decisions.md)). Design docs evolve with implementation; specs evolve with code. Cross-link related documents in both directions. Canonical instructions: [AGENTS.md](../AGENTS.md).
