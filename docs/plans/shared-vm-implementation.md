@@ -425,6 +425,7 @@ Creating it, including its VM's first boot and data-disk formatting, took 10.5 s
 - **Publication** ([run 6](https://github.com/frostyard/nsl/actions/runs/36400743847), 22 minutes on an ephemeral runner in the maintainer's session): the VM image r8 and the four machine images passed every check on KVM. That covered `probe-vm.py`, `probe-machines.py` with GUI windows and an isolated machine, and `measure-machines.py`: four idle machines at 862 MiB, an additional machine at p95 0.55 s, and 142 MiB more for four desktop sessions. It signed and pushed each image and promoted catalogue sequence **6**, `sha256:856daefa740a2d89d797b61936e74ba9f73b6602971117dc06bbcdeff6412c7b`, which expires 2026-10-28. The `nsl-images` package was already public, and the catalogue answered anonymously. No scheduled run fired on the day the schedule landed.
 - **Catalogue floor.** `catalogueMinimum` is 6, so the CLI refuses the disk catalogues, sequences 3 and 4.
 - **Clean host.** With a new state directory, an empty cache and a binary with the new floor, `nsl images` showed the five signed images, verified against the embedded Sigstore root and the workflow identity. `nsl create debian --distro debian:13` downloaded and verified both images and created the machine in 29 s, including the VM's first boot. Bare `nsl` then opened bash in `/mnt/host/var/home/bjk/…`, the translated current directory. A second machine from the cache with `--offline` took 3 s, and an uncached image was refused offline.
+- **Publication runner and memory budget** (2026-09-28, [ADR-0019](../adr/0019-persistent-publication-runner.md)). The first runs on the `nsl-builder` VM, a Debian 14 Incus guest on the maintainer's lab host with QEMU 11.1.1, built every image and passed every functional check once its compositor advertised a `wl_seat`: [run 36479109292](https://github.com/frostyard/nsl/actions/runs/36479109292) passed all 92 acceptance checks. Its start-time gate passed at p95 0.82 s for an additional machine. Four idle machines measured 1,047 MiB against the 950 MiB budget. `measure-machines.py` on the builder with catalogue 9's published images, which measured 854 MiB on the maintainer's workstation, gave 974 MiB (688.7, 818.4 and 974.1 MiB for one, two and four machines, nearly all QEMU PSS), an additional machine at p95 0.78 s and a no-op command at a 102 ms median. The builder adds about 120 MiB, and 950 MiB was the experiment's single measurement adopted without headroom, so the budget is now 1,200 MiB.
 
 ## Requirements carried from the experiment
 
@@ -442,7 +443,7 @@ Each item was found by a failing check and must not regress.
 | Directory translation by device and inode, plus `/mnt/host` aliases | 6, 8 |
 | Waypipe `--display` socket bound into the running machine | 8 |
 | Creation cleans up after failure | 7 |
-| Four idle machines at or below 950 MiB; an additional machine at p95 ≤ 2 s | 7, 10 |
+| Four idle machines at or below 1,200 MiB (950 until 2026-09-28; see Phase 10); an additional machine at p95 ≤ 2 s | 7, 10 |
 
 ## Later / ideas
 
