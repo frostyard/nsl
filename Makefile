@@ -1,4 +1,4 @@
-.PHONY: build test fmt verify ci clean release-check
+.PHONY: build agent test fmt verify ci clean release-check
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -6,28 +6,33 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o build/nsl .
 
+# The VM image embeds the agent; it runs on x86-64 VMs whatever the host.
+agent:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o build/nsl-agent ./cmd/nsl-agent
+
 test:
 	go test ./...
 
 fmt:
-	gofmt -w *.go
+	gofmt -w .
 
 verify:
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go mod tidy -diff
 	python3 scripts/license-notices.py --check
 	go vet ./...
-	test -z "$$(gofmt -l *.go)"
+	test -z "$$(gofmt -l .)"
 	go test ./...
 
 ci: verify
 	go test -race ./...
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-amd64 .
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-arm64 .
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-agent ./cmd/nsl-agent
 
 release-check:
 	goreleaser check
 
 clean:
 	go clean
-	rm -f build/nsl build/nsl-linux-amd64 build/nsl-linux-arm64
+	rm -f build/nsl build/nsl-agent build/nsl-linux-amd64 build/nsl-linux-arm64

@@ -3,8 +3,10 @@ module github.com/frostyard/nsl
 go 1.25.8
 
 require (
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/klauspost/compress v1.18.6
 	github.com/sigstore/sigstore-go v1.3.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -70,7 +72,6 @@ require (
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
