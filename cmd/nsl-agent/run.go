@@ -152,18 +152,18 @@ func forwardPTY(in, out, master, slave *os.File) (*ptyForwarder, error) {
 	}()
 	go func() {
 		// Input ends at EOF; the command's output continues until it exits.
-		io.Copy(master, in)
+		_, _ = io.Copy(master, in)
 	}()
 	go func() {
 		defer close(p.output)
-		io.Copy(out, master)
+		_, _ = io.Copy(out, master)
 	}()
 	return p, nil
 }
 
 func (p *ptyForwarder) resize() {
 	if ws, err := unix.IoctlGetWinsize(int(p.in.Fd()), unix.TIOCGWINSZ); err == nil {
-		unix.IoctlSetWinsize(int(p.master.Fd()), unix.TIOCSWINSZ, ws)
+		_ = unix.IoctlSetWinsize(int(p.master.Fd()), unix.TIOCSWINSZ, ws)
 	}
 }
 
@@ -178,5 +178,5 @@ func (p *ptyForwarder) drain(limit time.Duration) {
 func (p *ptyForwarder) restore() {
 	signal.Stop(p.winch)
 	close(p.winch)
-	unix.IoctlSetTermios(int(p.in.Fd()), unix.TCSETS, p.saved)
+	_ = unix.IoctlSetTermios(int(p.in.Fd()), unix.TCSETS, p.saved)
 }

@@ -423,7 +423,7 @@ func TestLockRejectsAReplacedVM(t *testing.T) {
 }
 
 func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
-	a, f, v := startedVM(t)
+	a, f, _ := startedVM(t)
 	if err := a.resize([]string{"--disk", "200"}); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatal(err)
 	}
@@ -451,7 +451,8 @@ func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
 	if err := a.recover(nil); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ = a.loadVM(); v.DataGiB != 200 || v.ResizeTarget != 0 {
+	v, _ := a.loadVM()
+	if v.DataGiB != 200 || v.ResizeTarget != 0 {
 		t.Fatalf("%+v", v)
 	}
 	if got, err := diskGiB(filepath.Join(v.dir, "data.qcow2")); err != nil || got != 200 {

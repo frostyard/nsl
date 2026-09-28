@@ -86,7 +86,7 @@ func (t *tree) writeFile(rel string, data []byte, mode uint32) error {
 		err = unix.Renameat(dir, temporary, dir, base)
 	}
 	if err != nil {
-		unix.Unlinkat(dir, temporary, 0)
+		_ = unix.Unlinkat(dir, temporary, 0)
 		return &os.PathError{Op: "write", Path: "/" + rel, Err: err}
 	}
 	return nil

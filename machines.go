@@ -511,7 +511,7 @@ func (a *app) remove(args []string) error {
 		err = a.agentJSON(v, protocol.Request{Op: "remove", Machine: name, ID: m.ID}, nil, 10*time.Minute, nil)
 	}
 	var agentErr *protocol.Error
-	if err != nil && !(errors.As(err, &agentErr) && agentErr.Code == protocol.CodeUnknownMachine) {
+	if err != nil && (!errors.As(err, &agentErr) || agentErr.Code != protocol.CodeUnknownMachine) {
 		if errors.As(err, &agentErr) && agentErr.Code == protocol.CodeBusy {
 			// Still running: put the record back so the machine stays usable.
 			if renameErr := os.Rename(tombstone, a.machinePath(name)); renameErr != nil {
@@ -639,7 +639,7 @@ func (a *app) run(args []string, shell bool) error {
 		}
 		if current == "" {
 			var w strings.Builder
-			a.listMachines(&w, nil)
+			_ = a.listMachines(&w, nil)
 			return errors.New("there is no default machine; use -m NAME or nsl default NAME\n" + w.String())
 		}
 		*name = current

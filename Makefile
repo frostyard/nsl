@@ -1,7 +1,14 @@
-.PHONY: build agent test fmt verify ci clean release-check bump site site-serve
+.PHONY: build agent test fmt lint lint-version-check verify check ci clean release-check bump site site-serve
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
+
+# golangci-lint's release, read from mise.toml, the single source of tool pins
+# (frostyard/core ADR-0043): `mise install` provisions it, and CI installs the
+# same mise.lock-verified release. It must be built with a Go no older than
+# go.mod's, or its gofmt and type checker disagree with the toolchain.
+GOLANGCI_LINT_VERSION := $(strip $(shell sed -n 's/^golangci-lint = "\(.*\)"/\1/p' mise.toml))
+GO_VERSION := $(strip $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod))
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o build/nsl .
@@ -16,16 +23,38 @@ test:
 fmt:
 	gofmt -w .
 
+lint: lint-version-check
+	golangci-lint run
+
+lint-version-check:
+	@test -n "$(GOLANGCI_LINT_VERSION)" || { echo "mise.toml pins no golangci-lint"; exit 1; }
+	@installed="$$(golangci-lint version --short 2>/dev/null)" || { \
+		echo "golangci-lint $(GOLANGCI_LINT_VERSION) is required (install with: mise install)"; exit 1; }; \
+	if [ "$$installed" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+		echo "expected golangci-lint $(GOLANGCI_LINT_VERSION), found $$installed (install with: mise install)"; exit 1; \
+	fi; \
+	built="$$(golangci-lint version 2>/dev/null | sed -n 's/.*built with go\([0-9.]*\).*/\1/p')"; \
+	if [ -n "$$built" ] && [ "$$(printf '%s\n%s\n' "$(GO_VERSION)" "$$built" | sort -V | head -1)" != "$(GO_VERSION)" ]; then \
+		echo "golangci-lint $(GOLANGCI_LINT_VERSION) was built with go$$built, older than go.mod's go$(GO_VERSION)"; exit 1; \
+	fi
+
+# The gate triad (frostyard/core ADR-0043, ADR-0044). verify is credential-free
+# and leaves a clean checkout clean: what a read-only reviewer runs. check is the
+# developer gate and may format. ci is verify plus what CI alone adds.
 verify:
-	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go mod tidy -diff
 	python3 scripts/license-notices.py --check
 	go vet ./...
 	test -z "$$(gofmt -l .)"
+	$(MAKE) --no-print-directory lint
+	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go test ./...
 
+check: fmt verify
+
 ci: verify
-	go test -race ./...
+	mkdir -p build
+	go test -race -coverprofile=build/coverage.out ./...
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-amd64 .
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-arm64 .
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-agent ./cmd/nsl-agent
