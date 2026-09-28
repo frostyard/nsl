@@ -99,7 +99,7 @@ func (a *app) export(args []string) error {
 		return err
 	}
 	defer unlock(l)
-	v, err := a.runningVM(false)
+	v, err := a.machineVM(m, false)
 	if err != nil {
 		return err
 	}
@@ -265,8 +265,6 @@ func (a *app) importArchive(args []string) error {
 	switch {
 	case fs.NArg() != 0:
 		return errors.New("usage: import NAME FILE [--isolated]")
-	case *isolated:
-		return errors.New("isolated machines are not implemented yet (Phase 9)")
 	case runtime.GOARCH != "amd64":
 		return errors.New("machines are x86-64 only")
 	}
@@ -283,7 +281,7 @@ func (a *app) importArchive(args []string) error {
 	}
 	defer f.Close()
 	// The trust tier comes from the flags, never from the archive.
-	m := &machineRecord{Schema: 1, Name: name, ID: randomID(), Tier: "shared", User: manifest.Account.User, Group: manifest.Account.Group,
+	m := &machineRecord{Schema: 1, Name: name, ID: randomID(), Tier: tier(*isolated), User: manifest.Account.User, Group: manifest.Account.Group,
 		UID: a.uid, GID: a.gid, Created: time.Now().UTC().Format(time.RFC3339)}
 	// The agent verifies the digest again as it receives the bytes.
 	req := protocol.Request{Op: "import", Rootfs: &protocol.Rootfs{Digest: manifest.Rootfs.Digest, Size: manifest.Rootfs.Size, BuildID: manifest.BuildID}}

@@ -111,8 +111,8 @@ func usage(w io.Writer) {
   update [--offline]
   update --image FILE --digest sha256:HEX
   config
-  recover
-  resize --disk GiB
+  recover [NAME]
+  resize [NAME] --disk GiB
   images [--offline]
   pull DISTRO:RELEASE [--offline]
   doctor
@@ -162,10 +162,7 @@ func (a *app) execute(args []string) error {
 		}
 		return a.shutdown()
 	case "recover":
-		if err := noArgs(); err != nil {
-			return err
-		}
-		return a.recover()
+		return a.recover(rest)
 	case "resize":
 		return a.resize(rest)
 	case "run":
@@ -191,10 +188,7 @@ func (a *app) execute(args []string) error {
 	case "_ssh":
 		return a.sshProxy(rest)
 	case "_forward":
-		if err := noArgs(); err != nil {
-			return err
-		}
-		return a.forward()
+		return a.forward(rest)
 	case "_desktop":
 		return a.desktop(rest)
 	case "_devices":

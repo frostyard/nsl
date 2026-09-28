@@ -2,7 +2,7 @@
 
 `nsl` gives atomic Linux hosts persistent Linux machines, as WSL does for Windows. Machines are systemd-nspawn containers in one nsl-owned VM, launched with systemd-vmspawn and QEMU/KVM, and are trusted as your user: they see your home and removable media at `/mnt/host` ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)).
 
-**Status: under construction.** The [implementation plan](docs/plans/shared-vm-implementation.md) is replacing the earlier one-VM-per-environment prototype phase by phase, and the [CLI contract](docs/specs/cli.md) describes the target. Today the binary runs the nsl VM and machines from locally built images, with forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. It exports and imports machines, and stops idle machines and the idle VM. It can verify signed catalogue images, but none are published for this design yet; isolated machines arrive with a later phase. v0.3.0 and earlier releases are the retired prototype.
+**Status: under construction.** The [implementation plan](docs/plans/shared-vm-implementation.md) is replacing the earlier one-VM-per-environment prototype phase by phase, and the [CLI contract](docs/specs/cli.md) describes the target. Today the binary runs the nsl VM and machines from locally built images, with forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. It exports and imports machines, and stops idle machines and the idle VM. With `--isolated`, a machine gets its own small VM with no access to your files or desktop. It can verify signed catalogue images, but none are published for this design yet. v0.3.0 and earlier releases are the retired prototype.
 
 The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
 
@@ -50,6 +50,7 @@ A server listening in a machine on port 1024 or above is reachable at the same p
 | `run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv literally in the machine; exit status, streams and signals pass through. |
 | `create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]` | Create a machine from a local machine image, offline. |
 | `create NAME --distro DISTRO:RELEASE [--offline]` | Create a machine from a signed catalogue image (once images are published). |
+| `create NAME ... --isolated`, `import NAME FILE --isolated` | Give the machine its own VM, without `/mnt/host`, desktop or `nsl-open`, for untrusted software. |
 | `start NAME`, `stop NAME`, `default NAME` | Start or stop a machine, or make it the default. |
 | `export NAME FILE`, `import NAME FILE` | Write a stopped machine to a new private archive, or create a machine from one. |
 | `remove NAME [--yes]` | Preview, then permanently remove a stopped machine. |
@@ -59,9 +60,9 @@ A server listening in a machine on port 1024 or above is reachable at the same p
 | `list` | The VM's state, image, resources and data disk, anything pending until its next start, and every machine. |
 | `update --image FILE --digest sha256:HEX` | Select a local VM image for the next start; `update` alone selects the catalogue's. |
 | `images`, `pull DISTRO:RELEASE` | List the signed catalogue, or verify and cache a machine image. |
-| `recover` | Restart the VM from a fresh root, check its data disk and finish interrupted growth. |
-| `resize --disk GiB` | Grow the stopped VM's data disk; it never shrinks. |
-| `shutdown` | Stop every machine and the VM. |
+| `recover [NAME]` | Restart the shared VM, or isolated machine NAME's, from a fresh root, check its data disk and finish interrupted growth. |
+| `resize [NAME] --disk GiB` | Grow the stopped VM's data disk; it never shrinks. |
+| `shutdown` | Stop every machine and every VM. |
 | `config` | Show the effective configuration and its sources. |
 | `doctor`, `version`, `help` | Host checks, build version and usage. |
 

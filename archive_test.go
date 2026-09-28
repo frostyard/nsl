@@ -118,8 +118,15 @@ func TestImportUsesTheArchiveAndNotItsTier(t *testing.T) {
 	if err := a.execute([]string{"import", "copy", path}); err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Fatal(err)
 	}
-	if err := a.execute([]string{"import", "iso", path, "--isolated"}); err == nil || !strings.Contains(err.Error(), "Phase 9") {
+	// The tier comes from the flag: the same archive becomes an isolated machine.
+	if err := a.execute([]string{"import", "iso", path, "--isolated"}); err != nil {
 		t.Fatal(err)
+	}
+	if m, err := a.machine("iso"); err != nil || m.Tier != "isolated" {
+		t.Fatal(err, m)
+	}
+	if v, err := a.loadVMAt(a.isolatedVMDir("iso")); err != nil || v == nil || v.Machine.Name != "iso" {
+		t.Fatal(err, v)
 	}
 }
 

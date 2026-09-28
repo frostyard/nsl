@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -168,7 +169,7 @@ func (a *app) ready(v *vmRecord) (*vmDescriptor, error) {
 		return nil, fmt.Errorf("%w: agent protocol %d, CLI protocol %d", errIncompatibleImage, id.Protocol, protocol.Version)
 	}
 	b := id.VM
-	if b.Version != 1 || b.ID != v.ID || b.Role != v.Role || b.UID != v.Owner || b.GID != v.GID || b.Machine != nil {
+	if b.Version != 1 || b.ID != v.ID || b.Role != v.Role || b.UID != v.Owner || b.GID != v.GID || !reflect.DeepEqual(b.Machine, v.Machine) {
 		return nil, errors.New("VM identity does not match its record")
 	}
 	var d vmDescriptor
@@ -247,20 +248,23 @@ func (a *app) writeCredential(v *vmRecord, c *config, autostart bool) error {
 	if err != nil {
 		return err
 	}
-	shares, err := a.hostShares()
-	if err != nil {
-		return err
-	}
 	cred := protocol.Credential{
-		Binding:   protocol.Binding{Version: 1, ID: v.ID, Role: v.Role, UID: v.Owner, GID: v.GID},
+		Binding:   protocol.Binding{Version: 1, ID: v.ID, Role: v.Role, UID: v.Owner, GID: v.GID, Machine: v.Machine},
 		PublicKey: strings.TrimSpace(string(public)), Autostart: autostart && c.autostart.value, IdleTimeout: c.idleTimeout.value,
-		Shares: shares, Aliases: a.hostAliases(shares),
+		Shares: []protocol.Share{}, Aliases: []protocol.Alias{},
 	}
-	if cred.Shares == nil {
-		cred.Shares = []protocol.Share{}
-	}
-	if cred.Aliases == nil {
-		cred.Aliases = []protocol.Alias{}
+	// An isolated VM gets nothing from the host's file system.
+	if v.Role == "shared" {
+		shares, err := a.hostShares()
+		if err != nil {
+			return err
+		}
+		if len(shares) > 0 {
+			cred.Shares = shares
+		}
+		if aliases := a.hostAliases(shares); len(aliases) > 0 {
+			cred.Aliases = aliases
+		}
 	}
 	if err = cred.Validate(); err != nil {
 		return err
@@ -369,7 +373,7 @@ func (a *app) startVM(v *vmRecord, autostart bool) error {
 				// Forwarding follows readiness; commands work without it. A fresh
 				// report shows a running forwarder without asking systemd.
 				if launched || !a.forwarding(v) {
-					if err = a.startHelper(v, portsUnit(v), portsDescription(v), nil, "_forward"); err != nil {
+					if err = a.startHelper(v, portsUnit(v), portsDescription(v), nil, "_forward", v.ID); err != nil {
 						fmt.Fprintln(a.err, "nsl: port forwarding:", err)
 					}
 				}
@@ -399,11 +403,11 @@ func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
 	if err = a.writeCredential(v, c, autostart); err != nil {
 		return err
 	}
-	v.CPUs, v.Memory = c.vmCPUs.value, c.vmMemory.value
+	v.CPUs, v.Memory = c.resources(v)
 	if err = a.saveVM(v); err != nil {
 		return err
 	}
-	script := "exec " + shellQuote(a.self) + " _devices shared"
+	script := "exec " + shellQuote(a.self) + " _devices " + v.ID
 	return a.call(nil, a.err, "systemd-run", "--user", "--quiet", "--unit="+vmUnit(v), "--description="+vmDescription(v), "--collect",
 		"--property=Type=exec", "--property=TimeoutStopSec=30", "--property=KillMode=mixed",
 		"--setenv=NSL_HOME="+a.home, "--setenv=NSL_DEBUG="+os.Getenv("NSL_DEBUG"), "--", "sg", "kvm", "-c", script)
@@ -415,12 +419,37 @@ func (a *app) runningVM(autostart bool) (*vmRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	return a.running(v, autostart)
+}
+
+// running starts a VM if needed and returns it ready.
+func (a *app) running(v *vmRecord, autostart bool) (*vmRecord, error) {
 	l, v, err := a.lockVM(v)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock(l)
 	return v, a.startVM(v, autostart)
+}
+
+// vmOf returns the VM a machine runs in, or nil when that VM does not exist.
+func (a *app) vmOf(m *machineRecord) (*vmRecord, error) {
+	if m.Tier == "isolated" {
+		return a.loadVMAt(a.isolatedVMDir(m.Name))
+	}
+	return a.loadVM()
+}
+
+// machineVM starts the VM a machine runs in, creating it if needed.
+func (a *app) machineVM(m *machineRecord, autostart bool) (*vmRecord, error) {
+	if m.Tier != "isolated" {
+		return a.runningVM(autostart)
+	}
+	v, err := a.ensureIsolatedVM(m)
+	if err != nil {
+		return nil, err
+	}
+	return a.running(v, autostart)
 }
 
 func (a *app) stopVM(v *vmRecord) error {
@@ -451,28 +480,56 @@ func (a *app) stopVM(v *vmRecord) error {
 	return nil
 }
 
+// shutdown stops every machine and every nsl VM.
 func (a *app) shutdown() error {
-	v, err := a.loadVM()
-	if err != nil || v == nil {
-		return err
-	}
-	l, v, err := a.lockVM(v)
+	all, err := a.allVMs()
 	if err != nil {
 		return err
 	}
-	defer unlock(l)
-	return a.stopVM(v)
+	var errs []error
+	for _, v := range all {
+		l, v, err := a.lockVM(v)
+		if err == nil {
+			err = a.stopVM(v)
+			unlock(l)
+		}
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
-// recover restarts the VM from a fresh root, completing interrupted growth
-// and checking the data disk. Machines and keys are kept.
-func (a *app) recover() error {
-	v, err := a.loadVM()
+// namedVM is the shared VM, or with a name the isolated machine's VM.
+func (a *app) namedVM(args []string) (*vmRecord, error) {
+	if len(args) == 0 {
+		v, err := a.loadVM()
+		if err == nil && v == nil {
+			err = errors.New("there is no nsl VM yet")
+		}
+		return v, err
+	}
+	m, err := a.machine(args[0])
+	if err != nil {
+		return nil, err
+	}
+	if m.Tier != "isolated" {
+		return nil, fmt.Errorf("%s runs in the shared VM; leave out the name", m.Name)
+	}
+	v, err := a.vmOf(m)
+	if err == nil && v == nil {
+		err = fmt.Errorf("%s has no VM yet", m.Name)
+	}
+	return v, err
+}
+
+// recover restarts a VM from a fresh root, completing interrupted growth and
+// checking the data disk. Machines and keys are kept.
+func (a *app) recover(args []string) error {
+	if len(args) > 1 {
+		return errors.New("usage: recover [NAME]")
+	}
+	v, err := a.namedVM(args)
 	if err != nil {
 		return err
-	}
-	if v == nil {
-		return errors.New("there is no nsl VM yet")
 	}
 	l, v, err := a.lockVM(v)
 	if err != nil {
@@ -503,14 +560,14 @@ func (a *app) recover() error {
 	if err = a.startVM(v, true); err != nil {
 		return err
 	}
-	fmt.Fprintln(a.out, "Recovered the VM with a fresh root; its data disk, machines and keys are unchanged")
+	fmt.Fprintf(a.out, "Recovered the %s VM with a fresh root; its data disk, machines and keys are unchanged\n", v.label())
 	return nil
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 
 func (a *app) devices(args []string) error {
-	if len(args) != 1 || args[0] != "shared" {
+	if len(args) != 1 || !protocol.ValidID(args[0]) {
 		return errors.New("internal device launch requires a VM")
 	}
 	account, err := user.LookupId(strconv.Itoa(a.uid))
@@ -531,7 +588,7 @@ func (a *app) devices(args []string) error {
 		return err
 	}
 	defer vsock.Close()
-	script := "exec unshare --user --map-current-user --keep-caps " + shellQuote(a.self) + " _launch shared"
+	script := "exec unshare --user --map-current-user --keep-caps " + shellQuote(a.self) + " _launch " + args[0]
 	c := exec.Command("sg", group.Name, "-c", script)
 	c.Env = os.Environ()
 	c.ExtraFiles = []*os.File{kvm, vsock}
@@ -548,6 +605,7 @@ func (a *app) launchArgs(v *vmRecord, cred *protocol.Credential) []string {
 		"--load-credential=nsl.vm:" + filepath.Join(v.dir, "nsl.vm"),
 		"--extra-drive=qcow2:virtio-blk:" + filepath.Join(v.dir, "data.qcow2"),
 		"--bind-ro=" + a.machineImages() + ":" + protocol.ImageShare}
+	// The credential names no shares for an isolated VM.
 	for _, s := range cred.Shares {
 		args = append(args, "--bind="+s.Source+":/mnt/host"+s.Source)
 	}
@@ -559,15 +617,12 @@ func (a *app) launchArgs(v *vmRecord, cred *protocol.Credential) []string {
 }
 
 func (a *app) launch(args []string) error {
-	if len(args) != 1 || args[0] != "shared" {
+	if len(args) != 1 || !protocol.ValidID(args[0]) {
 		return errors.New("internal launch requires a VM")
 	}
-	v, err := a.loadVM()
+	v, err := a.vmByID(args[0])
 	if err != nil {
 		return err
-	}
-	if v == nil {
-		return errors.New("there is no nsl VM")
 	}
 	if err = a.runtimeFiles(v); err != nil {
 		return err

@@ -121,15 +121,6 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			}
 		}
 		f.states[unit], f.descriptions[unit] = "active", description
-		// The launched VM answers as the VM its record describes.
-		for _, a := range args {
-			if home, ok := strings.CutPrefix(a, "--setenv=NSL_HOME="); ok {
-				v := &vmRecord{dir: filepath.Join(home, "vm")}
-				if b, err := os.ReadFile(filepath.Join(home, "vm", "vm.json")); err == nil && json.Unmarshal(b, v) == nil {
-					f.vm = v
-				}
-			}
-		}
 	case "ssh":
 		for i, a := range args {
 			if a == "-O" {
@@ -151,16 +142,28 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			return err
 		}
 		f.requests = append(f.requests, req)
+		// The VM answering is the one whose SSH configuration the call uses.
+		vm := f.vm
+		for i, a := range args[:len(args)-1] {
+			if a == "-F" {
+				v := &vmRecord{dir: filepath.Dir(args[i+1])}
+				if b, err := os.ReadFile(filepath.Join(v.dir, "vm.json")); err == nil && json.Unmarshal(b, v) == nil && (vm == nil || v.ID != vm.ID) {
+					vm = v
+				}
+			}
+		}
 		// The hook answers with an error, or lets the default answer through.
 		if f.agent != nil {
-			if err := f.agent(req, in, out); err != nil {
+			if err := f.agent(req, in, out); err == errAnswered {
+				return nil
+			} else if err != nil {
 				fmt.Fprintln(stderr, err.Error())
 				return errors.New("exit status 255")
 			}
 		}
 		switch req.Op {
 		case "identity":
-			id := protocol.Identity{Protocol: 1, VM: protocol.Binding{Version: 1, ID: f.vm.ID, Role: "shared", UID: f.vm.Owner, GID: f.vm.GID},
+			id := protocol.Identity{Protocol: 1, VM: protocol.Binding{Version: 1, ID: vm.ID, Role: vm.Role, UID: vm.Owner, GID: vm.GID, Machine: vm.Machine},
 				Image: json.RawMessage(`{"schema":1,"role":"vm","build_id":"nsl-vm-trixie-x86-64-r1","distribution":"debian","release":"trixie","architecture":"x86-64","revision":1,"agent_protocol":1,"machine_protocol":1,"transport":"nsl-vsock-ssh","systemd":"257","kernel":"6.12","integration_sha256":"x","recipes_revision":"r","mkosi_revision":"m"}`)}
 			if f.identity != nil {
 				f.identity(&id)
@@ -168,7 +171,7 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			return json.NewEncoder(out).Encode(id)
 		case "vm":
 			if reflect.DeepEqual(req.Argv, []string{"systemctl", "poweroff"}) {
-				f.states[vmUnit(f.vm)] = "inactive"
+				f.states[vmUnit(vm)] = "inactive"
 			}
 		case "create", "import":
 			_, err := io.WriteString(out, `{"build_id":"nsl-machine-debian-trixie-x86-64-r1"}`+"\n")
@@ -185,6 +188,9 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 }
 
 // ran counts calls; tests with concurrent helpers hold f.mu around it.
+// errAnswered lets an agent hook answer a request completely.
+var errAnswered = errors.New("answered")
+
 func (f *fakeRunner) ran(bin string, prefix ...string) int {
 	n := 0
 	for _, c := range f.calls {
@@ -261,7 +267,7 @@ func TestUpdateSelectsAnImageForTheNextStart(t *testing.T) {
 	}
 	var out bytes.Buffer
 	a.out = &out
-	if err := a.execute([]string{"list"}); err != nil || !strings.Contains(out.String(), "Pending at the next VM start: VM image sha256:"+v.PendingImage[:12]) {
+	if err := a.execute([]string{"list"}); err != nil || !strings.Contains(out.String(), "Pending at the next start of the shared VM: VM image sha256:"+v.PendingImage[:12]) {
 		t.Fatal(err, out.String())
 	}
 	if err := a.execute([]string{"shutdown"}); err != nil {
@@ -436,7 +442,7 @@ func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
 	}
 	f.failResize = false
 	f.vm, _ = a.loadVM()
-	if err := a.recover(); err != nil {
+	if err := a.recover(nil); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ = a.loadVM(); v.DataGiB != 200 || v.ResizeTarget != 0 {
@@ -451,7 +457,7 @@ func TestRecoverRebuildsTheRootAndKeepsTheDataDisk(t *testing.T) {
 	a, f, v := startedVM(t)
 	data, _ := os.ReadFile(filepath.Join(v.dir, "data.qcow2"))
 	before := f.ran("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw")
-	if err := a.recover(); err != nil {
+	if err := a.recover(nil); err != nil {
 		t.Fatal(err)
 	}
 	if f.ran("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw") != before+1 {
@@ -462,7 +468,7 @@ func TestRecoverRebuildsTheRootAndKeepsTheDataDisk(t *testing.T) {
 	}
 	a.shutdown()
 	f.failCheck = true
-	if err := a.recover(); err == nil || !strings.Contains(err.Error(), "preserved") {
+	if err := a.recover(nil); err == nil || !strings.Contains(err.Error(), "preserved") {
 		t.Fatal(err)
 	}
 }
@@ -474,7 +480,7 @@ func TestPendingRestartIsReported(t *testing.T) {
 	os.WriteFile(path, []byte("[vm]\nmemory = 4\n"), 0600)
 	var out bytes.Buffer
 	a.out = &out
-	if err := a.execute([]string{"config"}); err != nil || !strings.Contains(out.String(), "Pending at the next VM start: vm.memory 4 GiB (running with 8)") {
+	if err := a.execute([]string{"config"}); err != nil || !strings.Contains(out.String(), "Pending at the next start of the shared VM: vm.memory 4 GiB (running with 8)") {
 		t.Fatal(err, out.String())
 	}
 	out.Reset()

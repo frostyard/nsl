@@ -52,7 +52,7 @@ func (a *app) readMachine(path, name string) (*machineRecord, error) {
 	if err = protocol.DecodeStrict(b, &m); err != nil {
 		return nil, fmt.Errorf("machine record %s: %w", name, err)
 	}
-	if m.Schema != 1 || m.Name != name || !protocol.ValidID(m.ID) || m.Tier != "shared" || !protocol.ValidAccount(m.User) ||
+	if m.Schema != 1 || m.Name != name || !protocol.ValidID(m.ID) || (m.Tier != "shared" && m.Tier != "isolated") || !protocol.ValidAccount(m.User) ||
 		!protocol.ValidAccount(m.Group) || m.UID != a.uid || m.GID != a.gid || (m.Image != "" && !protocol.ValidDigest("sha256:"+m.Image)) ||
 		(m.BuildID != "" && !protocol.ValidBuildID(m.BuildID)) {
 		return nil, fmt.Errorf("unsupported machine record or identity mismatch: %s", name)
@@ -198,8 +198,6 @@ func (a *app) create(args []string) error {
 		return errors.New("unexpected arguments after the options")
 	case !protocol.ValidName(name):
 		return errors.New("machine names are 1–24 lowercase letters, digits or interior hyphens, starting with a letter")
-	case *isolated:
-		return errors.New("isolated machines are not implemented yet (Phase 9)")
 	case (*distro == "") == (*image == "") || (*image == "") != (*digest == "") || (*offline && *distro == ""):
 		return usage
 	case *image != "" && !digestPattern.MatchString(*digest):
@@ -235,7 +233,7 @@ func (a *app) create(args []string) error {
 		cached = &cachedImage{path: path, ref: blobRef{Digest: *digest, Size: st.Size()}}
 	}
 	hexDigest := strings.TrimPrefix(cached.ref.Digest, "sha256:")
-	m := &machineRecord{Schema: 1, Name: name, ID: randomID(), Tier: "shared", User: *account, Group: a.group, UID: a.uid, GID: a.gid,
+	m := &machineRecord{Schema: 1, Name: name, ID: randomID(), Tier: tier(*isolated), User: *account, Group: a.group, UID: a.uid, GID: a.gid,
 		Image: hexDigest, Created: time.Now().UTC().Format(time.RFC3339)}
 	request := &protocol.Image{Path: protocol.ImageShare + "/" + hexDigest + ".tar.zst", Digest: cached.ref.Digest, Size: cached.ref.Size, BuildID: cached.buildID}
 	if err := a.newMachine(m, protocol.Request{Op: "create", Image: request}, nil, 20*time.Minute, *makeDefault); err != nil {
@@ -243,6 +241,13 @@ func (a *app) create(args []string) error {
 	}
 	fmt.Fprintf(a.out, "Created %s from %s\n", name, m.BuildID)
 	return nil
+}
+
+func tier(isolated bool) string {
+	if isolated {
+		return "isolated"
+	}
+	return "shared"
 }
 
 // newMachine reserves the name with an unprepared record, has the agent build
@@ -284,9 +289,9 @@ func (a *app) newMachine(m *machineRecord, req protocol.Request, stdin io.Reader
 }
 
 // prepareMachine has the agent build the machine; a failure removes both the
-// VM's partial machine and the host record.
+// VM's partial machine, or an isolated machine's whole VM, and the host record.
 func (a *app) prepareMachine(m *machineRecord, req protocol.Request, stdin io.Reader, timeout time.Duration) error {
-	v, err := a.runningVM(false)
+	v, err := a.machineVM(m, false)
 	if err == nil {
 		req.Machine, req.ID, req.TimeZone = m.Name, m.ID, hostZone()
 		req.Account = &protocol.Account{User: m.User, Group: m.Group, UID: m.UID, GID: m.GID}
@@ -298,6 +303,11 @@ func (a *app) prepareMachine(m *machineRecord, req protocol.Request, stdin io.Re
 		var agentErr *protocol.Error
 		if !errors.As(err, &agentErr) || agentErr.Code != protocol.CodeBusy {
 			_ = a.agentJSON(v, protocol.Request{Op: "remove", Machine: m.Name, ID: m.ID}, nil, time.Minute, nil)
+		}
+	}
+	if m.Tier == "isolated" {
+		if removeErr := a.removeIsolatedVM(m); removeErr != nil {
+			return errors.Join(err, removeErr)
 		}
 	}
 	if removeErr := os.Remove(a.machinePath(m.Name)); removeErr != nil {
@@ -331,7 +341,7 @@ func (a *app) startMachine(m *machineRecord) (*vmRecord, error) {
 	if err := a.requirePrepared(m); err != nil {
 		return nil, err
 	}
-	v, err := a.runningVM(true)
+	v, err := a.machineVM(m, true)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +379,7 @@ func (a *app) machineCommand(op string, args []string) error {
 		return a.setDefault(m.Name)
 	}
 	// stop: a machine in a stopped VM is already stopped.
-	v, err := a.loadVM()
+	v, err := a.vmOf(m)
 	if err != nil || v == nil {
 		return err
 	}
@@ -379,25 +389,24 @@ func (a *app) machineCommand(op string, args []string) error {
 	return a.agentJSON(v, protocol.Request{Op: "stop", Machine: m.Name, ID: m.ID}, nil, 60*time.Second, nil)
 }
 
-// statuses asks a running VM for its machines' states.
-func (a *app) statuses(v *vmRecord) map[string]protocol.MachineStatus {
+// statuses asks the running VMs for their machines' states.
+func (a *app) statuses(vms []*vmRecord) map[string]protocol.MachineStatus {
 	out := map[string]protocol.MachineStatus{}
-	if v == nil {
-		return out
-	}
-	if state, err := a.vmState(v); err != nil || state != "running" {
-		return out
-	}
-	var list []protocol.MachineStatus
-	if a.agentJSON(v, protocol.Request{Op: "machines"}, nil, 10*time.Second, &list) == nil {
-		for _, s := range list {
-			out[s.Machine] = s
+	for _, v := range vms {
+		if state, err := a.vmState(v); err != nil || state != "running" {
+			continue
+		}
+		var list []protocol.MachineStatus
+		if a.agentJSON(v, protocol.Request{Op: "machines"}, nil, 10*time.Second, &list) == nil {
+			for _, s := range list {
+				out[s.Machine] = s
+			}
 		}
 	}
 	return out
 }
 
-func (a *app) listMachines(w io.Writer, v *vmRecord) error {
+func (a *app) listMachines(w io.Writer, vms []*vmRecord) error {
 	names, err := a.machineNames()
 	if err != nil {
 		return err
@@ -411,7 +420,7 @@ func (a *app) listMachines(w io.Writer, v *vmRecord) error {
 	if err != nil {
 		return err
 	}
-	statuses := a.statuses(v)
+	statuses := a.statuses(vms)
 	t := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(t, "MACHINE\tSTATE\tIMAGE\tTIER\tDEFAULT")
 	for _, name := range names {
@@ -487,14 +496,20 @@ func (a *app) remove(args []string) error {
 			return err
 		}
 	}
-	v, err := a.runningVM(false)
-	if err == nil {
-		err = a.stopHelper(desktopUnit(v, name), desktopDescription(v, name))
+	if m.Tier == "isolated" {
+		// The machine's VM holds nothing else, so it goes with the machine.
+		err = a.removeIsolatedVM(m)
+	} else {
+		var v *vmRecord
+		v, err = a.runningVM(false)
+		if err == nil {
+			err = a.stopHelper(desktopUnit(v, name), desktopDescription(v, name))
+		}
+		if err != nil {
+			return fmt.Errorf("removal of %s is pending; retry nsl remove %s --yes: %w", name, name, err)
+		}
+		err = a.agentJSON(v, protocol.Request{Op: "remove", Machine: name, ID: m.ID}, nil, 10*time.Minute, nil)
 	}
-	if err != nil {
-		return fmt.Errorf("removal of %s is pending; retry nsl remove %s --yes: %w", name, name, err)
-	}
-	err = a.agentJSON(v, protocol.Request{Op: "remove", Machine: name, ID: m.ID}, nil, 10*time.Minute, nil)
 	var agentErr *protocol.Error
 	if err != nil && !(errors.As(err, &agentErr) && agentErr.Code == protocol.CodeUnknownMachine) {
 		if errors.As(err, &agentErr) && agentErr.Code == protocol.CodeBusy {
@@ -519,6 +534,36 @@ func (a *app) remove(args []string) error {
 	}
 	fmt.Fprintf(a.out, "Removed %s\n", name)
 	return nil
+}
+
+// removeIsolatedVM stops an isolated machine's VM and deletes it with its
+// disks. The directory is renamed first, so an interrupted removal resumes.
+func (a *app) removeIsolatedVM(m *machineRecord) error {
+	dir, gone := a.isolatedVMDir(m.Name), filepath.Join(a.isolatedDir(), ".removing-"+m.Name)
+	v, err := a.loadVMAt(dir)
+	if err != nil {
+		return err
+	}
+	if v != nil {
+		if v.Machine.ID != m.ID {
+			return fmt.Errorf("%s belongs to another machine; inspect it before removing", dir)
+		}
+		l, v, err := a.lockVM(v)
+		if err != nil {
+			return err
+		}
+		defer unlock(l)
+		if state, ok := a.statuses([]*vmRecord{v})[m.Name]; ok && state.State != "stopped" {
+			return &protocol.Error{Code: protocol.CodeBusy, Message: m.Name + " is " + state.State + "; stop it first"}
+		}
+		if err = a.stopVM(v); err != nil {
+			return err
+		}
+		if err = os.Rename(dir, gone); err != nil {
+			return err
+		}
+	}
+	return os.RemoveAll(gone)
 }
 
 // translate maps a host directory to its machine path under /mnt/host,
@@ -613,12 +658,15 @@ func (a *app) run(args []string, shell bool) error {
 		if err != nil {
 			return err
 		}
-		if translated, ok := translate(cwd, shares); ok {
+		// An isolated machine sees no host files, so nothing translates.
+		translated, ok := translate(cwd, shares)
+		switch {
+		case ok && m.Tier == "shared":
 			directory = translated
-		} else if shell {
-			fmt.Fprintf(a.err, "nsl: %s is not shared with machines; starting in the home directory\n", cwd)
-		} else {
-			return fmt.Errorf("%s is not shared with machines; use --cd to choose a machine directory", cwd)
+		case shell:
+			fmt.Fprintf(a.err, "nsl: %s is not shared with %s; starting in the home directory\n", cwd, m.Name)
+		default:
+			return fmt.Errorf("%s is not shared with %s; use --cd to choose a machine directory", cwd, m.Name)
 		}
 	}
 	if shell {

@@ -281,16 +281,27 @@ func (a *app) configCommand() error {
 	if err = w.Flush(); err != nil {
 		return err
 	}
-	v, err := a.loadVM()
-	if err != nil || v == nil {
-		return err
-	}
-	running, err := a.vmState(v)
+	all, err := a.allVMs()
 	if err != nil {
 		return err
 	}
-	for _, p := range a.pending(v, c, running == "running") {
-		fmt.Fprintln(a.out, "Pending at the next VM start:", p)
+	for _, v := range all {
+		running, err := a.vmState(v)
+		if err != nil {
+			return err
+		}
+		for _, p := range a.pending(v, c, running == "running") {
+			fmt.Fprintf(a.out, "Pending at the next start of the %s VM: %s\n", v.label(), p)
+		}
 	}
 	return nil
+}
+
+// resources are the CPUs and GiB of memory for a VM: [vm] for the shared VM,
+// [isolated] for each isolated machine's.
+func (c *config) resources(v *vmRecord) (cpus, memory int) {
+	if v.Role == "isolated" {
+		return c.isolatedCPUs.value, c.isolatedMemory.value
+	}
+	return c.vmCPUs.value, c.vmMemory.value
 }

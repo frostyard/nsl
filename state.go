@@ -120,28 +120,32 @@ func randomID() string {
 }
 
 // vmRecord is one nsl VM: its identity, the image its root came from, the
-// resources in effect since its last start, and its data disk.
+// resources in effect since its last start, and its data disk. The shared VM
+// lives in NSL_HOME/vm; an isolated machine's VM in NSL_HOME/isolated/NAME.
 type vmRecord struct {
-	Schema       int    `json:"schema"`
-	ID           string `json:"id"`
-	Owner        int    `json:"owner"`
-	GID          int    `json:"gid"`
-	Role         string `json:"role"`
-	Image        string `json:"image,omitempty"`
-	ImageBuild   string `json:"image_build,omitempty"`
-	PendingImage string `json:"pending_image,omitempty"`
-	CPUs         int    `json:"cpus,omitempty"`
-	Memory       int    `json:"memory,omitempty"`
-	DataGiB      int    `json:"data_gib"`
-	ResizeTarget int    `json:"resize_target_gib,omitempty"`
-	Initialized  bool   `json:"initialized"`
+	Schema       int                  `json:"schema"`
+	ID           string               `json:"id"`
+	Owner        int                  `json:"owner"`
+	GID          int                  `json:"gid"`
+	Role         string               `json:"role"`
+	Machine      *protocol.MachineRef `json:"machine,omitempty"`
+	Image        string               `json:"image,omitempty"`
+	ImageBuild   string               `json:"image_build,omitempty"`
+	PendingImage string               `json:"pending_image,omitempty"`
+	CPUs         int                  `json:"cpus,omitempty"`
+	Memory       int                  `json:"memory,omitempty"`
+	DataGiB      int                  `json:"data_gib"`
+	ResizeTarget int                  `json:"resize_target_gib,omitempty"`
+	Initialized  bool                 `json:"initialized"`
 
 	dir string
 }
 
 func (v *vmRecord) validate(uid, gid int) error {
 	digest := func(s string) bool { return s == "" || len(s) == 64 && strings.Trim(s, "0123456789abcdef") == "" }
-	if v.Schema != 1 || v.Owner != uid || v.GID != gid || !protocol.ValidID(v.ID) || v.Role != "shared" ||
+	role := v.Role == "shared" && v.Machine == nil ||
+		v.Role == "isolated" && v.Machine != nil && protocol.ValidName(v.Machine.Name) && protocol.ValidID(v.Machine.ID)
+	if v.Schema != 1 || v.Owner != uid || v.GID != gid || !protocol.ValidID(v.ID) || !role ||
 		!digest(v.Image) || !digest(v.PendingImage) || v.CPUs < 0 || v.CPUs > 64 || v.Memory < 0 || v.Memory > 128 ||
 		v.DataGiB < 1 || v.DataGiB > 4096 || (v.ResizeTarget != 0 && (v.ResizeTarget <= v.DataGiB || v.ResizeTarget > 4096)) {
 		return errors.New("unsupported VM record or identity mismatch")
@@ -149,14 +153,26 @@ func (v *vmRecord) validate(uid, gid int) error {
 	return nil
 }
 
-func (a *app) vmDir() string { return filepath.Join(a.home, "vm") }
+// label names a VM for people: shared, or the isolated machine's name.
+func (v *vmRecord) label() string {
+	if v.Machine != nil {
+		return v.Machine.Name
+	}
+	return "shared"
+}
+
+func (a *app) vmDir() string                    { return filepath.Join(a.home, "vm") }
+func (a *app) isolatedDir() string              { return filepath.Join(a.home, "isolated") }
+func (a *app) isolatedVMDir(name string) string { return filepath.Join(a.isolatedDir(), name) }
 
 // loadVM returns the shared VM's record, or nil when there is none yet.
-func (a *app) loadVM() (*vmRecord, error) {
+func (a *app) loadVM() (*vmRecord, error) { return a.loadVMAt(a.vmDir()) }
+
+// loadVMAt returns the VM record in dir, or nil when there is none.
+func (a *app) loadVMAt(dir string) (*vmRecord, error) {
 	if err := a.init(); err != nil {
 		return nil, err
 	}
-	dir := a.vmDir()
 	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -178,7 +194,54 @@ func (a *app) loadVM() (*vmRecord, error) {
 	if err = v.validate(a.uid, a.gid); err != nil {
 		return nil, err
 	}
+	if (v.Role == "shared") != (dir == a.vmDir()) || v.Machine != nil && dir != a.isolatedVMDir(v.Machine.Name) {
+		return nil, errors.New("VM record in the wrong place: " + dir)
+	}
 	return v, nil
+}
+
+// allVMs returns the shared VM, when there is one, and every isolated VM.
+func (a *app) allVMs() ([]*vmRecord, error) {
+	var out []*vmRecord
+	v, err := a.loadVM()
+	if err != nil {
+		return nil, err
+	}
+	if v != nil {
+		out = append(out, v)
+	}
+	entries, err := os.ReadDir(a.isolatedDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if !protocol.ValidName(e.Name()) {
+			continue // .vm-* staging and removals in progress
+		}
+		v, err := a.loadVMAt(a.isolatedVMDir(e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// vmByID finds a VM for the internal launch commands.
+func (a *app) vmByID(id string) (*vmRecord, error) {
+	all, err := a.allVMs()
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range all {
+		if v.ID == id {
+			return v, nil
+		}
+	}
+	return nil, errors.New("no nsl VM " + id)
 }
 
 func (a *app) saveVM(v *vmRecord) error {
@@ -189,9 +252,42 @@ func (a *app) saveVM(v *vmRecord) error {
 	return atomicWrite(filepath.Join(v.dir, "vm.json"), append(b, '\n'), 0600)
 }
 
+// newVMID picks an ID whose vsock CID no other VM uses.
+func (a *app) newVMID() (string, error) {
+	all, err := a.allVMs()
+	if err != nil {
+		return "", err
+	}
+	for {
+		id := randomID()
+		v := &vmRecord{ID: id}
+		clash := false
+		for _, other := range all {
+			clash = clash || cid(other) == cid(v)
+		}
+		if !clash {
+			return id, nil
+		}
+	}
+}
+
 // ensureVM returns the shared VM's record, creating the VM on first use.
 func (a *app) ensureVM() (*vmRecord, error) {
-	if v, err := a.loadVM(); v != nil || err != nil {
+	return a.ensureVMAt(a.vmDir(), nil)
+}
+
+// ensureIsolatedVM returns an isolated machine's VM, creating it with the VM
+// image selected for the shared VM.
+func (a *app) ensureIsolatedVM(m *machineRecord) (*vmRecord, error) {
+	v, err := a.ensureVMAt(a.isolatedVMDir(m.Name), &protocol.MachineRef{Name: m.Name, ID: m.ID})
+	if err == nil && v.Machine.ID != m.ID {
+		err = fmt.Errorf("the isolated VM of %s belongs to another machine; run nsl remove %s --yes", m.Name, m.Name)
+	}
+	return v, err
+}
+
+func (a *app) ensureVMAt(dir string, machine *protocol.MachineRef) (*vmRecord, error) {
+	if v, err := a.loadVMAt(dir); v != nil || err != nil {
 		return v, err
 	}
 	manager, err := fileLock(filepath.Join(a.home, "lock"))
@@ -199,23 +295,48 @@ func (a *app) ensureVM() (*vmRecord, error) {
 		return nil, err
 	}
 	defer unlock(manager)
-	if v, err := a.loadVM(); v != nil || err != nil {
+	if v, err := a.loadVMAt(dir); v != nil || err != nil {
 		return v, err
 	}
-	temporary, err := os.MkdirTemp(a.home, ".vm-*")
+	id, err := a.newVMID()
+	if err != nil {
+		return nil, err
+	}
+	v := &vmRecord{Schema: 1, ID: id, Owner: a.uid, GID: a.gid, Role: "shared", DataGiB: defaultDataGiB}
+	if machine != nil {
+		shared, err := a.loadVM()
+		if err != nil {
+			return nil, err
+		}
+		if shared == nil || shared.Image == "" && shared.PendingImage == "" {
+			return nil, errors.New("no VM image selected; run nsl update")
+		}
+		v.Role, v.Machine, v.PendingImage = "isolated", machine, shared.PendingImage
+		if v.PendingImage == "" {
+			v.PendingImage = shared.Image
+		}
+	}
+	parent := filepath.Dir(dir)
+	if err = os.MkdirAll(parent, 0700); err != nil {
+		return nil, err
+	}
+	if err = checkPrivateDir(parent, a.uid); err != nil {
+		return nil, err
+	}
+	temporary, err := os.MkdirTemp(parent, ".vm-*")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(temporary)
-	v := &vmRecord{Schema: 1, ID: randomID(), Owner: a.uid, GID: a.gid, Role: "shared", DataGiB: defaultDataGiB, dir: temporary}
+	v.dir = temporary
 	if err = a.prepareVM(v); err != nil {
 		return nil, err
 	}
 	// Publish the complete directory at once; a crash leaves only a temporary.
-	if err = os.Rename(temporary, a.vmDir()); err != nil {
+	if err = os.Rename(temporary, dir); err != nil {
 		return nil, err
 	}
-	v.dir = a.vmDir()
+	v.dir = dir
 	return v, a.prepareVM(v)
 }
 
@@ -225,7 +346,7 @@ func (a *app) lockVM(expected *vmRecord) (*os.File, *vmRecord, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	v, err := a.loadVM()
+	v, err := a.loadVMAt(expected.dir)
 	if err == nil && (v == nil || v.ID != expected.ID) {
 		err = errors.New("the VM was replaced while waiting; retry")
 	}

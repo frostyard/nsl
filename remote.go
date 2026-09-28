@@ -115,20 +115,31 @@ func (a *app) logs(args []string) error {
 	if len(args) > 1 {
 		return errors.New("usage: logs [NAME]")
 	}
-	v, err := a.loadVM()
+	all, err := a.allVMs()
 	if err != nil {
 		return err
 	}
-	if v == nil {
+	if len(all) == 0 {
 		return errors.New("there is no nsl VM yet")
 	}
-	units := []string{"-u", vmUnit(v), "-u", portsUnit(v), "-u", desktopUnit(v, "*")}
+	var units []string
+	for _, v := range all {
+		units = append(units, "-u", vmUnit(v), "-u", portsUnit(v), "-u", desktopUnit(v, "*"))
+	}
 	if len(args) == 1 {
 		m, err := a.machine(args[0])
 		if err != nil {
 			return err
 		}
+		v, err := a.vmOf(m)
+		if err != nil || v == nil {
+			return errors.Join(fmt.Errorf("%s has no VM yet", m.Name), err)
+		}
+		// An isolated machine's VM is its own; a shared machine has its desktop.
 		units = []string{"-u", desktopUnit(v, m.Name)}
+		if m.Tier == "isolated" {
+			units = append(units, "-u", vmUnit(v), "-u", portsUnit(v))
+		}
 		fmt.Fprintf(a.err, "nsl: the machine's own journal: nsl run -m %s --root journalctl -n 100\n", m.Name)
 	}
 	out, err := a.capture(30*time.Second, "journalctl", append([]string{"--user", "--no-pager", "-n", "200", "-o", "short-iso"}, units...)...)

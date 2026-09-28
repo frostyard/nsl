@@ -1,6 +1,6 @@
 # Spec: nsl CLI
 
-Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live: `ports`, `logs`, `ssh-config`, the desktop and isolated machines arrive with Phases 8 and 9.
+Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live and what each phase proved.
 
 Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent protocol](agent.md), the [VM image](vm-image.md), [machine images](machine-images.md) and [image delivery](image-delivery.md).
 
@@ -11,11 +11,11 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl [-m NAME]` | Login shell in NAME or the default machine, in the translated host directory or the guest home. |
 | `nsl run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv in the machine. A PTY is used when stdin and stdout are terminals. Flags precede COMMAND; `--` ends them. |
 | `nsl create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]` | Prepare a machine from a verified catalogue selection, and select the catalogue's VM image first when none is selected. `--image FILE --digest sha256:HEX` replaces `--distro` to select a local machine image. |
-| `nsl list` | Name, state, distro, trust tier and default marker for every owned machine, and any pending VM restart. |
+| `nsl list` | Every nsl VM (the shared VM, and each isolated machine's) with its state, image and resources, any pending restart, and every owned machine with its state, image, trust tier and default marker. |
 | `nsl default NAME` | Make NAME the default machine. |
 | `nsl start NAME` | Start a machine, and its VM if needed, and wait for readiness. |
 | `nsl stop NAME` | Stop one machine and preserve all state. |
-| `nsl shutdown` | Stop every running machine and every nsl VM. |
+| `nsl shutdown` | Stop every running machine and every nsl VM, isolated ones included. |
 | `nsl export NAME FILE` | Write an archive of a stopped machine; never overwrite. |
 | `nsl import NAME FILE [--isolated]` | Verify and import an archive under an unused name. |
 | `nsl remove NAME [--yes]` | Preview, then permanently remove a stopped machine. |
@@ -24,7 +24,7 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
 | `nsl images [--offline]` | List authenticated machine-image selections and the VM image in effect. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
-| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. |
+| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM, isolated ones included. |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
 | `nsl config` | Print the effective configuration, the source of each value and any change waiting for a VM restart. |
 | `nsl recover [NAME]` | Restart the shared VM, or isolated machine NAME's VM, from a fresh root; check its data disk and resume interrupted work; preserve machines. |
@@ -57,7 +57,8 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - Top-level host aliases of a shared tree, whether symlinks or bind mounts, SHOULD appear as matching relative symlinks under `/mnt/host`.
 - Files created through `/mnt/host` MUST be owned by the host user. Guest root MUST NOT gain host permissions beyond the host user's.
 - Unix sockets under shared trees MUST NOT be proxied.
-- Isolated machines MUST have no `/mnt/host` content, desktop session or broker access.
+- Isolated machines MUST have no `/mnt/host` content, desktop session or broker access. Their VM's credential names no shares, and vmspawn gets no share binds; only the read-only machine-image cache is mounted in that VM.
+- An isolated machine's working directory never translates: a shell starts in its home, and `run` needs `--cd`.
 - A VM MAY read the host's verified machine-image cache through a separate read-only share, which machines never see.
 
 ### Account and execution
@@ -88,6 +89,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - Automatic forwarding MUST bind host loopback, report and retry conflicts, and never evict an existing listener. Machines share the VM's network namespace, so the same port in two machines conflicts inside the VM, as in WSL.
 - A forwarder user unit per VM, `nsl-UID-vm-ID-ports.service`, bound to the VM's unit, MUST poll the agent's `listeners` once a second. It forwards host `127.0.0.1:PORT` to VM `127.0.0.1:PORT` for listeners on `127.0.0.1`, `0.0.0.0` or `::`, and to `[::1]:PORT` for listeners only on `::1`. `nsl ports` MUST show each port's machine and state, `forwarded` or `conflict` with the error.
 - Resource limits MUST come from the configuration: one budget for the shared VM, and one for each isolated machine's VM.
+- An isolated machine's VM MUST be created with the machine, from the VM image selected for the shared VM, and MUST be deleted with it: `remove` stops it and deletes its disks. A failed creation MUST leave no isolated VM. Every VM has its own ID, units, runtime directory, keys and forwarder, and a vsock CID no other VM of the state directory uses.
 
 ### State, ownership and locking
 

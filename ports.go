@@ -147,9 +147,12 @@ func (f *forwarder) step() portReport {
 	return report
 }
 
-func (a *app) forward() error {
-	v, err := a.loadVM()
-	if err != nil || v == nil {
+func (a *app) forward(args []string) error {
+	if len(args) != 1 || !protocol.ValidID(args[0]) {
+		return errors.New("internal forwarder requires a VM")
+	}
+	v, err := a.vmByID(args[0])
+	if err != nil {
 		return err
 	}
 	if err = a.runtimeFiles(v); err != nil {
@@ -181,59 +184,77 @@ func (a *app) ports(args []string) error {
 		}
 		name = m.Name
 	}
-	v, err := a.loadVM()
+	all, err := a.allVMs()
 	if err != nil {
 		return err
-	}
-	if v == nil {
-		fmt.Fprintln(a.out, "Port forwarding is stopped: there is no nsl VM yet")
-		return nil
-	}
-	vm, err := a.vmState(v)
-	if err != nil {
-		return err
-	}
-	forwarder, err := a.unitState(portsUnit(v), portsDescription(v))
-	if err != nil {
-		return err
-	}
-	if vm != "running" || forwarder != "active" {
-		fmt.Fprintf(a.out, "Port forwarding is stopped (VM %s, forwarder %s)\n", vm, forwarder)
-		return nil
-	}
-	path := filepath.Join(v.dir, "ports.json")
-	if err = privateFile(path, a.uid, 0077); errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(a.out, "Port forwarding is starting")
-		return nil
-	} else if err != nil {
-		return err
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var report portReport
-	if err = protocol.DecodeStrict(b, &report); err != nil {
-		return fmt.Errorf("port report: %w", err)
-	}
-	if report.Error != "" {
-		fmt.Fprintln(a.out, "Port discovery failed:", report.Error)
 	}
 	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "HOST\tMACHINE\tSTATE")
-	for _, p := range report.Ports {
-		if name != "" && p.Machine != name {
+	var notes []string
+	for _, v := range all {
+		if v.Machine != nil && name != "" && v.Machine.Name != name {
 			continue
 		}
-		state := p.State
-		if p.Error != "" {
-			state += ": " + p.Error
+		report, note, err := a.portReport(v)
+		if err != nil {
+			return err
 		}
-		fmt.Fprintf(w, "127.0.0.1:%d\t%s\t%s\n", p.Port, p.Machine, state)
+		if note != "" {
+			notes = append(notes, fmt.Sprintf("%s VM: %s", v.label(), note))
+			continue
+		}
+		for _, p := range report.Ports {
+			if name != "" && p.Machine != name {
+				continue
+			}
+			state := p.State
+			if p.Error != "" {
+				state += ": " + p.Error
+			}
+			fmt.Fprintf(w, "127.0.0.1:%d\t%s\t%s\n", p.Port, p.Machine, state)
+		}
 	}
 	if err = w.Flush(); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "Updated %s\n", report.Updated.Format(time.RFC3339))
+	for _, n := range notes {
+		fmt.Fprintln(a.out, n)
+	}
+	if len(all) == 0 {
+		fmt.Fprintln(a.out, "Port forwarding is stopped: there is no nsl VM yet")
+	}
 	return nil
+}
+
+// portReport reads a VM's forwarder report, or says why there is none.
+func (a *app) portReport(v *vmRecord) (*portReport, string, error) {
+	vm, err := a.vmState(v)
+	if err != nil {
+		return nil, "", err
+	}
+	forwarder, err := a.unitState(portsUnit(v), portsDescription(v))
+	if err != nil {
+		return nil, "", err
+	}
+	if vm != "running" || forwarder != "active" {
+		return nil, fmt.Sprintf("port forwarding is stopped (VM %s, forwarder %s)", vm, forwarder), nil
+	}
+	path := filepath.Join(v.dir, "ports.json")
+	if err = privateFile(path, a.uid, 0077); errors.Is(err, os.ErrNotExist) {
+		return nil, "port forwarding is starting", nil
+	} else if err != nil {
+		return nil, "", err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", err
+	}
+	var report portReport
+	if err = protocol.DecodeStrict(b, &report); err != nil {
+		return nil, "", fmt.Errorf("port report: %w", err)
+	}
+	if report.Error != "" {
+		return &report, "port discovery failed: " + report.Error, nil
+	}
+	return &report, "", nil
 }

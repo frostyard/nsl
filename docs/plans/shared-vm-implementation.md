@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1–8 complete, 2026-09-28.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1–9 complete, 2026-09-28.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -380,6 +380,24 @@ The hand check before the probe also covered what it does not: SSH port forwardi
 
 - `create --isolated` and `import --isolated` give a machine its own VM from the same image, with `[isolated]` resources. It has no `/mnt/host`, broker, Waypipe or peers.
 - **Done when:** an isolated machine passes the workload checks other than host integration, and tests show it has no host share, broker socket or display socket.
+
+**Result, 2026-09-28: complete.**
+
+- **VM records.** `state.go` holds any number of VMs: the shared VM in `NSL_HOME/vm`, and each isolated machine's in `NSL_HOME/isolated/NAME`, with the `isolated` role and the machine's name and ID in its record, credential and binding. A new VM gets a vsock CID no other VM uses. The internal launch commands take the VM's ID.
+- **Isolated machines.** `create --isolated` and `import --isolated` create the machine's VM from the VM image selected for the shared VM, with `[isolated]` resources and without autostart. Its credential names no shares, so vmspawn binds none; the machine-image cache is its only virtiofs mount. It gets no desktop session, and its working directory never translates. A failed creation deletes the VM, and `remove` stops the VM and deletes its directory after renaming it, so an interrupted removal resumes. The agent needed no change: it already enforced the isolated role.
+- **VM-wide commands** cover every VM: `update` selects the image for all of them, `shutdown` stops all, `list` and `config` show each VM and its pending restarts, and `ports` and `logs` include each VM's forwarder and units. `recover NAME` and `resize NAME --disk` address an isolated machine's VM.
+- **Tests:** the isolated VM's record, credential, launch arguments, resources and readiness; refusal of translation and desktop; every VM covered by `list`, `update`, `shutdown`, `resize` and `recover`; removal refusing a running machine and then deleting the VM; and a failed creation leaving no VM.
+
+Acceptance on VM image r8 (`machines-probe-8.json`): `probe-machines.py --isolated` added an isolated Debian machine beside the four shared ones, and all 52 checks passed. The isolated machine passed the entry matrix, system, tally, packages, Podman and SSH checks, persistence across its VM's restart, and the isolation check:
+
+| Check | Result |
+| --- | --- |
+| Host files | Credential role `isolated` with no shares; the VM's only virtiofs mount is `/var/cache/nsl/images`; `/mnt/host` is empty in the machine. |
+| Desktop and broker | No `WAYLAND_DISPLAY` or `BROWSER`, and `nsl-open` fails. |
+| Translation | `nsl run` from a host directory is refused and names the machine. |
+| Ports | A server in the isolated machine was forwarded by its VM's forwarder and answered 200 on host `127.0.0.1`. |
+
+Creating it, including its VM's first boot and data-disk formatting, took 10.5 s; its no-op command median was 81 ms.
 
 ## Phase 10 — Publication and release
 

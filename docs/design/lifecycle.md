@@ -75,7 +75,7 @@ It publishes the subvolume under the machine's name only after every step succee
 
 Machines run with `PrivateUsers=no` in the VM's network namespace with its resolver and, in the shared VM, bind `/mnt/host`. Machine root is effectively VM root, so machines are not isolated from one another. `start` waits for the machine's manager to report `running` or `degraded`. The agent serializes lifecycle operations on each machine with a lock in `/run/nsl`, so a `start` waits for an idle stop or an export to finish.
 
-An isolated machine gets its own VM from the same image, with the `isolated` role, no shares, no display session and `[isolated]` resources.
+An isolated machine gets its own VM, created with it in `isolated/NAME/` from the VM image selected for the shared VM. It has the `isolated` role and the machine's name and ID in its credential and binding, no shares, no display session and `[isolated]` resources, and the agent refuses any other machine in it. Its forwarder carries its ports to host loopback like the shared VM's. Commands reach it like any machine; VM-wide commands (`update`, `shutdown`, `list`, `ports`, `logs`) cover it, and `recover NAME` and `resize NAME` address it. `remove` stops the VM and deletes its directory, renaming it first so an interrupted removal resumes.
 
 ## Commands and files
 

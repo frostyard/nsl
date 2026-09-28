@@ -131,7 +131,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 | Allowlist | Each share is mounted at its `/mnt/host` path, and nothing else is. |
 | Ownership | Host files show the host UID and GID; writes by the account and by root land as the host user; root cannot write a root-owned host directory. |
 | Sockets | A host Unix socket under a share refuses connections, and the host listener is never reached. |
-| Isolation | An isolated VM has no `/mnt/host` mounts. |
+| Isolation | An isolated VM's credential names no shares and its only virtiofs mount is the image cache; checked by `scripts/probe-machines.py --isolated`, since an isolated VM needs a machine. |
 
 ## References
 

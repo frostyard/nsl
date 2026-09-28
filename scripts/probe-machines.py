@@ -8,7 +8,11 @@ the nsl-open broker and ssh-config. Writes JSON evidence; exits nonzero if a
 check fails.
 
   probe-machines.py --nsl build/nsl --vm-image VM.raw --machine-image M1.tar.zst ... \\
-      --evidence build/image/evidence/machines-probe.json [--gui]
+      --evidence build/image/evidence/machines-probe.json [--gui] [--isolated M.tar.zst]
+
+--isolated also creates an isolated machine, named isolated, from an image, and
+runs the workload checks other than host integration on it, plus checks that it
+has no host files, desktop or broker.
 
 When the host has a Wayland compositor, machines get desktop sessions; the
 broker check records what nsl-open asks for instead of opening it. --gui also
@@ -94,6 +98,7 @@ class Probe:
             self.env['WAYLAND_DISPLAY'] = display
         self.user = os.environ.get('USER') or subprocess.run(['id', '-un'], capture_output=True, text=True).stdout.strip()
         self.machines = {}
+        self.isolated = set()
 
     def cli(self, *args, check=True, timeout=600):
         r = subprocess.run([str(self.nsl), *args], env=self.env, capture_output=True, text=True, timeout=timeout)
@@ -112,12 +117,14 @@ class Probe:
     def background(self, name, *argv, cd=None):
         return subprocess.Popen(self.argv(name, argv, cd=cd), env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    def vm(self, *argv, stdin=None, timeout=60):
+    def vm(self, *argv, machine=None, stdin=None, timeout=60):
+        """Run argv as root in the VM that hosts machine, the shared VM by default."""
         request = base64.b64encode(json.dumps({'protocol': 1, 'op': 'vm', 'argv': list(argv)}).encode()).decode()
-        return subprocess.run(self.ssh_base() + [request], input=stdin, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(self.ssh_base(machine=machine) + [request], input=stdin, capture_output=True, text=True, timeout=timeout)
 
-    def ssh_base(self, *options):
-        return ['ssh', '-F', str(self.home/'vm/ssh.config'), *options, '-T', 'vm']
+    def ssh_base(self, *options, machine=None):
+        config = self.home/'isolated'/machine/'ssh.config' if machine in self.isolated else self.home/'vm/ssh.config'
+        return ['ssh', '-F', str(config), *options, '-T', 'vm']
 
     def terminal(self, name, argv, keys=None, wait=2.0, limit=15):
         """Run nsl in a real terminal; optionally type keys after wait seconds."""
@@ -165,13 +172,13 @@ def check_entry(p, name, machine):
     data = os.urandom(1 << 20) + b'\0\r\n\x03\x04' * 64
     r = p.m(name, 'cat', stdin=data)
     out['binary_stream'] = {'pass': hashlib.sha256(r.stdout).digest() == hashlib.sha256(data).digest(), 'received': len(r.stdout), 'seconds': r.seconds}
-    home = str(Path.home().resolve())
-    r = p.m(name, 'sh', '-c', 'id -u; id -g; id -un; cat /proc/sys/kernel/hostname; echo "$HOME"; pwd; stat -c %u:%g "$0"', '/mnt/host' + home,
-            cd='/mnt/host' + home)
-    fields = dict(zip(['uid', 'gid', 'user', 'hostname', 'home', 'pwd', 'share_owner'], r.text.splitlines()))
+    # An isolated machine has no host files, so it works in its own home.
+    directory = '/home/' + p.user if name in p.isolated else '/mnt/host' + str(Path.home().resolve())
+    r = p.m(name, 'sh', '-c', 'id -u; id -g; id -un; cat /proc/sys/kernel/hostname; echo "$HOME"; pwd; stat -c %u:%g "$0"', directory, cd=directory)
+    fields = dict(zip(['uid', 'gid', 'user', 'hostname', 'home', 'pwd', 'owner'], r.text.splitlines()))
     out['identity'] = {'pass': r.returncode == 0 and fields.get('uid') == str(os.getuid()) and fields.get('gid') == str(os.getgid())
                        and fields.get('user') == p.user and fields.get('hostname') == name and fields.get('home') == '/home/' + p.user
-                       and fields.get('pwd') == '/mnt/host' + home and fields.get('share_owner') == f'{os.getuid()}:{os.getgid()}', **fields}
+                       and fields.get('pwd') == directory and fields.get('owner') == f'{os.getuid()}:{os.getgid()}', **fields}
     r = p.m(name, 'sh', '-c', 'echo "${XDG_RUNTIME_DIR:-none}"; systemctl --user is-system-running 2>&1; loginctl show-session "${XDG_SESSION_ID:-none}" --property=Class --value 2>&1')
     lines = r.text.splitlines()
     out['user_session'] = {'pass': len(lines) >= 2 and lines[0] == f'/run/user/{os.getuid()}' and lines[1] in ('running', 'degraded'),
@@ -268,7 +275,7 @@ def check_podman(p, name, machine, port, peer):
     time.sleep(2)
     fetch = ['python3', '-c', f'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:{port}/", timeout=5).read().decode())']
     steps['port_in_machine'] = published.returncode == 0 and p.m(name, *fetch).text == 'ok'
-    steps['port_in_vm'] = p.vm(*fetch).stdout.strip() == 'ok'
+    steps['port_in_vm'] = p.vm(*fetch, machine=name).stdout.strip() == 'ok'
     steps['port_in_peer'] = peer is not None and p.m(peer, *fetch).text == 'ok'
     p.m(name, 'podman', 'rm', '-f', 'nsl-probe')
     result['steps'] = steps
@@ -537,10 +544,41 @@ def check_ssh(p, name, machine):
     command = ['ssh', '-F', str(config), '-o', 'BatchMode=yes', f'nsl-{name}', 'id -un; cat /proc/sys/kernel/hostname']
     first = subprocess.run(command, capture_output=True, text=True, timeout=120)
     again = subprocess.run(command, capture_output=True, text=True, timeout=120)
-    listeners = p.vm('ss', '-Hltn', 'sport = :22').stdout.strip()
+    listeners = p.vm('ss', '-Hltn', 'sport = :22', machine=name).stdout.strip()
     lines = first.stdout.split()
     return {'pass': first.returncode == 0 and lines == [p.user, name] and again.returncode == 0 and again.stdout == first.stdout and not listeners,
             'output': lines, 'second_connection': again.returncode, 'error': tail(first.stderr) or tail(again.stderr), 'tcp_22_listeners': listeners}
+
+
+def check_isolation(p, name, machine, port):
+    """An isolated machine's VM has no host files, desktop or broker, but forwards its ports."""
+    out = {}
+    credential = json.loads(p.vm('cat', '/run/nsl/vm.json', machine=name).stdout or '{}')
+    mounts = p.vm('findmnt', '-n', '-t', 'virtiofs', '-o', 'TARGET', machine=name).stdout.split()
+    visible = p.m(name, 'sh', '-c', 'ls -A /mnt/host 2>/dev/null | wc -l').text
+    out['host_files'] = {'pass': credential.get('role') == 'isolated' and credential.get('shares') == [] and mounts == ['/var/cache/nsl/images']
+                         and visible == '0', 'role': credential.get('role'), 'vm_virtiofs': mounts, 'machine_mnt_host_entries': visible}
+    r = p.m(name, 'sh', '-c', 'test -e /run/nsl/desktop && echo desktop; echo "W=$WAYLAND_DISPLAY B=$BROWSER"')
+    p.opened.write_text('')
+    opened = p.m(name, 'nsl-open', 'https://example.com/isolated')
+    out['desktop'] = {'pass': r.text == 'W= B=' and opened.returncode != 0 and not p.opened.read_text(),
+                      'environment': r.text, 'nsl_open_returncode': opened.returncode}
+    worktree = Path(__file__).resolve().parents[1]
+    refused = subprocess.run([str(p.nsl), 'run', '-m', name, 'pwd'], cwd=worktree, env=p.env, capture_output=True, text=True, timeout=120)
+    out['no_translation'] = {'pass': refused.returncode != 0 and 'not shared' in refused.stderr, 'error': tail(refused.stderr, 120)}
+    unit = f'nsl-http-{port}'
+    p.m(name, 'systemd-run', '--user', '--unit=' + unit, '--quiet', 'python3', '-m', 'http.server', str(port), '--bind', '0.0.0.0')
+    states, began = {}, time.monotonic()
+    while time.monotonic() - began < 20 and states.get(port) != 'forwarded':
+        states = ports_states(p, name)
+        time.sleep(.5)
+    try:
+        status = urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=5).status
+    except OSError as error:
+        status = str(error)
+    p.m(name, 'systemctl', '--user', 'stop', unit)
+    out['ports'] = {'pass': states.get(port) == 'forwarded' and status == 200, 'state': states.get(port), 'host_status': status}
+    return out
 
 
 def check_persistence(p, name, machine):
@@ -555,7 +593,9 @@ def check_persistence(p, name, machine):
     p.cli('start', name)
     seconds = round(time.monotonic() - began, 2)
     listing = p.cli('list').stdout
-    autostarted = all(re.search(rf'^{n}\s+running', listing, re.M) for n in p.machines)
+    # Starting a machine starts the others in its VM, which for an isolated machine is only itself.
+    same_vm = [name] if name in p.isolated else [n for n in p.machines if n not in p.isolated]
+    autostarted = all(re.search(rf'^{n}\s+running\s+nsl-machine', listing, re.M) for n in same_vm)
     after = {'marker': p.m(name, 'cat', home + '/persist-marker').text == token,
              'service': p.m(name, 'systemctl', 'is-active', 'nsl-probe.service').text == 'active',
              'package': p.m(name, 'sh', '-c', 'command -v python3').returncode == 0,
@@ -581,6 +621,7 @@ def main():
     parser.add_argument('--evidence', type=Path, required=True)
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--only', help='comma-separated checks to run, such as ssh,broker')
+    parser.add_argument('--isolated', type=Path, help='a machine image for an isolated machine')
     o = parser.parse_args()
     if o.evidence.exists():
         parser.error('evidence file exists')
@@ -590,20 +631,22 @@ def main():
     try:
         vm_digest = hashlib.sha256(o.vm_image.read_bytes()).hexdigest()
         p.cli('update', '--image', str(o.vm_image.resolve()), '--digest', 'sha256:' + vm_digest)
-        for image in o.machine_image:
+        for image, isolated in [(i, False) for i in o.machine_image] + ([(o.isolated, True)] if o.isolated else []):
             descriptor = json.loads(subprocess.run(['tar', '--zstd', '-xOf', str(image), './usr/lib/nsl/machine.json'],
                                                    capture_output=True, check=True).stdout)
-            name = descriptor['distribution']
+            name = 'isolated' if isolated else descriptor['distribution']
             digest = hashlib.sha256(image.read_bytes()).hexdigest()
             began = time.monotonic()
-            p.cli('create', name, '--image', str(image.resolve()), '--digest', 'sha256:' + digest)
+            if isolated:
+                p.isolated.add(name)
+            p.cli('create', name, '--image', str(image.resolve()), '--digest', 'sha256:' + digest, *(['--isolated'] if isolated else []))
             p.machines[name] = dict(descriptor, image=image, digest=digest, create_seconds=round(time.monotonic() - began, 2))
             began = time.monotonic()
             p.cli('start', name)
-            evidence['machines'][name] = {'build_id': descriptor['build_id'], 'systemd': descriptor['systemd'], 'digest': digest,
+            evidence['machines'][name] = {'build_id': descriptor['build_id'], 'systemd': descriptor['systemd'], 'digest': digest, 'isolated': isolated,
                                           'create_seconds': p.machines[name]['create_seconds'],
                                           'first_start_seconds': round(time.monotonic() - began, 2), 'checks': {}}
-        names = list(p.machines)
+        names = [n for n in p.machines if n not in p.isolated]
         identity = p.vm('cat', '/usr/lib/nsl/image.json').stdout
         evidence['vm'] = {'image': str(o.vm_image), 'digest': vm_digest, 'descriptor': json.loads(identity) if identity else None,
                           'nspawn': p.vm('systemd-nspawn', '--version').stdout.splitlines()[0]}
@@ -619,8 +662,12 @@ def main():
                      (name, 'broker', check_broker, ()), (name, 'ssh', check_ssh, ())]
             if o.gui:
                 plan.append((name, 'gui', check_gui, ()))
+        for name in p.isolated:
+            plan += [(name, 'entry', check_entry, ()), (name, 'system', check_system, ()), (name, 'tally', check_tally, (p.machines[name]['image'],)),
+                     (name, 'packages', check_packages, ()), (name, 'podman', check_podman, (18250, None)),
+                     (name, 'isolation', check_isolation, (18260,)), (name, 'ssh', check_ssh, ())]
         # Last: it restarts the VM and every machine in it.
-        plan += [(name, 'persistence', check_persistence, ()) for name in names]
+        plan += [(name, 'persistence', check_persistence, ()) for name in names + sorted(p.isolated)]
         if o.only:
             plan = [step for step in plan if step[1] in o.only.split(',')]
         for name, label, function, arguments in plan:

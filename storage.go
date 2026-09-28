@@ -106,12 +106,17 @@ func (a *app) checkDataDisk(v *vmRecord) error {
 func (a *app) requireStopped(v *vmRecord) error {
 	state, err := a.vmState(v)
 	if err == nil && state != "stopped" && state != "failed" {
-		err = errors.New("the VM is running; run nsl shutdown first")
+		err = fmt.Errorf("the %s VM is running; run nsl shutdown first", v.label())
 	}
 	return err
 }
 
 func (a *app) resize(args []string) error {
+	usage := errors.New("usage: resize [NAME] --disk GiB (up to 4096)")
+	var name []string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		name, args = args[:1], args[1:]
+	}
 	fs := flag.NewFlagSet("resize", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	target := fs.Int("disk", 0, "new data disk capacity in GiB (growth only)")
@@ -119,14 +124,11 @@ func (a *app) resize(args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 || *target < 1 || *target > 4096 {
-		return errors.New("usage: resize --disk GiB (up to 4096)")
+		return usage
 	}
-	v, err := a.loadVM()
+	v, err := a.namedVM(name)
 	if err != nil {
 		return err
-	}
-	if v == nil {
-		return errors.New("there is no nsl VM yet")
 	}
 	l, v, err := a.lockVM(v)
 	if err != nil {
@@ -241,26 +243,34 @@ func (a *app) update(args []string) error {
 	return a.selectVMImage(hexDigest, *digest)
 }
 
-// selectVMImage makes a cached VM image replace the VM's root at its next
+// selectVMImage makes a cached VM image replace every VM's root at its next
 // start; it never touches a running VM.
 func (a *app) selectVMImage(hexDigest, label string) error {
-	v, err := a.ensureVM()
+	if _, err := a.ensureVM(); err != nil {
+		return err
+	}
+	all, err := a.allVMs()
 	if err != nil {
 		return err
 	}
-	l, v, err := a.lockVM(v)
-	if err != nil {
-		return err
+	for _, v := range all {
+		l, v, err := a.lockVM(v)
+		if err != nil {
+			return err
+		}
+		if v.Image == hexDigest {
+			v.PendingImage = ""
+		} else {
+			v.PendingImage = hexDigest
+		}
+		err = a.saveVM(v)
+		unlock(l)
+		if err != nil {
+			return err
+		}
 	}
-	defer unlock(l)
-	if v.Image == hexDigest {
-		v.PendingImage = ""
-		fmt.Fprintln(a.out, "That VM image is already in effect")
-	} else {
-		v.PendingImage = hexDigest
-		fmt.Fprintln(a.out, "Selected VM image "+label+"; it replaces the VM's root at its next start")
-	}
-	return a.saveVM(v)
+	fmt.Fprintln(a.out, "Selected VM image "+label+"; it replaces each VM's root at its next start")
+	return nil
 }
 
 // ensureVMImage selects the catalogue's VM image when no VM image is selected.
@@ -337,11 +347,16 @@ func (a *app) pending(v *vmRecord, c *config, running bool) []string {
 	if v == nil {
 		return nil
 	}
-	if running && v.Memory != 0 && c.vmMemory.value != v.Memory {
-		out = append(out, fmt.Sprintf("vm.memory %d GiB (running with %d)", c.vmMemory.value, v.Memory))
+	cpus, memory := c.resources(v)
+	section := "vm"
+	if v.Role == "isolated" {
+		section = "isolated"
 	}
-	if running && v.CPUs != 0 && c.vmCPUs.value != v.CPUs {
-		out = append(out, fmt.Sprintf("vm.cpus %d (running with %d)", c.vmCPUs.value, v.CPUs))
+	if running && v.Memory != 0 && memory != v.Memory {
+		out = append(out, fmt.Sprintf("%s.memory %d GiB (running with %d)", section, memory, v.Memory))
+	}
+	if running && v.CPUs != 0 && cpus != v.CPUs {
+		out = append(out, fmt.Sprintf("%s.cpus %d (running with %d)", section, cpus, v.CPUs))
 	}
 	if v.PendingImage != "" {
 		out = append(out, "VM image sha256:"+v.PendingImage[:12])
@@ -353,11 +368,11 @@ func (a *app) pending(v *vmRecord, c *config, running bool) []string {
 }
 
 func (a *app) list() error {
-	v, err := a.loadVM()
+	all, err := a.allVMs()
 	if err != nil {
 		return err
 	}
-	if v == nil {
+	if len(all) == 0 {
 		fmt.Fprintln(a.out, "No nsl VM yet")
 		return nil
 	}
@@ -365,30 +380,36 @@ func (a *app) list() error {
 	if err != nil {
 		return err
 	}
-	state, err := a.vmState(v)
-	if err != nil {
-		return err
-	}
-	image := v.ImageBuild
-	if image == "" && v.Image != "" {
-		image = "sha256:" + v.Image[:12]
-	}
-	if image == "" {
-		image = "-"
-	}
-	resources := "-"
-	if state == "running" {
-		resources = fmt.Sprintf("%d CPUs, %d GiB", v.CPUs, v.Memory)
-	}
+	var pending []string
 	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "VM\tSTATE\tIMAGE\tRESOURCES\tDATA DISK")
-	fmt.Fprintf(w, "shared\t%s\t%s\t%s\t%d GiB\n", state, image, resources, v.DataGiB)
+	for _, v := range all {
+		state, err := a.vmState(v)
+		if err != nil {
+			return err
+		}
+		image := v.ImageBuild
+		if image == "" && v.Image != "" {
+			image = "sha256:" + v.Image[:12]
+		}
+		if image == "" {
+			image = "-"
+		}
+		resources := "-"
+		if state == "running" {
+			resources = fmt.Sprintf("%d CPUs, %d GiB", v.CPUs, v.Memory)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d GiB\n", v.label(), state, image, resources, v.DataGiB)
+		for _, p := range a.pending(v, c, state == "running") {
+			pending = append(pending, fmt.Sprintf("Pending at the next start of the %s VM: %s", v.label(), p))
+		}
+	}
 	if err = w.Flush(); err != nil {
 		return err
 	}
-	for _, p := range a.pending(v, c, state == "running") {
-		fmt.Fprintln(a.out, "Pending at the next VM start:", p)
+	for _, p := range pending {
+		fmt.Fprintln(a.out, p)
 	}
 	fmt.Fprintln(a.out)
-	return a.listMachines(a.out, v)
+	return a.listMachines(a.out, all)
 }
