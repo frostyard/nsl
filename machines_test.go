@@ -70,7 +70,7 @@ func TestCreateFromALocalImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
-		{"Bad"}, {"x", "--distro", "debian:13"}, {"x", "--isolated", "--image", "f", "--digest", "sha256:" + strings.Repeat("0", 64)},
+		{"Bad"}, {"x", "--distro", "debian:13", "--image", "f", "--digest", "sha256:" + strings.Repeat("0", 64)},
 		{"x", "--image", "f"}, {"x", "--user", "Root", "--image", "f", "--digest", "sha256:" + strings.Repeat("0", 64)},
 	} {
 		if err := a.create(args); err == nil {

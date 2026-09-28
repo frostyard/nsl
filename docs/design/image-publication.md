@@ -4,7 +4,7 @@ Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalo
 
 ## Overview
 
-`.github/workflows/images.yml` builds the nsl VM image and every machine image, accepts them together on KVM, then signs and publishes them and a catalogue that selects them. It runs weekly and on manual dispatch, from `main` only. The catalogue is promoted only when every image passes. No catalogue carrying VM and machine images has been published yet; the earlier disk catalogues, up to sequence 3, belong to the retired prototype.
+`.github/workflows/images.yml` builds the nsl VM image and every machine image, accepts them together on KVM, then signs and publishes them and a catalogue that selects them. It runs weekly and on manual dispatch, from `main` only. The catalogue is promoted only when every image passes. The first catalogue carrying VM and machine images, sequence 6, was published on 2026-09-28 by [run 36400743847](https://github.com/frostyard/nsl/actions/runs/36400743847). The earlier disk catalogues, up to sequence 4, belong to the retired prototype, and the CLI refuses them.
 
 ## Design
 
@@ -26,8 +26,8 @@ The publication step receives a repository-scoped Actions token and uses GitHub 
 
 - A scheduled or dispatched run publishes; rerunning an old sequence is refused. Profile revisions change when integration inputs change. Image publication is independent of CLI release tags.
 - The workflow needs `contents: read`, `packages: write` and `id-token: write`. Registry credentials reach only the publication step, and its registry configuration is deleted afterwards.
-- The first catalogue with VM and machine images sets the CLI's minimum sequence: raise `catalogueMinimum` in `image_contract.go` to its sequence in the next CLI release, so no client accepts the disk catalogues again.
-- GHCR may create new packages as private. Make the package public, then check anonymous catalogue and blob access and `nsl create NAME --distro debian:13` on a host with an empty cache before claiming public delivery.
+- `catalogueMinimum` in `image_contract.go` is 6, the first catalogue with VM and machine images, so no client accepts the disk catalogues. Raise it only with a CLI release, for example after recreating the workflow.
+- The `nsl-images` package is public. After changing the workflow or the images, check anonymous catalogue access and `nsl create NAME --distro debian:13` on a host with an empty cache.
 - Each catalogue expires after 30 days, and weekly runs replace it. Dispatch `operation=refresh` to re-sign the same selections with a higher sequence without rebuilding; refresh never substitutes untested bytes, and refuses a catalogue from before VM and machine images.
 - For an emergency withdrawal, dispatch `operation=withdraw` with `revoke` set to the affected OCI manifest digests. The job verifies the current catalogue, removes those selections, keeps earlier revocations and signs a higher sequence. Online clients reject withdrawn selections after refresh; offline clients stay bounded by expiry. Existing machines are unaffected. Do not delete artifacts instead of withdrawing them.
 - Publication, refresh and withdrawal share a concurrency group. A sequence is never reused, and the prior signed sequence must be smaller. Preserve this workflow's run-number history; recreating it needs coordinated sequence handling and a CLI minimum-sequence update.

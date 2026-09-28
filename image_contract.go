@@ -20,9 +20,8 @@ const metadataLimit = 1 << 20
 const evidenceLimit = 16 << 20
 
 // catalogueMinimum rejects every catalogue older than the first to carry VM and
-// machine images. Phase 10 of the implementation plan sets it to that
-// catalogue's sequence when it publishes one.
-const catalogueMinimum int64 = 1
+// machine images: image workflow run 6. Earlier catalogues carry retired disks.
+const catalogueMinimum int64 = 6
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 var imageWord = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,127}$`)

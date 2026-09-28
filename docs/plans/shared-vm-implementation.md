@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1–9 complete, 2026-09-28; Phase 10 is ready to publish, which the maintainer runs.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: complete, 2026-09-28. Images are published weekly, and v0.4.0 is the first release of this design.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -407,19 +407,16 @@ Creating it, including its VM's first boot and data-disk formatting, took 10.5 s
 - **Tag a release** when a clean host works end to end.
 - **Done when:** on a clean host with no local builds, `nsl create debian --distro debian:13` followed by `nsl` opens a shell in the current directory. `make ci`, image acceptance and the release checks all pass.
 
-**Progress, 2026-09-28: the local work is done; publishing and the release wait for the maintainer.**
+**Result, 2026-09-28: complete; v0.4.0 is the release.**
 
 - **Publisher.** `scripts/publish-images.py build` runs `make ci`, builds the VM image and the four machine images, and accepts them with `probe-vm.py`, `probe-machines.py --gui --isolated` and `measure-machines.py`. It then writes a public directory per image. Acceptance reports list only check names and results, protocols and a few timings, and are refused unless every required check passed, none was skipped, and they tested the exact payload. `publish` signs and pushes each image with its kind's artifact type and promotes a catalogue with one `vm` entry and one `machine` entry per profile. `refresh` refuses the old disk catalogue, which only a publication replaces. `scripts/zstd-image.go` replaces `compress-image.go`: it compresses VM disks and measures a machine image's root filesystem as the client decodes it.
 - **Workflow.** `images.yml` also runs weekly, well inside the 30-day expiry. The runner must provide a Wayland compositor for the GUI checks; the build refuses to run without one.
 - **Checked locally:** the publisher's unit tests cover explicit reports, refusal of failed, skipped, missing or mismatched checks, the measurement gate, entries by kind, a complete matrix, and refresh and withdrawal history. `prepare()` ran on the real r8 VM disk and the Debian r3 machine image, and the CLI's own validation accepted both descriptors and decompressed both payloads to their recorded digests. The VM disk compresses from 2.9 GB to 488 MB.
 - **Docs.** The [publication design](../design/image-publication.md), [delivery contract](../specs/image-delivery.md), README, AGENTS.md and the index describe the finished system. `THIRD_PARTY_NOTICES.txt` is current; `make ci` checks it.
 - **First publication run** ([run 5](https://github.com/frostyard/nsl/actions/runs/36376347934)): every acceptance check passed on the runner, including GUI and the isolated machine, but four idle machines measured 984 MiB against the 950 MiB budget. The runner had a Wayland session, so every machine also had a desktop session. Locally, the same images measured 853 MiB without desktop sessions and 972 MiB with them. The VM's Waypipe links 102 libraries, including ffmpeg and the AV1 codecs, and the first session pulls about 100 MiB of them into guest page cache; later sessions add about 6 MiB each. The experiment that set the budget ran no desktop sessions, so `measure-machines.py` now gates that configuration and records four idle machines with desktop sessions, and the difference, ungated: 844 and 992 MiB, a 149 MiB overhead, locally.
-- **Remaining, all outward-facing:**
-  1. merge this branch to `main` and prepare the `nsl-image-builder` runner with a Wayland compositor;
-  2. dispatch `images.yml`, make the GHCR packages public, and check anonymous access;
-  3. raise `catalogueMinimum` to that run's sequence;
-  4. run the done-when check on a clean host;
-  5. tag a release.
+- **Publication** ([run 6](https://github.com/frostyard/nsl/actions/runs/36400743847), 22 minutes on an ephemeral runner in the maintainer's session): the VM image r8 and the four machine images passed every check on KVM. That covered `probe-vm.py`, `probe-machines.py` with GUI windows and an isolated machine, and `measure-machines.py`: four idle machines at 862 MiB, an additional machine at p95 0.55 s, and 142 MiB more for four desktop sessions. It signed and pushed each image and promoted catalogue sequence **6**, `sha256:856daefa740a2d89d797b61936e74ba9f73b6602971117dc06bbcdeff6412c7b`, which expires 2026-10-28. The `nsl-images` package was already public, and the catalogue answered anonymously. No scheduled run fired on the day the schedule landed.
+- **Catalogue floor.** `catalogueMinimum` is 6, so the CLI refuses the disk catalogues, sequences 3 and 4.
+- **Clean host.** With a new state directory, an empty cache and a binary with the new floor, `nsl images` showed the five signed images, verified against the embedded Sigstore root and the workflow identity. `nsl create debian --distro debian:13` downloaded and verified both images and created the machine in 29 s, including the VM's first boot. Bare `nsl` then opened bash in `/mnt/host/var/home/bjk/…`, the translated current directory. A second machine from the cache with `--offline` took 3 s, and an uncached image was refused offline.
 
 ## Requirements carried from the experiment
 

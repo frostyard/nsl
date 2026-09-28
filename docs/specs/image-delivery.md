@@ -41,7 +41,7 @@ The catalogue OCI artifact contains `catalogue.json` and `catalogue.sigstore.jso
 - A `machine` entry has `selectors` and `machine_protocol`. Selectors are unique per architecture.
 - `sequence` is the publishing workflow's run number; a retry uses a new run.
 
-Clients MUST reject a catalogue that is expired or valid for more than 30 days, created more than five minutes in the future, or has an unsupported schema. They MUST also reject duplicate entries, more than one `vm` entry per architecture and agent protocol, rollback and equal-sequence equivocation. A sequence below the CLI's compiled minimum is rejected. The minimum is the sequence of the first catalogue carrying VM and machine images, set when Phase 10 of the [implementation plan](../plans/shared-vm-implementation.md) publishes it; earlier catalogues are not accepted.
+Clients MUST reject a catalogue that is expired or valid for more than 30 days, created more than five minutes in the future, or has an unsupported schema. They MUST also reject duplicate entries, more than one `vm` entry per architecture and agent protocol, rollback and equal-sequence equivocation. A sequence below the CLI's compiled minimum is rejected. The minimum is 6, the sequence of the first catalogue carrying VM and machine images, published in Phase 10 of the [implementation plan](../plans/shared-vm-implementation.md); earlier catalogues are not accepted.
 
 ### Artifacts
 

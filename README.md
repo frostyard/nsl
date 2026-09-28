@@ -2,7 +2,7 @@
 
 `nsl` gives atomic Linux hosts persistent Linux machines, as WSL does for Windows. Machines are systemd-nspawn containers in one nsl-owned VM, launched with systemd-vmspawn and QEMU/KVM, and are trusted as your user: they see your home and removable media at `/mnt/host` ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)).
 
-**Status: pre-release.** The [implementation plan](docs/plans/shared-vm-implementation.md) has replaced the earlier one-VM-per-environment prototype, and the [CLI contract](docs/specs/cli.md) describes the system. Today the binary runs the nsl VM and machines from locally built images, with forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. It exports and imports machines, and stops idle machines and the idle VM. With `--isolated`, a machine gets its own small VM with no access to your files or desktop. It can verify signed catalogue images, but none are published for this design yet. v0.3.0 and earlier releases are the retired prototype.
+**Status: pre-release.** The [implementation plan](docs/plans/shared-vm-implementation.md) has replaced the earlier one-VM-per-environment prototype, and the [CLI contract](docs/specs/cli.md) describes the system. Machines come from signed Frostyard images: Debian 13, Fedora 44, Arch and openSUSE Tumbleweed. They get forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. nsl exports and imports machines, and stops idle machines and the idle VM. With `--isolated`, a machine gets its own small VM with no access to your files or desktop. v0.3.0 and earlier releases are the retired prototype.
 
 The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
 
@@ -14,7 +14,23 @@ The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virti
 
 nsl does not install host packages or change device permissions, groups or sudoers. `nsl doctor` checks the prerequisites.
 
-## Build and run
+## Get started
+
+Download `nsl` from the [latest release](https://github.com/frostyard/nsl/releases/latest), or build it with `make build`. Then:
+
+```sh
+nsl doctor
+nsl create debian --distro debian:13   # verify and download the images; the first machine is the default
+nsl                                    # a login shell in the machine, in this directory
+nsl run sudo apt-get install -y podman
+nsl images                             # every published machine image
+nsl list
+nsl shutdown
+```
+
+`create --distro` verifies the signed catalogue and each image against the Frostyard publishing workflow, then caches them; `--offline` uses only the cache. Wayland windows need Waypipe on the host (`NSL_WAYPIPE` names its path).
+
+## Build the images yourself
 
 ```sh
 make build
@@ -41,8 +57,6 @@ build/nsl shutdown
 Machines are Debian 13, Fedora 44, Arch or openSUSE Tumbleweed (`--distribution debian|fedora|arch|opensuse`). Your account has your username, UID and GID, a home at `/home/USER` in the machine, and passwordless `sudo`. Your home, `/run/media/USER` and `/mnt` appear read-write at `/mnt/host` plus their host paths, and commands start in the matching directory. Each machine is its own distro with its own packages and services, all in one VM.
 
 A server listening in a machine on port 1024 or above is reachable at the same port on host `127.0.0.1`, unless something on the host already uses it; `nsl ports` shows each port. From a Wayland session, Wayland applications in machines open windows on your desktop through Waypipe, and `nsl-open URL` (also `BROWSER`) opens web links and `/mnt/host` files with the host's handlers. `nsl ssh-config NAME >> ~/.ssh/config` lets VS Code or any SSH client reach a machine as `nsl-NAME`.
-
-Once signed images are published, `nsl create debian --distro debian:13` replaces the image builds: it verifies and caches the machine image and, on first use, the VM image. Until then, build them locally as above.
 
 `update` verifies and caches the image, then selects it for the VM's next start. The VM's root is replaceable and holds no user state; machines and the VM's identity live on its data disk. See the [image build](image/README.md).
 

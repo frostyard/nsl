@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/frostyard/nsl/internal/protocol"
 )
@@ -215,6 +217,10 @@ func testApp(t *testing.T) (*app, *fakeRunner) {
 	if a.uid == 0 {
 		t.Skip("nsl requires a normal user")
 	}
+	// Unit tests never reach a registry: this one refuses every connection.
+	// Delivery tests replace it with their fixture.
+	a.imageService = &imageClient{app: a, verify: fixtureVerify, now: time.Now,
+		registry: &imageRegistry{base: "http://127.0.0.1:0/v2", tokenURL: "http://127.0.0.1:0/token", client: &http.Client{}}}
 	return a, f
 }
 
@@ -287,7 +293,7 @@ func TestUpdateRefusesBadImages(t *testing.T) {
 		{"--image", image, "--digest", "md5:00"},
 		{"--image", image},
 		{"--offline", "--image", image, "--digest", "sha256:" + strings.Repeat("0", 64)},
-		{},
+		{"--offline"}, // nothing cached, and offline never downloads
 	} {
 		if err := a.update(args); err == nil {
 			t.Fatal("accepted", args)
