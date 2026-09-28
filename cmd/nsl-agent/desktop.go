@@ -31,7 +31,10 @@ func waypipeSocket(name string) string { return runtimeDir + "/waypipe-" + name 
 func (a *agent) desktopEnv(name string) []string {
 	var env []string
 	if isSocket(a.path(displaySocket(name))) {
-		env = append(env, "WAYLAND_DISPLAY="+machineDesktop+"/wayland-0")
+		// Chromium, Electron and Qt choose Wayland by the session type, not the
+		// display. pam_systemd registers the session with this type; the class
+		// keeps it the background session it is without a display.
+		env = append(env, "WAYLAND_DISPLAY="+machineDesktop+"/wayland-0", "XDG_SESSION_TYPE=wayland", "XDG_SESSION_CLASS=background")
 	}
 	if isSocket(a.path(desktopOf(name) + "/open.sock")) {
 		env = append(env, "BROWSER=nsl-open")

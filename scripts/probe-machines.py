@@ -113,9 +113,9 @@ class Probe:
     def argv(self, name, argv, root=False, cd=None):
         return [str(self.nsl), 'run', '-m', name, *(['--root'] if root else []), '--cd', cd or '/home/' + self.user, '--', *argv]
 
-    def m(self, name, *argv, root=False, stdin=None, cd=None, timeout=300):
+    def m(self, name, *argv, root=False, stdin=None, cd=None, timeout=300, env=None):
         began = time.monotonic()
-        r = subprocess.run(self.argv(name, argv, root, cd), env=self.env, input=stdin, capture_output=True, timeout=timeout)
+        r = subprocess.run(self.argv(name, argv, root, cd), env=dict(self.env, **(env or {})), input=stdin, capture_output=True, timeout=timeout)
         return Result(r, time.monotonic() - began)
 
     def background(self, name, *argv, cd=None):
@@ -225,6 +225,12 @@ def check_tally(p, name, machine, image):
     r = p.m(name, 'sudo', '-n', 'true')
     host = p.m(name, 'getent', 'hosts', name).text
     out['hostname'] = {'pass': r.returncode == 0 and 'unable to resolve' not in r.err and name in host, 'hosts': host, 'sudo_stderr': tail(r.err, 120)}
+    # A host locale the machine lacks becomes C.UTF-8, and a missing LC_* goes, so nothing warns.
+    r = p.m(name, 'sh', '-c', 'locale >/dev/null; locale charmap; printf "%s %s" "$LANG" "${LC_TIME:-unset}"',
+            env={'LANG': 'en_US.UTF-8', 'LC_TIME': 'xx_XX.UTF-8', 'LC_ALL': ''})
+    lines = r.text.splitlines()
+    out['locale'] = {'pass': r.returncode == 0 and not r.err and lines[:1] == ['UTF-8'] and lines[1:] in (['en_US.UTF-8 unset'], ['C.UTF-8 unset']),
+                     'found': lines, 'warnings': tail(r.err, 200)}
     link = p.m(name, 'readlink', '/etc/localtime').text
     host_zone = os.readlink('/etc/localtime').split('zoneinfo/', 1)[-1] if os.path.islink('/etc/localtime') else 'Etc/UTC'
     p.m(name, *REFRESH[machine['family']], root=True, timeout=600)
@@ -504,11 +510,15 @@ def check_gui(p, name, machine):
     display = desktop_env(p, name, 'WAYLAND_DISPLAY')
     info = p.m(name, 'wayland-info', timeout=60)
     interfaces = sorted({line.split("'")[1] for line in info.text.splitlines() if "interface: '" in line})
+    # Chromium, Electron and Qt pick Wayland by the session type; logind keeps the background class.
+    session = p.m(name, 'sh', '-c', 'printf "%s/%s " "$XDG_SESSION_TYPE" "$XDG_SESSION_CLASS"; '
+                  'loginctl show-session "$XDG_SESSION_ID" -p Type -p Class | sort | tr "\\n" " "').text
     application = GUI_APP.get(machine['distribution'], DEFAULT_GUI_APP)[1]
     app = p.m(name, 'timeout', '3', 'env', 'GDK_BACKEND=wayland', *application, timeout=60)
     return {'pass': display == '/run/nsl/desktop/wayland-0' and info.returncode == 0 and 'wl_compositor' in interfaces
-            and 'xdg_wm_base' in interfaces and app.returncode == 124, 'display': display,
-            'interfaces': len(interfaces), 'application': application, 'app_returncode': app.returncode, 'app_stderr': tail(app.err, 200)}
+            and 'xdg_wm_base' in interfaces and session == 'wayland/background Class=background Type=wayland' and app.returncode == 124,
+            'display': display, 'interfaces': len(interfaces), 'session': session, 'application': application,
+            'app_returncode': app.returncode, 'app_stderr': tail(app.err, 200)}
 
 
 def check_broker(p, name, machine):

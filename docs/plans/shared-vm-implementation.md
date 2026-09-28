@@ -376,6 +376,12 @@ Acceptance on r8 with `--gui` (`machines-probe-5.json`, 2026-09-28): every check
 
 The hand check before the probe also covered what it does not: SSH port forwarding through the connection, and a killed desktop session leaving no stale display until the unit restarts it.
 
+**Fixes after release, 2026-09-28: VM image r9, Tumbleweed r5 and Leap r2.**
+
+- **Electron and Chromium.** VS Code exited with `Missing X server or $DISPLAY` in an Ubuntu machine, although galculator opened. Chromium, and so Electron, and Qt choose Wayland by `XDG_SESSION_TYPE`, and nsl's command sessions were `unspecified`; machines have no X server. The agent now adds `XDG_SESSION_TYPE=wayland` while the desktop session lasts. Alone, that made pam_systemd register a `user`-class session instead of `background`, so the agent also sets `XDG_SESSION_CLASS=background`, and logind accepts the pair. With r9, plain `code` from VS Code 1.139.1 opened its window on Wayland with no flags. The GUI check now requires a `wayland`, `background` logind session.
+- **Locales.** foot in an openSUSE machine failed with `setlocale() failed … invalid locale, and failed to find a fallback`. The host's `LANG=en_US.UTF-8` reached machines that lack it: the openSUSE images had no compiled locale at all, and Debian, Ubuntu, CentOS and Arch had only `C.UTF-8`, so perl and `locale` warned there too. Fedora alone ships `en_US.UTF-8`. Every image now has `C.UTF-8`; the suse family adds `glibc-locale-base`, which also brings `en_US.UTF-8`. The agent keeps a host locale variable only when the machine has that locale, compiled under `/usr/lib/locale` or named in `locale-archive`, whose name table it reads without loading locale data. Otherwise `LANG` becomes `C.UTF-8` and an `LC_*` variable is dropped. The archive reader was checked against an archive built with `localedef` in a Debian machine, including an ISO-8859-1 locale and a `@latin` modifier. The tally's new locale check passes on every image.
+- **Acceptance on r9** (`machines-probe-r9.json`, `--gui --isolated`): 92 checks on seven shared machines and an isolated one, none failing; `measure-r9.json`: four idle machines at 837 MiB and an additional machine at p95 0.67 s.
+
 ## Phase 9 — Isolated machines
 
 - `create --isolated` and `import --isolated` give a machine its own VM from the same image, with `[isolated]` resources. It has no `/mnt/host`, broker, Waypipe or peers.

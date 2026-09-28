@@ -40,7 +40,7 @@ build/nsl doctor
 
 # Build the VM image inside a disposable Lima VM; dependencies stay inside it.
 scripts/build-image.sh --role vm
-image=build/image/share/nsl-vm-trixie-x86-64-r8.raw
+image=build/image/share/nsl-vm-trixie-x86-64-r9.raw
 build/nsl update --image "$image" --digest "sha256:$(sha256sum "$image" | cut -d' ' -f1)"
 build/nsl recover     # start the VM from a fresh root
 

@@ -127,7 +127,7 @@ func TestDisplayServesTheMachineUntilTheSessionEnds(t *testing.T) {
 			t.Fatal(socket, err)
 		}
 	}
-	if env := ta.desktopEnv("debian"); !reflect.DeepEqual(env, []string{"WAYLAND_DISPLAY=/run/nsl/desktop/wayland-0", "BROWSER=nsl-open"}) {
+	if env := ta.desktopEnv("debian"); !reflect.DeepEqual(env, []string{"WAYLAND_DISPLAY=/run/nsl/desktop/wayland-0", "XDG_SESSION_TYPE=wayland", "XDG_SESSION_CLASS=background", "BROWSER=nsl-open"}) {
 		t.Fatal(env)
 	}
 	session.Close()
