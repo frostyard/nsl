@@ -30,7 +30,7 @@ Each release has a tarball for `linux_amd64`, a `checksums.txt`, and GitHub buil
 1. Download the tarball and the checksums from the [latest release ↗](https://github.com/frostyard/nsl/releases/latest):
 
     ```sh
-    version=0.4.0
+    version=0.5.0
     base=https://github.com/frostyard/nsl/releases/download/v$version
     curl -LO "$base/nsl_${version}_linux_amd64.tar.gz" -LO "$base/checksums.txt"
     ```
