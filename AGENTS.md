@@ -25,7 +25,7 @@ Procedures belong in [.agents/skills/](.agents/skills/). Add a skill based on it
 
 ## Repository boundary
 
-Never commit binaries, `build/`, `dist/`, `site/dist/`, coverage artifacts, local agent state, credentials or a host-specific VM image. The CLI does not install host packages, change device permissions or sudoers, or share D-Bus, GPU or SSH sockets. Host storage is shared only through the `/mnt/host` allowlist in [ADR-0016](docs/adr/0016-wsl-style-machines.md). Releases are built from `v*` tags by `.github/workflows/release.yml` using GoReleaser Pro and GitHub provenance attestations. Conventional commit subjects make the release changelog readable.
+Never commit binaries, `build/`, `dist/`, `site/dist/`, coverage artifacts, local agent state, credentials or a host-specific VM image. The CLI does not install host packages, change device permissions or sudoers, or share D-Bus, GPU or SSH sockets. Host storage is shared only through the `/mnt/host` allowlist in [ADR-0016](docs/adr/0016-wsl-style-machines.md). Releases are built from `v*` tags by `.github/workflows/release.yml` using GoReleaser Pro and GitHub provenance attestations. Tag one with `make bump`: on a clean `main` that matches `origin/main`, it runs `make ci`, tags the version `svu next` derives from conventional commits (`.svu.yml`), and pushes the tag. Conventional commit subjects therefore set the version and make the release changelog readable. Tools beyond Go are pinned in `mise.toml` with a committed `mise.lock` (frostyard/core ADR-0043); `mise install` provides them, and Go comes from `go.mod`.
 
 ## Documentation
 

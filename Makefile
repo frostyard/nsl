@@ -1,4 +1,4 @@
-.PHONY: build agent test fmt verify ci clean release-check site site-serve
+.PHONY: build agent test fmt verify ci clean release-check bump site site-serve
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -32,6 +32,22 @@ ci: verify
 
 release-check:
 	goreleaser check
+
+# Tag the next release and push it; release.yml builds it. svu derives the
+# version from conventional commits (.svu.yml) and is pinned in mise.toml.
+# Only a clean main that matches origin/main, after make ci, is tagged.
+bump:
+	@command -v svu >/dev/null 2>&1 || { echo "svu is required for make bump (install with: mise install)"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "The working tree is not clean; commit or stash before bumping."; exit 1; }
+	@test "$$(git branch --show-current)" = main || { echo "Bump from main."; exit 1; }
+	git fetch --quiet --tags origin main
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" || { echo "HEAD is not origin/main; pull or push first."; exit 1; }
+	$(MAKE) ci
+	@test -z "$$(git status --porcelain)" || { echo "make ci changed the working tree; not tagging."; exit 1; }
+	@version=$$(svu next); \
+		git tag -a "$$version" -m "Version $$version"; \
+		echo "Tagged $$version; pushing it to origin"; \
+		git push origin "$$version"
 
 # The documentation site (site/), built with pinned ProperDocs and MaterialX.
 SITE_VENV := build/site-venv
