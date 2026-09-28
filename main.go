@@ -89,7 +89,8 @@ func newApp() (*app, error) {
 }
 
 // groupSwitcher picks the tool that runs a command under another primary group:
-// shadow's sg, or util-linux's newgrp -c where sg is absent, as on Debian 14.
+// sg (shadow's, or util-linux's link to newgrp), else util-linux's newgrp -c on a
+// host that installs newgrp without sg.
 func groupSwitcher(lookPath func(string) (string, error)) string {
 	if _, err := lookPath("sg"); err != nil {
 		if _, err := lookPath("newgrp"); err == nil {

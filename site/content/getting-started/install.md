@@ -14,7 +14,7 @@ nsl is one binary that runs as your user. It needs an x86-64 Linux host with KVM
 | QEMU (`qemu-system-x86_64`, `qemu-img`) with KVM, and UEFI firmware | The VM and its disks |
 | virtiofsd at `/usr/libexec/virtiofsd` | Sharing your files and the image cache with the VM |
 | OpenSSH (`ssh`, `ssh-keygen`) and `/usr/lib/systemd/systemd-ssh-proxy` | Reaching the VM's agent over vsock |
-| `sg`, or util-linux `newgrp` where there is no `sg` (Debian 14), and util-linux `unshare` | Opening the KVM devices through your `kvm` membership |
+| `sg` or util-linux `newgrp` (on Debian 14, both from `util-linux-extra`), and util-linux `unshare` | Opening the KVM devices through your `kvm` membership |
 | Membership in `kvm`, with access to `/dev/kvm` and `/dev/vhost-vsock` | Hardware virtualization and vsock |
 | Unprivileged user namespaces | Launching the VM without root |
 | Waypipe (optional) | Wayland windows from machines |

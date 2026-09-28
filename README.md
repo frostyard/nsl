@@ -12,7 +12,7 @@ The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virti
 
 ## Prerequisites
 
-- systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` (or util-linux `newgrp` on hosts without it, such as Debian 14) and util-linux `unshare`.
+- systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` or util-linux `newgrp` (on Debian 14, both come from `util-linux-extra`), and util-linux `unshare`.
 - Existing membership in `kvm`, with access to `/dev/kvm` and `/dev/vhost-vsock`; unprivileged user namespaces must work.
 - Go 1.25.8+ to build nsl; Lima 2.2.0, Git and Python 3 to build images. Lima is used only by the image builder.
 
