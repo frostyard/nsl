@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+systemctl enable systemd-networkd systemd-resolved nsl-ssh.socket var-lib-nsl.mount var-lib-machines.mount \
+  nsl-data.service nsl-grow.service nsl-setup.service nsl-machines.service
+# The host reaches the VM only through the vsock socket and the agent.
+systemctl disable ssh.service ssh.socket 2>/dev/null || true

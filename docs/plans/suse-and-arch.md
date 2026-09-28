@@ -8,7 +8,7 @@ Complete the remaining [v0.2.0 distribution gates](v0.2-v0.3-release.md). All th
 
 - Give Leap 16.0 and Tumbleweed separate explicit profiles. Pin the Tumbleweed repository snapshot to 20260923 and the initial Arch repository snapshot to 2026/09/25.
 - Use native package hooks and security policy. Install openSUSE's split systemd-resolved and the boot tools available in each release. Leap 16 includes ukify in systemd-experimental; Tumbleweed has systemd-ukify.
-- Use kernel-install/dracut/ukify for Arch package updates, preserving the previous entry when generation fails; see [ADR-0014](../adr/0014-arch-kernel-maintenance.md).
+- Use kernel-install/dracut/ukify for Arch package updates, preserving the previous entry when generation fails; see ADR-0014 (retired).
 - **Done when:** each generic image builds and boots with the common command/share contract and its native security policy.
 
 ## Phase 2 — Shared acceptance

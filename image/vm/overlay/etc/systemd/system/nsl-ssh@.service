@@ -1,0 +1,13 @@
+[Unit]
+Description=nsl SSH connection
+Requires=nsl-setup.service
+After=nsl-setup.service nsl-machines.service
+
+[Service]
+ExecStart=/usr/sbin/sshd -i -e
+StandardInput=socket
+StandardOutput=inherit
+StandardError=journal
+RuntimeDirectory=sshd
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes

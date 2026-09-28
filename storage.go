@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,235 +12,64 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 )
 
-func (a *app) removing(name string) string { return filepath.Join(a.home, "removing", name) }
-func (a *app) nameAvailable(name string) error {
-	for _, path := range []string{a.dir(name), a.removing(name)} {
-		if _, err := os.Lstat(path); !os.IsNotExist(err) {
-			return errors.New("environment exists or removal is incomplete; use recover or remove to finish it")
-		}
-	}
-	return nil
-}
-func (a *app) requireStopped(e *environment) error {
-	for _, name := range []string{unit(e), portUnit(e)} {
-		state, err := a.unitState(e, name)
-		if err != nil {
-			return err
-		}
-		if state != "inactive" && state != "failed" {
-			return fmt.Errorf("stop %s before changing storage", e.Name)
-		}
-	}
-	return nil
-}
-func (a *app) remove(name string, args []string) error {
-	if err := checkName(name); err != nil {
-		return err
-	}
-	fs := flag.NewFlagSet("remove", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	yes := fs.Bool("yes", false, "permanently remove this stopped environment")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 0 {
-		return errors.New("usage: remove NAME [--yes]")
-	}
-	if err := a.init(); err != nil {
-		return err
-	}
-	manager, err := fileLock(filepath.Join(a.home, "lock"))
+// standaloneDisk checks a qcow2 disk before QEMU opens it: no backing file,
+// encryption, external data or snapshots, and the expected capacity.
+// See https://www.qemu.org/docs/master/interop/qcow2.html.
+func standaloneDisk(path string, diskGiB int) error {
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer unlock(manager)
-	removedRoot := filepath.Join(a.home, "removing")
-	if err = os.MkdirAll(removedRoot, 0700); err != nil {
+	defer f.Close()
+	h := make([]byte, 104)
+	if _, err = io.ReadFull(f, h); err != nil {
 		return err
 	}
-	if err = checkPrivateDir(removedRoot, a.uid); err != nil {
-		return err
+	u32 := func(i int) uint32 { return binary.BigEndian.Uint32(h[i : i+4]) }
+	u64 := func(i int) uint64 { return binary.BigEndian.Uint64(h[i : i+8]) }
+	if !bytes.Equal(h[:4], []byte{'Q', 'F', 'I', 0xfb}) || (u32(4) != 2 && u32(4) != 3) {
+		return errors.New("data disk must be qcow2 version 2 or 3")
 	}
-	dir := a.dir(name)
-	pending := false
-	if _, err = os.Lstat(a.removing(name)); err == nil {
-		if _, err = os.Lstat(dir); !os.IsNotExist(err) {
-			return errors.New("both active and removing state exist; inspect before deletion")
+	if u64(8) != 0 || u32(16) != 0 || u32(32) != 0 || u32(60) != 0 {
+		return errors.New("data disk must have no backing file, encryption or internal snapshots")
+	}
+	if u32(20) < 9 || u32(20) > 21 || u64(24) != uint64(int64(diskGiB)*gib) {
+		return errors.New("data disk size or cluster geometry mismatch")
+	}
+	header := uint32(72)
+	if u32(4) == 3 {
+		// Only the compression and extended-L2 feature bits are allowed.
+		if u64(72) & ^uint64(24) != 0 || u64(88)&2 != 0 {
+			return errors.New("data disk is dirty, corrupt or uses unsupported/external data features")
 		}
-		dir = a.removing(name)
-		pending = true
-	} else if !os.IsNotExist(err) {
+		header = u32(100)
+	}
+	cluster := uint32(1) << u32(20)
+	if header < 72 || (u32(4) == 3 && header < 104) || header%8 != 0 || header > cluster-8 {
+		return errors.New("invalid qcow2 header length")
+	}
+	data := make([]byte, cluster)
+	if _, err = f.ReadAt(data, 0); err != nil && err != io.EOF {
 		return err
 	}
-	if err = checkPrivateDir(dir, a.uid); err != nil {
-		return err
-	}
-	// Only an empty tombstone may outlive its final metadata unlink. Never
-	// recursively remove unidentified content after an interrupted deletion.
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if pending && len(entries) == 0 {
-		if !*yes {
-			fmt.Fprintf(a.out, "Would finish removing %s; use --yes\n", name)
+	for off := uint64(header); off+8 <= uint64(cluster); {
+		kind := binary.BigEndian.Uint32(data[off : off+4])
+		size := uint64(binary.BigEndian.Uint32(data[off+4 : off+8]))
+		if kind == 0 {
 			return nil
 		}
-		if err = os.Remove(dir); err != nil {
-			return err
+		if kind == 0x44415441 || kind == 0xe2792aca || kind == 0x0537be77 {
+			return errors.New("external disk reference or encryption extension in the data disk")
 		}
-		if err = syncDir(removedRoot); err != nil {
-			return err
-		}
-		fmt.Fprintf(a.out, "Removed %s\n", name)
-		return nil
-	}
-	e, err := a.ownedAt(name, dir)
-	if err != nil {
-		return err
-	}
-	l, err := fileLock(filepath.Join(dir, "lock"))
-	if err != nil {
-		return err
-	}
-	defer unlock(l)
-	checked, err := a.ownedAt(name, dir)
-	if err != nil {
-		return err
-	}
-	if checked.ID != e.ID {
-		return errors.New("environment identity changed before removal")
-	}
-	e = checked
-	if err = a.requireStopped(e); err != nil {
-		return err
-	}
-	if err = a.protectProjects(a.dir(name)); err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "%s: %s\n", name, dir)
-	if !*yes {
-		fmt.Fprintln(a.out, "Would permanently delete the guest disk, keys and configuration. Host projects, image cache and external backups remain. Use --yes to remove.")
-		return nil
-	}
-	if !pending {
-		// Close any surviving owned command master before moving its configuration.
-		if err = a.stopLocked(e); err != nil {
-			return err
-		}
-		if err = os.Rename(dir, a.removing(name)); err != nil {
-			return err
-		}
-		if err = syncDir(filepath.Dir(dir)); err != nil {
-			return err
-		}
-		if err = syncDir(removedRoot); err != nil {
-			return err
-		}
-		dir = a.removing(name)
-	}
-	runtime := filepath.Dir(a.socket(e))
-	if _, err = os.Lstat(runtime); err == nil {
-		if err = checkPrivateDir(runtime, a.uid); err != nil {
-			return err
-		}
-		if err = os.RemoveAll(runtime); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err = purgeEnvironment(dir); err != nil {
-		return fmt.Errorf("removal incomplete; retry nsl remove %s --yes: %w", name, err)
-	}
-	if err = syncDir(removedRoot); err != nil {
-		return err
-	}
-	fmt.Fprintf(a.out, "Removed %s\n", name)
-	return nil
-}
-func (a *app) protectProjects(dir string) error {
-	entries, err := os.ReadDir(filepath.Join(a.home, "environments"))
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		e, err := a.owned(entry.Name())
-		if err != nil {
-			return err
-		}
-		if e.Project == "" {
-			continue
-		}
-		rel, err := filepath.Rel(dir, e.Project)
-		if err != nil {
-			return err
-		}
-		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
-			return fmt.Errorf("%s shares a project inside this environment's state; move the project before removal", e.Name)
+		off += 8 + ((size + 7) &^ uint64(7))
+		if off > uint64(cluster) {
+			return errors.New("invalid qcow2 extension length")
 		}
 	}
-	return nil
-}
-func purgeEnvironment(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.Name() == "environment.json" {
-			continue
-		}
-		// RemoveAll unlinks symlinks instead of traversing their targets.
-		if err = os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
-			return err
-		}
-	}
-	if err = syncDir(dir); err != nil {
-		return err
-	}
-	if err = os.Remove(filepath.Join(dir, "environment.json")); err != nil {
-		return err
-	}
-	if err = syncDir(dir); err != nil {
-		return err
-	}
-	return os.Remove(dir)
-}
-func (a *app) listRemoving() error {
-	root := filepath.Join(a.home, "removing")
-	if _, err := os.Lstat(root); os.IsNotExist(err) {
-		return nil
-	}
-	if err := checkPrivateDir(root, a.uid); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if err = checkName(entry.Name()); err != nil {
-			return err
-		}
-		dir := a.removing(entry.Name())
-		if err = checkPrivateDir(dir, a.uid); err != nil {
-			return err
-		}
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			return err
-		}
-		if len(files) != 0 {
-			if _, err = a.ownedAt(entry.Name(), dir); err != nil {
-				return err
-			}
-		}
-		fmt.Fprintf(a.out, "%s\tRemoving\t\n", entry.Name())
-	}
-	return nil
+	return errors.New("unterminated qcow2 extensions")
 }
 
 func diskGiB(path string) (int, error) {
@@ -251,70 +83,91 @@ func diskGiB(path string) (int, error) {
 		return 0, err
 	}
 	size := binary.BigEndian.Uint64(header[24:])
-	if string(header[:4]) != "QFI\xfb" || size < uint64(4*gib) || size > uint64(4096*gib) || size%uint64(gib) != 0 {
+	if string(header[:4]) != "QFI\xfb" || size < uint64(gib) || size > uint64(4096*gib) || size%uint64(gib) != 0 {
 		return 0, errors.New("invalid qcow2 capacity")
 	}
 	return int(size / uint64(gib)), nil
 }
-func (a *app) resize(name string, args []string) error {
+
+func (a *app) checkDataDisk(v *vmRecord) error {
+	disk := filepath.Join(v.dir, "data.qcow2")
+	if err := privateFile(disk, a.uid, 0077); err != nil {
+		return err
+	}
+	if err := standaloneDisk(disk, v.DataGiB); err != nil {
+		return err
+	}
+	if err := a.call(nil, a.err, "qemu-img", "check", "-q", "-f", "qcow2", disk); err != nil {
+		return fmt.Errorf("data disk check failed; the disk is preserved for inspection: %w", err)
+	}
+	return nil
+}
+
+func (a *app) requireStopped(v *vmRecord) error {
+	state, err := a.vmState(v)
+	if err == nil && state != "stopped" && state != "failed" {
+		err = errors.New("the VM is running; run nsl shutdown first")
+	}
+	return err
+}
+
+func (a *app) resize(args []string) error {
 	fs := flag.NewFlagSet("resize", flag.ContinueOnError)
 	fs.SetOutput(a.err)
-	target := fs.Int("disk", 0, "new virtual capacity in GiB (growth only)")
+	target := fs.Int("disk", 0, "new data disk capacity in GiB (growth only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *target < 4 || *target > 4096 {
-		return errors.New("usage: resize NAME --disk GiB (4–4096)")
+	if fs.NArg() != 0 || *target < 1 || *target > 4096 {
+		return errors.New("usage: resize --disk GiB (up to 4096)")
 	}
-	e, err := a.owned(name)
+	v, err := a.loadVM()
 	if err != nil {
 		return err
 	}
-	l, e, err := a.lockOwned(e)
+	if v == nil {
+		return errors.New("there is no nsl VM yet")
+	}
+	l, v, err := a.lockVM(v)
 	if err != nil {
 		return err
 	}
 	defer unlock(l)
-	if !e.Prepared {
-		return errors.New("recover incomplete preparation before resizing")
-	}
-	if err = a.requireStopped(e); err != nil {
+	if err = a.requireStopped(v); err != nil {
 		return err
 	}
-	if *target < e.Disk {
-		return errors.New("disk shrinking is not supported")
+	if *target < v.DataGiB {
+		return errors.New("shrinking the data disk is not supported")
 	}
-	if e.ResizeTarget != 0 && e.ResizeTarget != *target {
-		return fmt.Errorf("finish pending growth to %d GiB first", e.ResizeTarget)
+	if v.ResizeTarget != 0 && v.ResizeTarget != *target {
+		return fmt.Errorf("finish pending growth to %d GiB first", v.ResizeTarget)
 	}
-	if e.ResizeTarget == 0 {
-		disk := filepath.Join(a.dir(name), "disk.qcow2")
-		if err = privateFile(disk, a.uid, 0077); err != nil {
+	if v.ResizeTarget == 0 {
+		if err = a.checkDataDisk(v); err != nil {
 			return err
 		}
-		if err = standaloneDisk(disk, e.Disk); err != nil {
-			return err
-		}
-		if *target == e.Disk {
-			fmt.Fprintf(a.out, "%s already has a %d GiB virtual disk\n", name, e.Disk)
+		if *target == v.DataGiB {
+			fmt.Fprintf(a.out, "The data disk already has %d GiB\n", v.DataGiB)
 			return nil
 		}
-		e.ResizeTarget = *target
-		if err = a.save(e); err != nil {
+		// Record the intent first, so an interruption resumes rather than guesses.
+		v.ResizeTarget = *target
+		if err = a.saveVM(v); err != nil {
 			return err
 		}
 	}
-	if err = a.finishGrowth(e); err != nil {
-		return fmt.Errorf("growth pending; retry resize or run nsl recover %s: %w", name, err)
+	if err = a.finishGrowth(v); err != nil {
+		return fmt.Errorf("growth pending; retry resize or run nsl recover: %w", err)
 	}
-	fmt.Fprintf(a.out, "Grew %s to %d GiB. Start the VM to grow its root filesystem.\n", name, e.Disk)
+	fmt.Fprintf(a.out, "Grew the data disk to %d GiB; the VM grows its filesystem when it starts\n", v.DataGiB)
 	return nil
 }
-func (a *app) finishGrowth(e *environment) error {
-	if err := a.requireStopped(e); err != nil {
+
+func (a *app) finishGrowth(v *vmRecord) error {
+	if err := a.requireStopped(v); err != nil {
 		return err
 	}
-	disk := filepath.Join(a.dir(e.Name), "disk.qcow2")
+	disk := filepath.Join(v.dir, "data.qcow2")
 	if err := privateFile(disk, a.uid, 0077); err != nil {
 		return err
 	}
@@ -322,17 +175,17 @@ func (a *app) finishGrowth(e *environment) error {
 	if err != nil {
 		return err
 	}
-	if current != e.Disk && current != e.ResizeTarget {
-		return errors.New("disk size differs from both committed and pending capacity; inspect before continuing")
+	if current != v.DataGiB && current != v.ResizeTarget {
+		return errors.New("data disk size differs from both committed and pending capacity; inspect before continuing")
 	}
 	if err = standaloneDisk(disk, current); err != nil {
 		return err
 	}
-	if err = a.call(nil, a.err, "qemu-img", "check", "-f", "qcow2", disk); err != nil {
+	if err = a.call(nil, a.err, "qemu-img", "check", "-q", "-f", "qcow2", disk); err != nil {
 		return err
 	}
-	if current != e.ResizeTarget {
-		if err = a.call(nil, a.err, "qemu-img", "resize", "-f", "qcow2", disk, fmt.Sprintf("%dG", e.ResizeTarget)); err != nil {
+	if current != v.ResizeTarget {
+		if err = a.call(nil, a.err, "qemu-img", "resize", "-q", "-f", "qcow2", disk, fmt.Sprintf("%dG", v.ResizeTarget)); err != nil {
 			return err
 		}
 	}
@@ -341,20 +194,176 @@ func (a *app) finishGrowth(e *environment) error {
 		return err
 	}
 	err = f.Sync()
-	closeErr := f.Close()
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err = standaloneDisk(disk, e.ResizeTarget); err != nil {
+	if err = standaloneDisk(disk, v.ResizeTarget); err != nil {
 		return err
 	}
-	if err = a.call(nil, a.err, "qemu-img", "check", "-f", "qcow2", disk); err != nil {
+	v.DataGiB, v.ResizeTarget = v.ResizeTarget, 0
+	return a.saveVM(v)
+}
+
+// update selects the VM image for each VM's next start.
+func (a *app) update(args []string) error {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	image := fs.String("image", "", "local VM image (raw)")
+	digest := fs.String("digest", "", "sha256:HEX of the local image")
+	offline := fs.Bool("offline", false, "use only verified cached data")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	e.Disk = e.ResizeTarget
-	e.ResizeTarget = 0
-	return a.save(e)
+	if fs.NArg() != 0 || (*image == "") != (*digest == "") || (*image != "" && *offline) {
+		return errors.New("usage: update [--offline] | update --image FILE --digest sha256:HEX")
+	}
+	if *image == "" {
+		return errors.New("signed VM images are not published yet; use nsl update --image FILE --digest sha256:HEX")
+	}
+	if !digestPattern.MatchString(*digest) {
+		return errors.New("--digest must be sha256: followed by 64 lowercase hex digits")
+	}
+	hexDigest := strings.TrimPrefix(*digest, "sha256:")
+	if err := a.init(); err != nil {
+		return err
+	}
+	if err := a.importFile(*image, a.vmImagePath(hexDigest), hexDigest); err != nil {
+		return err
+	}
+	v, err := a.ensureVM()
+	if err != nil {
+		return err
+	}
+	l, v, err := a.lockVM(v)
+	if err != nil {
+		return err
+	}
+	defer unlock(l)
+	if v.Image == hexDigest {
+		v.PendingImage = ""
+		fmt.Fprintln(a.out, "That VM image is already in effect")
+	} else {
+		v.PendingImage = hexDigest
+		fmt.Fprintln(a.out, "Selected VM image "+*digest+"; it replaces the VM's root at its next start")
+	}
+	return a.saveVM(v)
+}
+
+// importFile copies a local file into the cache under its verified digest,
+// without replacing an existing entry.
+func (a *app) importFile(source, destination, digest string) error {
+	if _, err := os.Lstat(destination); err == nil {
+		// Already cached: verify the cached bytes, never the new source.
+		if err = privateFile(destination, a.uid, 0222); err != nil {
+			return err
+		}
+		source = destination
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	if st, err := input.Stat(); err != nil || !st.Mode().IsRegular() {
+		return errors.New("the image must be a regular file")
+	}
+	var f *os.File
+	hash := sha256.New()
+	target := io.Writer(hash)
+	if source != destination {
+		if f, err = os.CreateTemp(filepath.Dir(destination), ".import-*"); err != nil {
+			return err
+		}
+		defer os.Remove(f.Name())
+		defer f.Close()
+		target = io.MultiWriter(f, hash)
+	}
+	if _, err = io.Copy(target, input); err != nil {
+		return err
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != digest {
+		return errors.New("image SHA256 mismatch")
+	}
+	if f == nil {
+		return nil
+	}
+	if err = f.Chmod(0444); err == nil {
+		err = f.Sync()
+	}
+	if err == nil {
+		err = f.Close()
+	}
+	if err == nil {
+		// Link rather than rename: a concurrent import of the same digest wins once.
+		if err = os.Link(f.Name(), destination); errors.Is(err, os.ErrExist) {
+			err = nil
+		}
+	}
+	return err
+}
+
+// pending describes changes that apply at the VM's next start.
+func (a *app) pending(v *vmRecord, c *config, running bool) []string {
+	var out []string
+	if v == nil {
+		return nil
+	}
+	if running && v.Memory != 0 && c.vmMemory.value != v.Memory {
+		out = append(out, fmt.Sprintf("vm.memory %d GiB (running with %d)", c.vmMemory.value, v.Memory))
+	}
+	if running && v.CPUs != 0 && c.vmCPUs.value != v.CPUs {
+		out = append(out, fmt.Sprintf("vm.cpus %d (running with %d)", c.vmCPUs.value, v.CPUs))
+	}
+	if v.PendingImage != "" {
+		out = append(out, "VM image sha256:"+v.PendingImage[:12])
+	}
+	if v.ResizeTarget != 0 {
+		out = append(out, fmt.Sprintf("data disk growth to %d GiB (run nsl recover)", v.ResizeTarget))
+	}
+	return out
+}
+
+func (a *app) list() error {
+	v, err := a.loadVM()
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		fmt.Fprintln(a.out, "No nsl VM yet")
+		return nil
+	}
+	c, err := a.loadConfig()
+	if err != nil {
+		return err
+	}
+	state, err := a.vmState(v)
+	if err != nil {
+		return err
+	}
+	image := v.ImageBuild
+	if image == "" && v.Image != "" {
+		image = "sha256:" + v.Image[:12]
+	}
+	if image == "" {
+		image = "-"
+	}
+	resources := "-"
+	if state == "running" {
+		resources = fmt.Sprintf("%d CPUs, %d GiB", v.CPUs, v.Memory)
+	}
+	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "VM\tSTATE\tIMAGE\tRESOURCES\tDATA DISK")
+	fmt.Fprintf(w, "shared\t%s\t%s\t%s\t%d GiB\n", state, image, resources, v.DataGiB)
+	if err = w.Flush(); err != nil {
+		return err
+	}
+	for _, p := range a.pending(v, c, state == "running") {
+		fmt.Fprintln(a.out, "Pending at the next VM start:", p)
+	}
+	return nil
 }

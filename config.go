@@ -278,5 +278,19 @@ func (a *app) configCommand() error {
 		value, from := k.show()
 		fmt.Fprintf(w, "%s\t%s\t%s\n", k.name, value, from)
 	}
-	return w.Flush()
+	if err = w.Flush(); err != nil {
+		return err
+	}
+	v, err := a.loadVM()
+	if err != nil || v == nil {
+		return err
+	}
+	running, err := a.vmState(v)
+	if err != nil {
+		return err
+	}
+	for _, p := range a.pending(v, c, running == "running") {
+		fmt.Fprintln(a.out, "Pending at the next VM start:", p)
+	}
+	return nil
 }

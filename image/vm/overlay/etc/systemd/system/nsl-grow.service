@@ -1,0 +1,12 @@
+[Unit]
+Description=Grow the nsl data filesystem to its disk
+Requires=var-lib-nsl.mount
+After=var-lib-nsl.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/btrfs filesystem resize max /var/lib/nsl
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Bind the nsl VM to its host
+Requires=var-lib-nsl.mount var-lib-machines.mount nsl-grow.service
+After=var-lib-nsl.mount var-lib-machines.mount nsl-grow.service
+# A credential that does not match the data disk stops the VM at once.
+FailureAction=poweroff
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ImportCredential=nsl.vm
+ExecStart=/usr/lib/nsl/nsl-agent setup
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

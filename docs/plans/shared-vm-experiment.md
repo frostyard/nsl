@@ -10,7 +10,7 @@ A shared VM would:
 
 - Start additional machines in about a second and share one kernel and page cache.
 - Replace bootable per-distro disks with signed root filesystems. nspawn's hub already publishes signed OCI images for many distros.
-- Retire the per-distro bootloader, UKI, root-growth and kernel-maintenance adapters ([ADR-0007](../adr/0007-maintainable-guest-boot.md), [ADR-0010](../adr/0010-explicit-guest-root-growth.md), [ADR-0014](../adr/0014-arch-kernel-maintenance.md)).
+- Retire the per-distro bootloader, UKI, root-growth and kernel-maintenance adapters ([ADR-0007](../adr/0007-maintainable-guest-boot.md), [ADR-0010](../adr/0010-explicit-guest-root-growth.md), ADR-0014 (retired)).
 - Share one virtiofs, forwarding and Waypipe stack across machines.
 
 It would cost:

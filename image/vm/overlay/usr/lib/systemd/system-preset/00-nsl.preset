@@ -1,0 +1,12 @@
+# Images apply presets on first boot; keep the nsl units enabled.
+enable nsl-data.service
+enable nsl-grow.service
+enable nsl-setup.service
+enable nsl-machines.service
+enable nsl-ssh.socket
+enable var-lib-nsl.mount
+enable var-lib-machines.mount
+enable systemd-networkd.service
+enable systemd-resolved.service
+disable ssh.service
+disable ssh.socket

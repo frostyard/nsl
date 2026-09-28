@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# SSH host keys live on the data disk, so none ship in the image.
+rm -f /etc/ssh/ssh_host_*
+systemd=$(systemctl --version | sed -n '1s/^systemd [0-9]* (\([^)]*\)).*/\1/p')
+kernel=$(ls /usr/lib/modules | tail -n 1)
+sed -i -e "s|@SYSTEMD@|$systemd|" -e "s|@KERNEL@|$kernel|" /usr/lib/nsl/image.json

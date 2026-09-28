@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1 and 2 complete, 2026-09-27.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1, 2, 3 and 5 complete, 2026-09-27; Phase 6's agent is built.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -133,7 +133,7 @@ Not in this phase:
 
 ## Phase 3 — The nsl VM image
 
-- **Turn `experiments/shared-vm/layer` into a VM role** of `scripts/compose-image.py` on the Debian trixie profile, following the [VM image contract](../specs/vm-image.md): `systemd-container`, the `nsl-data` disk service and mounts, the boot service that writes nspawn settings, the idle monitor, and the agent once Phase 6 provides it.
+- **Turn `experiments/shared-vm/layer` into a VM role** of `scripts/compose-image.py` on the Debian trixie profile, following the [VM image contract](../specs/vm-image.md): `systemd-container`, the `nsl-data` disk service and mounts, the boot service that writes nspawn settings, and the agent. The idle monitor arrives with Phase 7.
 - **Move state off the root.** VM identity and SSH host keys move to the data disk's `state` subvolume, so replacing the VM root keeps them and every machine. The host creates a fresh root overlay for each VM image version.
 - **Delete the per-distro bootable images:** the Ubuntu, Fedora, CentOS, openSUSE and Arch profiles; the RPM, SUSE and Arch boot and kernel adapters; and `scripts/probe-distribution.py`, `probe-maintenance.py` and the other per-VM probes they replace. Keep only what the Debian VM base needs. Delete ADR-0014 with the Arch hooks, and drop its mentions from ADR-0017 and the index.
 - **Acceptance** in `scripts/probe-vm.py`, from `driver.py check`:
@@ -141,6 +141,31 @@ Not in this phase:
   - `/mnt/host` ownership, bounded guest root, and unproxied sockets.
 - **Update the [validate-image skill](../../.agents/skills/validate-image/SKILL.md)** for the VM and machine images.
 - **Done when:** a locally built VM image passes `probe-vm.py`, a root replacement keeps identity and machines, and the deleted profiles are gone from the tree and the docs.
+
+**Result, 2026-09-27: complete, with the Phase 5 CLI.** `image/vm/` is the VM layer on the Debian trixie recipe, and `scripts/compose-image.py --role vm` composes it with the agent built by `make agent`. The descriptor's `integration_sha256` covers the composer, the layer and the agent binary. The VM's boot services are the agent itself (`nsl-agent storage`, `setup` and `boot`), so no Python helper ships.
+
+- **Build:** `nsl-vm-trixie-x86-64-r2`, SHA256 `a8e27e30258a3453a522117066dcd3b2254ebcd47bdc86fc10017ed68003862e`, a 2.7 GiB sparse raw disk holding 1.8 GiB (a 133 MiB UKI). It has systemd 257.13, kernel 6.12.107, OpenSSH 10.0p1, btrfs-progs 6.14 and Waypipe 0.9.2. The first build, including creating the Lima builder, took about 3.5 minutes; a rebuild took 77 s.
+- **Acceptance:** `probe-vm.py` passed all nine checks on Snow 13 (host kernel 7.1.8, systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2):
+
+| Check | Result |
+| --- | --- |
+| Readiness | First boot, formatting the data disk, 8.07 s; a later boot 8.56 s. `identity.json` matches the record. |
+| Formatting | `nsl-data` btrfs with `machines` and `state` subvolumes, mounted with `compress=zstd:1,noatime`. |
+| Allowlist | Exactly the home, `/mnt` and the read-only image cache are virtiofs mounts; `/mnt/host/home → var/home` exists. |
+| Ownership | Host files show 1000:1000; VM root's writes land as 1000:1000; VM root cannot write root-owned `/mnt`. |
+| Sockets | A host Unix socket refuses the VM (`ConnectionRefusedError`); the host listener is never reached. |
+| Root replacement | `recover` discards the root: a marker on the root is gone; a marker under `/var/lib/machines`, `identity.json` and the pinned host key survive. |
+| Growth | After `resize --disk 160`, the filesystem reports 160 GiB. |
+| Refusal | A data disk carrying a swap signature powers the VM off (7.86 s to the error); the disk is byte-identical. |
+| Binding | A bound data disk under another VM's credential powers the VM off (10.87 s); the console says it does not match. |
+
+- **Found and fixed:** without `FailureAction=poweroff`, a refused disk or a mismatched binding left the host waiting 90 s for readiness. r2 powers the VM off instead.
+- **Deleted:** the `image/common`, `families` and `profiles` layers (seven profiles and their RPM, SUSE, Debian and Arch adapters), `guest/setup.py`, ADR-0014 and the Arch hook test. Also every per-VM probe: `probe-distribution`, `probe-maintenance`, `probe-backup`, `probe-storage`, `probe-files`, `probe-development`, `probe-native`, `probe-published-images` and `measure-poc`.
+- **Not yet:**
+  - `images.yml` and `scripts/publish-images.py` still describe the retired disks and cannot run until Phase 10 rewrites them.
+  - The isolated-VM check waits for Phase 9.
+  - The idle monitor arrives with Phase 7.
+  - The machine-image section of the validate-image skill arrives with Phase 4.
 
 ## Phase 4 — Machine images
 
@@ -178,6 +203,26 @@ Not in this phase:
 - **Configuration:** `nsl config` and `nsl list` report pending restarts and a pending VM image.
 - **Done when:** fake-runner tests cover launch arguments, configuration application, unit ownership, locking and data-disk growth, and the CLI starts, stops, recovers and grows a locally built VM.
 
+**Result, 2026-09-27: complete.**
+
+- **Code:** `state.go` holds one VM record (`NSL_HOME/vm/vm.json`) and `vm.go` launches `nsl-UID-vm-ID.service` through the device-descriptor path. `storage.go` holds data-disk growth, `update` and `list`.
+- **Launch:** vmspawn gets the root overlay, the data disk as an extra drive, the allowlist binds and the read-only image cache.
+- **Readiness:** the agent's `identity` answer, checked for the binding and for the descriptor's agent protocol, machine protocol, transport and architecture.
+- **Commands:** `update --image` caches and selects a VM image; the next start replaces the root. `recover` rebuilds the root, checks the data disk and completes growth. `resize --disk` grows the stopped data disk with the recorded-intent protocol. `config` and `list` show pending resources and images.
+- **Deleted:** the environment record, schema and commands: `create`, `start`, `shell`, `exec`, `gui`, `export`, `restore`, `remove`, `ports`, `logs` and `ssh-config`. Also `backup.go`, `ports.go` (the forwarder returns in Phase 8) and `guest/exec.py`. `images` and `pull` still read the old catalogue until the delivery rework.
+- **Tests:** fake-runner tests cover:
+  - image selection and root replacement at the next start;
+  - refused digests and arguments;
+  - launch arguments, and the credential's shares, aliases and settings;
+  - readiness rejecting a wrong ID, UID, role, agent or machine protocol, architecture or unknown field;
+  - foreign units, loose permissions and unknown record fields;
+  - a VM replaced while waiting for its lock;
+  - growth that records its target before `qemu-img resize` and survives a failed resize until `recover`;
+  - `recover` keeping the data disk byte-identical;
+  - pending restarts in `config` and `list`.
+- **Integration:** `probe-vm.py` drives this CLI: it starts (`recover`), stops (`shutdown`), recovers and grows a locally built VM, with the results in Phase 3.
+- **Not yet:** `nsl update` from the catalogue waits for published VM images (Phase 10).
+
 ## Phase 6 — Agent and command execution
 
 - **The agent** is a Go program in this repository, installed in the VM image and reached through a forced SSH command ([agent protocol](../specs/agent.md)). It starts transient units in machines through systemd's D-Bus API and machined:
@@ -189,6 +234,12 @@ Not in this phase:
 - **Host side:** bare `nsl` and `nsl run`, with device-and-inode directory translation. An untranslatable directory fails `run` and starts a shell in the guest home.
 - **Delete** `guest/exec.py` and the old `shell`, `exec` and `gui` paths once the agent replaces them.
 - **Done when:** the experiment's entry matrix passes through the CLI on all four machine images: argv, exit and signal status, separate and binary streams, identity, session, PTY and Ctrl-C. Latency is recorded against the experiment's 65 ms.
+
+**Progress, 2026-09-27:**
+
+- **Built:** the agent (`cmd/nsl-agent`) and the shared request package (`internal/protocol`). The agent answers `identity`, `vm`, `machines`, `start`, `stop`, `run`, `create` and `remove`. `export` and `import` answer "not implemented" until Phase 7.
+- **Unit tests:** framing and validation on both ends, and exit mapping. Also start, stop, list and remove against a fake systemd, and `run`'s unit specification. And creation with a real `tar`: verified copy, per-machine data, refusal of every unsafe archive entry, cleanup after each failure, and writes that stay inside a hostile tree.
+- **Integration so far:** the agent's `identity`, `vm` and boot services pass in the VM through Phase 3's probe.
 
 ## Phase 7 — Machines in the CLI
 

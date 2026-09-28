@@ -23,7 +23,7 @@ A request is the standard padded base64 encoding of one UTF-8 JSON object of at 
 | `op` | string | all | One of the operations below. |
 | `machine` | string | machine operations | Machine name, as in the [CLI](cli.md#interface). |
 | `id` | string | machine operations | The machine's 32 lowercase hex ID recorded by the host. |
-| `argv` | array of strings | `run` | At least one argument; no NUL bytes. Passed literally. |
+| `argv` | array of strings | `run`, `vm` | At least one argument; no NUL bytes. Passed literally. |
 | `directory` | string | `run` | Absolute path in the machine, or empty for the user's home (`/root` with `root`). |
 | `root` | boolean | `run` | Run as machine root instead of the machine account. |
 | `tty` | boolean | `run` | Run on a PTY. Requires a terminal on the session's stdin. |
@@ -45,9 +45,10 @@ Example `run` request, before base64 encoding:
 
 | Operation | Input | Output on success |
 | --- | --- | --- |
-| `identity` | none | JSON: `protocol`, `vm` (`id`, `role`, `uid`, `gid`, and `machine` in an isolated VM) and `image`, the VM descriptor from [`/usr/lib/nsl/image.json`](vm-image.md#descriptor). Readiness uses this. |
+| `identity` | none | JSON: `protocol`, `vm` (the binding: `version`, `id`, `role`, `uid`, `gid`, and `machine` in an isolated VM) and `image`, the VM descriptor from [`/usr/lib/nsl/image.json`](vm-image.md#descriptor). Readiness uses this. |
+| `vm` | `argv` | Runs argv as VM root, with the session's streams and the same exit mapping as `run`, for diagnostics, `shutdown` and acceptance probes. |
 | `machines` | none | JSON array: `machine`, `id`, `state` (`running`, `starting`, `stopping` or `stopped`), `sessions`, `build_id`. |
-| `start` | `machine`, `id`, `idle_timeout` | Starts the machine if needed and waits up to 60 s for its manager to report `running` or `degraded`. JSON: `state`, `seconds`. |
+| `start` | `machine`, `id`, `idle_timeout` | Rewrites the machine's nspawn settings, starts it if needed and waits up to 60 s for its manager to report `running` or `degraded`. JSON: `state`, `seconds`. |
 | `stop` | `machine`, `id` | Powers the machine off, waiting up to 30 s before terminating it. |
 | `run` | see below | The command's streams and exit status. |
 | `create` | `machine`, `id`, `account`, `image`, `time_zone` | Imports the image into a new subvolume and applies per-machine data. |
@@ -61,12 +62,12 @@ Phase 8 adds `listeners`, for port discovery, and `display`, for the per-machine
 
 The agent starts a transient service named `nsl-run-` followed by 32 random hex digits and `.service` in the machine's service manager, reached as VM root through D-Bus. Machines run with `PrivateUsers=no`, so VM root is machine root.
 
-- **Argv:** `ExecStartEx` with the `no-env-expand` flag, so `$VAR`, `${VAR}`, `$$` and `%` reach the program literally.
+- **Argv:** `ExecStartEx` with the `no-env-expand` flag, so `$VAR`, `${VAR}`, `$$` and `%` reach the program literally. A command name without a slash is found through `ExecSearchPath`: `~/.local/bin`, `/usr/local/sbin`, `/usr/local/bin`, `/usr/sbin`, `/usr/bin`, `/sbin` and `/bin`, which also becomes the command's `PATH`.
 - **Identity:** `User=` is the machine account, or root with `root`. Account sessions use `PAMName=nsl`, the image's [`nsl` PAM service](machine-images.md#machine-layer), which supplies a logind session, `XDG_RUNTIME_DIR` and the user manager. Root commands have no PAM session.
 - **Directory and environment:** `WorkingDirectory=` is the requested directory; a missing directory fails the command without running it. `Environment=` holds the allowlisted `env`. The agent adds `WAYLAND_DISPLAY` when the machine has a live display session (Phase 8).
 - **Streams without a PTY:** the agent passes its own stdin, stdout and stderr to the unit as file descriptors. It copies no bytes, so binary data and separate streams survive.
 - **PTY:** the agent opens a PTY in the machine through machined's `OpenMachinePTY` and runs the unit on it. It copies bytes between its stdio and the PTY unchanged. It adds no terminal-title or color sequences; OSC 3008 context sequences from the machine pass. The PTY takes the session terminal's size at start and follows its changes. Ctrl-C reaches the command through the PTY's line discipline.
-- **Lifetime:** the agent holds a reference to the unit (`AddRef`), so the unit's result stays readable until the agent collects it. If the SSH session ends first, the agent stops the unit, delivering SIGTERM and SIGHUP and then SIGKILL after 10 s.
+- **Lifetime:** the unit has `RemainAfterExit=yes`, so its result stays readable until the agent collects it by stopping and resetting the unit. If the SSH session ends first, the agent stops the unit, delivering SIGTERM and SIGHUP and then SIGKILL after 10 s. Commands see SIGPIPE as they would in a shell (`IgnoreSIGPIPE=no`).
 - **Exit status:** read from `ExecMainCode` and `ExecMainStatus`:
 
 | Outcome | Exit status |
@@ -76,7 +77,7 @@ The agent starts a transient service named `nsl-run-` followed by 32 random hex 
 | systemd could not start the command, for example `200/CHDIR`, `203/EXEC`, `217/USER` or `224/PAM` | systemd's status, and the agent SHOULD name the step on stderr |
 | The agent refused or failed before starting the command | 255, with an error line on stderr |
 
-A running `nsl-run-*` unit is an nsl command session for idle accounting.
+A running `nsl-run-*` unit whose command has not exited is an nsl command session for idle accounting.
 
 ### Errors
 
@@ -108,7 +109,7 @@ An agent error writes one line to stderr, `nsl-agent: CODE: message`, and exits 
 
 ## Implementation
 
-The agent is written in Go and uses a pinned `github.com/godbus/dbus/v5` for systemd and machined. It is statically linked and installed in the VM image, and it shares the request types and their validation with the CLI. A Python agent using `jeepney` was the alternative. Go avoids a second implementation of the framing and validation, and avoids interpreter startup on every command.
+The agent is written in Go (`cmd/nsl-agent`) and uses a pinned `github.com/godbus/dbus/v5` for systemd and machined. It reaches a machine's service manager through the machine leader's `/run/systemd/private` socket, as root, and machined through the VM's system bus. It is statically linked and installed in the VM image, and it shares the request types and their validation with the CLI through `internal/protocol`. The same binary provides the VM's boot services: `nsl-agent storage`, `setup` and `boot`. A Python agent using `jeepney` was the alternative. Go avoids a second implementation of the framing and validation, and avoids interpreter startup on every command.
 
 ## Test cases
 

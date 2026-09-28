@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,16 +15,20 @@ spec.loader.exec_module(compose)
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class ImageProfiles(unittest.TestCase):
+def agent(directory, content=b'\x7fELF agent'):
+    path = Path(directory)/'nsl-agent'
+    path.write_bytes(content)
+    return path
+
+
+class VMImage(unittest.TestCase):
     def test_unsupported_inputs_are_rejected(self):
-        for args in [('unknown', None, 'x86-64'), ('../../common', None, 'x86-64'),
-                     ('ubuntu', 'trixie', 'x86-64'), ('opensuse', '../../common', 'x86-64'), ('debian', None, 'arm64')]:
+        for args in [('machine',), ('../vm',), ('vm', 'ubuntu'), ('vm', 'debian', 'bookworm'), ('vm', None, None, 'arm64')]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 compose.select(ROOT, *args)
 
     def test_builder_rejects_unsupported_options_before_tools(self):
-        for args in [('--distribution', 'unknown'), ('--release', 'noble'),
-                     ('--architecture', 'arm64'), ('--destination', '/should-not-exist')]:
+        for args in [('--role', 'machine'), ('--distribution', 'debian'), ('--release', 'trixie'), ('--destination', '/should-not-exist')]:
             with self.subTest(args=args):
                 result = subprocess.run(['bash', str(ROOT/'scripts/build-image.sh'), *args],
                                         env=dict(os.environ, NSL_LIMACTL='/must-not-run'),
@@ -31,59 +36,60 @@ class ImageProfiles(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn('/must-not-run', result.stderr)
 
-    def test_multiple_releases_select_distinct_layers(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for release in ('16.0', 'tumbleweed'):
-                profile = compose.select(ROOT, 'opensuse', release)
-                destination = Path(tmp)/release
-                compose.compose(ROOT, destination, profile, 'recipes', 'mkosi')
-                config = (destination/'mkosi.local.conf').read_text()
-                self.assertEqual(profile['release'], release)
-                self.assertEqual('Snapshot=20260923' in config.splitlines(), release == 'tumbleweed')
-                descriptor = json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())
-                self.assertEqual(descriptor['os_id'], 'opensuse-tumbleweed' if release == 'tumbleweed' else 'opensuse-leap')
+    def test_protocols_match_the_go_package(self):
+        source = (ROOT/'internal/protocol/protocol.go').read_text()
+        self.assertEqual(int(re.search(r'\bVersion\s+= (\d+)', source).group(1)), compose.AGENT_PROTOCOL)
+        self.assertEqual(int(re.search(r'\bMachineVersion\s+= (\d+)', source).group(1)), compose.MACHINE_PROTOCOL)
 
-    def test_input_hash_tracks_permissions_not_unrelated_profiles(self):
+    def test_composed_tree_and_no_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp)/'tree'
+            profile = compose.select(ROOT, 'vm')
+            name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin', agent(tmp))
+            self.assertEqual(name, 'nsl-vm-trixie-x86-64-r{revision}'.format(**profile))
+            descriptor = json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())
+            self.assertEqual((descriptor['role'], descriptor['build_id'], descriptor['agent_protocol'], descriptor['transport']),
+                             ('vm', name, 1, 'nsl-vsock-ssh'))
+            self.assertEqual((descriptor['systemd'], descriptor['kernel']), ('@SYSTEMD@', '@KERNEL@'))
+            self.assertEqual(descriptor['recipes_revision'], 'recipes-pin')
+            self.assertEqual(len(descriptor['integration_sha256']), 64)
+            installed = destination/'overlay/usr/lib/nsl/nsl-agent'
+            self.assertEqual((installed.read_bytes(), installed.stat().st_mode & 0o777), (b'\x7fELF agent', 0o755))
+            config = (destination/'mkosi.local.conf').read_text()
+            self.assertIn(f'Output={name}', config)
+            self.assertIn('FinalizeScripts=nsl-finalize.chroot', config)
+            self.assertEqual((destination/'overlay/etc/systemd/system-generators/systemd-ssh-generator').readlink(), Path('/dev/null'))
+            units = destination/'overlay/etc/systemd/system'
+            for unit in ('nsl-data.service', 'nsl-setup.service', 'nsl-machines.service', 'nsl-ssh.socket', 'var-lib-nsl.mount', 'var-lib-machines.mount'):
+                self.assertTrue((units/unit).is_file(), unit)
+            self.assertIn('subvol=state', (units/'var-lib-nsl.mount').read_text())
+            self.assertIn('subvol=machines', (units/'var-lib-machines.mount').read_text())
+            self.assertIn('ImportCredential=nsl.vm', (units/'nsl-setup.service').read_text())
+            sshd = (destination/'overlay/etc/ssh/sshd_config.d/90-nsl.conf').read_text()
+            self.assertIn('PermitRootLogin forced-commands-only', sshd)
+            self.assertIn('HostKey /var/lib/nsl/ssh/ssh_host_ed25519_key', sshd)
+            # Failed retries cannot replace a prepared input tree.
+            with self.assertRaises(FileExistsError):
+                compose.compose(ROOT, destination, profile, 'other', 'other', agent(tmp))
+            self.assertEqual(json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text()), descriptor)
+
+    def test_input_hash_tracks_inputs_not_docs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)/'source'
-            for name in ('image', 'guest', 'scripts'):
+            for name in ('image', 'scripts'):
                 shutil.copytree(ROOT/name, root/name, symlinks=True)
-            profile = compose.select(root, 'debian')
-            def fingerprint(index):
+            profile = compose.select(root, 'vm')
+            def fingerprint(index, binary=b'agent'):
                 destination = Path(tmp)/str(index)
-                compose.compose(root, destination, profile, 'recipes', 'mkosi')
+                compose.compose(root, destination, profile, 'recipes', 'mkosi', agent(tmp, binary))
                 return json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())['integration_sha256']
             first = fingerprint(1)
             (root/'image/README.md').write_text('Unrelated docs')
-            (root/'image/profiles/ubuntu/profile.json').write_text('{}')
             self.assertEqual(first, fingerprint(2))
-            path = root/'guest/setup.py'
+            self.assertNotEqual(first, fingerprint(3, b'another agent'))
+            path = root/'image/vm/nsl-postinst.chroot'
             path.chmod(path.stat().st_mode ^ 0o100)
-            self.assertNotEqual(first, fingerprint(3))
-
-    def test_complete_separate_images_and_no_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for distribution, filesystem in [('debian', 'btrfs'), ('ubuntu', 'ext4'), ('fedora', 'btrfs'), ('centos', 'ext4'), ('arch', 'btrfs')]:
-                destination = Path(tmp)/distribution
-                profile = compose.select(ROOT, distribution)
-                name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin')
-                descriptor = json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text())
-                self.assertEqual(descriptor['root_filesystem'], filesystem)
-                self.assertEqual(descriptor['build_id'], name)
-                self.assertEqual(descriptor['recipes_revision'], 'recipes-pin')
-                self.assertEqual(len(descriptor['integration_sha256']), 64)
-                for target in ['nsl-setup', 'nsl-exec', 'nsl-platform-setup']:
-                    self.assertTrue((destination/'overlay/usr/local/libexec'/target).is_file())
-                self.assertTrue((destination/'overlay/etc/systemd/system/nsl-ssh.socket').is_file())
-                self.assertEqual((destination/'overlay/etc/systemd/system-generators/systemd-ssh-generator').readlink(), Path('/dev/null'))
-                self.assertIn('root=UUID=', (destination/'overlay/usr/local/libexec/nsl-platform-setup').read_text())
-                self.assertNotIn('root=UUID=', (destination/'overlay/usr/local/libexec/nsl-setup').read_text())
-                if filesystem == 'ext4':
-                    self.assertIn('Format=ext4', (destination/'mkosi.repart/10-root.conf').read_text())
-                # Failed retries cannot replace a prepared input tree.
-                with self.assertRaises(FileExistsError):
-                    compose.compose(ROOT, destination, profile, 'other', 'other')
-                self.assertEqual(json.loads((destination/'overlay/usr/lib/nsl/image.json').read_text()), descriptor)
+            self.assertNotEqual(first, fingerprint(4))
 
 
 if __name__ == '__main__':

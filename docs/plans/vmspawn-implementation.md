@@ -19,7 +19,7 @@ The final local image is `build/image/share/nsl-debian-v3.raw`, SHA256 `11469f81
 
 Implemented `recover`, `ports` and `logs`, with authenticated readiness checks even for a running unit. Recovery resumes interrupted preparation or restarts a checked existing disk. Foreign unit descriptions and invalid state are rejected. Runtime sockets are separate from long storage paths.
 
-The [native lifecycle probe](../../scripts/probe-native.py) passed:
+The native lifecycle probe (`scripts/probe-native.py`, since removed) passed:
 
 - Distinct client keys, guest boot IDs and persistent homes.
 - An existing host HTTP listener survives a guest port collision.
@@ -42,7 +42,7 @@ The old disposable image builder filled after accumulating several build trees. 
 
 ## Phase 3 — Development workflow and measurements
 
-Go 1.24.4 was installed **inside the development VM**. The [development probe](../../scripts/probe-development.py) copied the current nsl source into a temporary shared project directory, ran its tests and compiled the CLI inside the guest. It then compiled and ran a Go HTTP service, edited its source from the host, and verified the rebuilt response through host localhost.
+Go 1.24.4 was installed **inside the development VM**. The development probe (`scripts/probe-development.py`, since removed) copied the current nsl source into a temporary shared project directory, ran its tests and compiled the CLI inside the guest. It then compiled and ran a Go HTTP service, edited its source from the host, and verified the rebuilt response through host localhost.
 
 - Guest tests and build: passed, **7.02 seconds** in the measured run.
 - Host edit → polling → guest compilation/restart → updated localhost response: **0.416 seconds** in one observation.

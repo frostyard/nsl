@@ -1,0 +1,17 @@
+[Unit]
+Description=Prepare the nsl data disk
+DefaultDependencies=no
+After=systemd-udevd.service systemd-udev-trigger.service
+Before=var-lib-nsl.mount var-lib-machines.mount
+Conflicts=shutdown.target
+# A refused data disk stops the VM at once instead of timing out readiness.
+FailureAction=poweroff
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/nsl/nsl-agent storage
+StandardError=journal+console
+
+[Install]
+WantedBy=local-fs.target

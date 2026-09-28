@@ -1,8 +1,0 @@
-{
-  "distribution": "debian",
-  "release": "trixie",
-  "architecture": "x86-64",
-  "family": "debian",
-  "revision": 7,
-  "root_filesystem": "btrfs"
-}

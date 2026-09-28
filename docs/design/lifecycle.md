@@ -1,6 +1,6 @@
 # Machine lifecycle and host integration
 
-Living document for the design that [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) set. Contract: the [CLI spec](../specs/cli.md). The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live; until its Phase 5, the binary still runs the environment design this document replaces.
+Living document for the design that [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) set. Contract: the [CLI spec](../specs/cli.md). The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live; the binary runs the VM; machines arrive with Phases 6 and 7.
 
 ## Overview
 
@@ -57,7 +57,7 @@ The unit `nsl-UID-vm-ID.service` runs vmspawn with the root overlay, the data di
 
 The shared VM starts on first use. At boot it starts every machine unless `autostart` is false. It stops when no machine is running, and `shutdown` stops it at once. A stop asks the VM to power off, waits up to 30 seconds, then stops the owned unit.
 
-`recover` stops the owned runtime, completes pending growth, checks the data disk without repairing it, and starts the VM again. It keeps keys, pinned host keys and machines. It cannot rebuild deleted keys or repair a corrupt filesystem, and it is not a backup.
+`recover` stops the owned runtime, completes pending growth, checks the data disk without repairing it, and starts the VM again from a fresh root overlay, since the root holds nothing that must survive. It keeps keys, pinned host keys and machines. It cannot rebuild deleted keys or repair a corrupt filesystem, and it is not a backup.
 
 ## Machines
 

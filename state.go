@@ -2,20 +2,22 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"regexp"
-	"runtime"
 	"strings"
 	"syscall"
+
+	"github.com/frostyard/nsl/internal/protocol"
 )
+
+const gib = int64(1 << 30)
+
+// defaultDataGiB is the data disk's initial virtual size; it is sparse on the host.
+const defaultDataGiB = 128
 
 func checkPrivateDir(path string, uid int) error {
 	st, err := os.Lstat(path)
@@ -28,6 +30,7 @@ func checkPrivateDir(path string, uid int) error {
 	}
 	return nil
 }
+
 func privateFile(path string, uid int, mask os.FileMode) error {
 	st, err := os.Lstat(path)
 	if err != nil {
@@ -39,11 +42,13 @@ func privateFile(path string, uid int, mask os.FileMode) error {
 	}
 	return nil
 }
+
 func (a *app) init() error {
 	if a.uid == 0 {
 		return errors.New("run nsl as your normal host user")
 	}
-	for _, p := range []string{a.home, filepath.Join(a.home, "environments"), filepath.Join(a.home, "images"), filepath.Join(a.home, "removing"), a.runtimeDir} {
+	for _, p := range []string{a.home, filepath.Join(a.home, "images"), filepath.Join(a.home, "images", "vm"),
+		a.machineImages(), a.runtimeDir} {
 		if err := os.MkdirAll(p, 0700); err != nil {
 			return err
 		}
@@ -53,45 +58,11 @@ func (a *app) init() error {
 	}
 	return nil
 }
-func (a *app) owned(name string) (*environment, error) {
-	if err := checkName(name); err != nil {
-		return nil, err
-	}
-	if err := a.init(); err != nil {
-		return nil, err
-	}
-	return a.ownedAt(name, a.dir(name))
-}
-func (a *app) ownedAt(name, dir string) (*environment, error) {
-	if err := checkPrivateDir(dir, a.uid); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(dir, "environment.json")
-	if err := privateFile(path, a.uid, 0077); err != nil {
-		return nil, err
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var e environment
-	if err = json.Unmarshal(b, &e); err != nil {
-		return nil, err
-	}
-	if e.Schema != 2 || e.Name != name || e.Owner != a.uid || e.GID != a.gid || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(e.ID) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(e.Digest) || e.CPUs < 1 || e.CPUs > 64 || e.Memory < 1 || e.Memory > 128 || e.Disk < 4 || e.Disk > 4096 {
-		return nil, errors.New("unsupported metadata schema or environment identity/resource mismatch")
-	}
-	if e.Project != "" && (!filepath.IsAbs(e.Project) || strings.ContainsAny(e.Project, ":\r\n\x00")) {
-		return nil, errors.New("invalid project in metadata")
-	}
-	if e.GuestID != "" && !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(e.GuestID) {
-		return nil, errors.New("invalid guest binding in metadata")
-	}
-	if e.ResizeTarget != 0 && (!e.Prepared || e.ResizeTarget <= e.Disk || e.ResizeTarget > 4096) {
-		return nil, errors.New("invalid pending disk growth")
-	}
-	return &e, nil
-}
+
+// machineImages is the verified machine-image cache that VMs read through a
+// read-only share. Nothing else may live there.
+func (a *app) machineImages() string { return filepath.Join(a.home, "images", "machines") }
+
 func fileLock(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
@@ -103,27 +74,9 @@ func fileLock(path string) (*os.File, error) {
 	}
 	return f, nil
 }
-func (a *app) lock(name string) (*os.File, error) {
-	return fileLock(filepath.Join(a.dir(name), "lock"))
-}
 
-// A waiter must not act on a new environment created under the old name.
-func (a *app) lockOwned(expected *environment) (*os.File, *environment, error) {
-	l, err := a.lock(expected.Name)
-	if err != nil {
-		return nil, nil, err
-	}
-	e, err := a.owned(expected.Name)
-	if err == nil && e.ID != expected.ID {
-		err = errors.New("environment was replaced while waiting; retry explicitly")
-	}
-	if err != nil {
-		unlock(l)
-		return nil, nil, err
-	}
-	return l, e, nil
-}
 func unlock(f *os.File) { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); _ = f.Close() }
+
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".write-*")
 	if err != nil {
@@ -146,200 +99,160 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err = os.Rename(f.Name(), path); err != nil {
 		return err
 	}
-	d, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return syncDir(filepath.Dir(path))
 }
-func (a *app) save(e *environment) error {
-	b, err := json.MarshalIndent(e, "", "  ")
+
+func syncDir(path string) error {
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(a.dir(e.Name), "environment.json"), append(b, '\n'), 0600)
-}
-func (a *app) imagePath(e *environment) string {
-	return filepath.Join(a.home, "images", e.Digest+".raw")
-}
-func (a *app) importImage(source, digest string) error {
-	destination := filepath.Join(a.home, "images", digest+".raw")
-	if _, err := os.Lstat(destination); err == nil {
-		if err = privateFile(destination, a.uid, 0022); err != nil {
-			return err
-		}
-		source = destination
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	input, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	st, err := input.Stat()
-	if err != nil {
-		return err
-	}
-	if !st.Mode().IsRegular() {
-		return errors.New("image must be a regular raw disk file")
-	}
-	f, err := os.CreateTemp(filepath.Join(a.home, "images"), ".import-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
 	defer f.Close()
-	hash := sha256.New()
-	var target io.Writer = hash
-	if source != destination {
-		target = io.MultiWriter(f, hash)
-	}
-	if _, err = io.Copy(target, input); err != nil {
-		return err
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != digest {
-		return errors.New("image SHA256 mismatch")
-	}
-	if source == destination {
-		return nil
-	}
-	if err = f.Chmod(0444); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), destination) // serialized by the manager lock
+	return f.Sync()
 }
-func (a *app) create(name string, args []string) error {
-	if err := checkName(name); err != nil {
-		return err
+
+func randomID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
 	}
-	fs := flag.NewFlagSet("create", flag.ContinueOnError)
-	fs.SetOutput(a.err)
-	project := fs.String("project", "", "host project mounted at /work")
-	desktop := fs.Bool("desktop", false, "allow Waypipe sessions")
-	cpus := fs.Int("cpus", 2, "VM CPUs")
-	memory := fs.Int("memory", 2, "RAM in GiB")
-	disk := fs.Int("disk", 16, "disk in GiB")
-	image := fs.String("image", "", "local nsl raw image")
-	digest := fs.String("digest", "", "sha256:HEX")
-	distro := fs.String("distro", "", "verified catalogue selection DISTRO:RELEASE")
-	offline := fs.Bool("offline", false, "use a fresh signed catalogue and verified local cache")
-	if err := fs.Parse(args); err != nil {
-		return err
+	return hex.EncodeToString(b)
+}
+
+// vmRecord is one nsl VM: its identity, the image its root came from, the
+// resources in effect since its last start, and its data disk.
+type vmRecord struct {
+	Schema       int    `json:"schema"`
+	ID           string `json:"id"`
+	Owner        int    `json:"owner"`
+	GID          int    `json:"gid"`
+	Role         string `json:"role"`
+	Image        string `json:"image,omitempty"`
+	ImageBuild   string `json:"image_build,omitempty"`
+	PendingImage string `json:"pending_image,omitempty"`
+	CPUs         int    `json:"cpus,omitempty"`
+	Memory       int    `json:"memory,omitempty"`
+	DataGiB      int    `json:"data_gib"`
+	ResizeTarget int    `json:"resize_target_gib,omitempty"`
+	Initialized  bool   `json:"initialized"`
+
+	dir string
+}
+
+func (v *vmRecord) validate(uid, gid int) error {
+	digest := func(s string) bool { return s == "" || len(s) == 64 && strings.Trim(s, "0123456789abcdef") == "" }
+	if v.Schema != 1 || v.Owner != uid || v.GID != gid || !protocol.ValidID(v.ID) || v.Role != "shared" ||
+		!digest(v.Image) || !digest(v.PendingImage) || v.CPUs < 0 || v.CPUs > 64 || v.Memory < 0 || v.Memory > 128 ||
+		v.DataGiB < 1 || v.DataGiB > 4096 || (v.ResizeTarget != 0 && (v.ResizeTarget <= v.DataGiB || v.ResizeTarget > 4096)) {
+		return errors.New("unsupported VM record or identity mismatch")
 	}
-	if fs.NArg() != 0 || *cpus < 1 || *cpus > 64 || *memory < 1 || *memory > 128 || *disk < 4 || *disk > 4096 {
-		return errors.New("invalid create arguments or resource limits")
-	}
-	if runtime.GOARCH != "amd64" {
-		return errors.New("VM creation currently supports x86_64 only")
-	}
-	if (*distro != "" && (*image != "" || *digest != "")) || (*distro == "" && (*offline || *image == "" || !digestPattern.MatchString(*digest))) {
-		return errors.New("create requires either --distro DISTRO:RELEASE [--offline] or --image FILE --digest sha256:HEX")
-	}
-	projectDir, err := projectPath(*project)
-	if err != nil {
-		return err
-	}
-	if err = a.init(); err != nil {
-		return err
-	}
-	if err = a.nameAvailable(name); err != nil {
-		return err
-	}
-	if *distro != "" {
-		*image, *digest, err = a.imageClient().pull(*distro, *offline)
-		if err != nil {
-			return err
-		}
-	}
-	manager, err := fileLock(filepath.Join(a.home, "lock"))
-	if err != nil {
-		return err
-	}
-	defer unlock(manager)
-	if err = a.nameAvailable(name); err != nil {
-		return err
-	}
-	if err = a.importImage(*image, strings.TrimPrefix(*digest, "sha256:")); err != nil {
-		return err
-	}
-	e := &environment{Schema: 2, Name: name, Owner: a.uid, GID: a.gid, Project: projectDir, Desktop: *desktop, CPUs: *cpus, Memory: *memory, Disk: *disk, Digest: strings.TrimPrefix(*digest, "sha256:")}
-	if err = a.allocateID(e); err != nil {
-		return err
-	}
-	if err = os.Mkdir(a.dir(name), 0700); err != nil {
-		return err
-	}
-	if err = a.save(e); err != nil {
-		return err
-	}
-	l, err := a.lock(name)
-	if err != nil {
-		return err
-	}
-	defer unlock(l)
-	if err = a.prepare(e); err != nil {
-		return fmt.Errorf("creation incomplete; use nsl recover %s (state retained): %w", name, err)
-	}
-	fmt.Fprintf(a.out, "Created %s; use nsl shell %s\n", name, name)
 	return nil
 }
 
-// Caller holds the manager lock while allocating and publishing the ID.
-func (a *app) allocateID(e *environment) error {
-	id := make([]byte, 16)
-	if _, err := rand.Read(id); err != nil {
-		return err
+func (a *app) vmDir() string { return filepath.Join(a.home, "vm") }
+
+// loadVM returns the shared VM's record, or nil when there is none yet.
+func (a *app) loadVM() (*vmRecord, error) {
+	if err := a.init(); err != nil {
+		return nil, err
 	}
-	e.ID = hex.EncodeToString(id)
-	entries, err := os.ReadDir(filepath.Join(a.home, "environments"))
+	dir := a.vmDir()
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err := checkPrivateDir(dir, a.uid); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, "vm.json")
+	if err := privateFile(path, a.uid, 0077); err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	v := &vmRecord{dir: dir}
+	if err = protocol.DecodeStrict(b, v); err != nil {
+		return nil, fmt.Errorf("VM record: %w", err)
+	}
+	if err = v.validate(a.uid, a.gid); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func (a *app) saveVM(v *vmRecord) error {
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	used := map[uint32]bool{}
-	for _, entry := range entries {
-		other, err := a.owned(entry.Name())
-		if err != nil {
-			return fmt.Errorf("inspect existing environment %s before creating another: %w", entry.Name(), err)
-		}
-		used[cid(other)] = true
-	}
-	for used[cid(e)] {
-		if _, err = rand.Read(id); err != nil {
-			return err
-		}
-		e.ID = hex.EncodeToString(id)
-	}
-	return nil
+	return atomicWrite(filepath.Join(v.dir, "vm.json"), append(b, '\n'), 0600)
 }
+
+// ensureVM returns the shared VM's record, creating the VM on first use.
+func (a *app) ensureVM() (*vmRecord, error) {
+	if v, err := a.loadVM(); v != nil || err != nil {
+		return v, err
+	}
+	manager, err := fileLock(filepath.Join(a.home, "lock"))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock(manager)
+	if v, err := a.loadVM(); v != nil || err != nil {
+		return v, err
+	}
+	temporary, err := os.MkdirTemp(a.home, ".vm-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(temporary)
+	v := &vmRecord{Schema: 1, ID: randomID(), Owner: a.uid, GID: a.gid, Role: "shared", DataGiB: defaultDataGiB, dir: temporary}
+	if err = a.prepareVM(v); err != nil {
+		return nil, err
+	}
+	// Publish the complete directory at once; a crash leaves only a temporary.
+	if err = os.Rename(temporary, a.vmDir()); err != nil {
+		return nil, err
+	}
+	v.dir = a.vmDir()
+	return v, a.prepareVM(v)
+}
+
+// lockVM serializes lifecycle changes and rejects a VM replaced while waiting.
+func (a *app) lockVM(expected *vmRecord) (*os.File, *vmRecord, error) {
+	l, err := fileLock(filepath.Join(expected.dir, "lock"))
+	if err != nil {
+		return nil, nil, err
+	}
+	v, err := a.loadVM()
+	if err == nil && (v == nil || v.ID != expected.ID) {
+		err = errors.New("the VM was replaced while waiting; retry")
+	}
+	if err != nil {
+		unlock(l)
+		return nil, nil, err
+	}
+	return l, v, nil
+}
+
 func sshQuote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `%`, `%%`).Replace(s) + `"`
 }
-func (a *app) socket(e *environment) string { return filepath.Join(a.runtimeDir, e.ID, "ssh.sock") }
-func guestID(e *environment) string {
-	if e.GuestID != "" {
-		return e.GuestID
-	}
-	return e.ID
-}
-func (a *app) prepare(e *environment) error {
-	dir := a.dir(e.Name)
-	var err error
-	keys := filepath.Join(dir, "keys")
-	if _, err = os.Lstat(keys); os.IsNotExist(err) {
-		temporary, err := os.MkdirTemp(dir, ".keys-*")
+
+func (a *app) socket(v *vmRecord) string { return filepath.Join(a.runtimeDir, v.ID, "ssh.sock") }
+
+// prepareVM creates or completes the VM's keys, SSH configuration and data
+// disk without replacing anything that exists.
+func (a *app) prepareVM(v *vmRecord) error {
+	keys := filepath.Join(v.dir, "keys")
+	if _, err := os.Lstat(keys); errors.Is(err, os.ErrNotExist) {
+		temporary, err := os.MkdirTemp(v.dir, ".keys-*")
 		if err != nil {
 			return err
 		}
 		defer os.RemoveAll(temporary)
-		if err = a.call(nil, a.err, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "nsl-"+e.ID, "-f", filepath.Join(temporary, "identity")); err != nil {
+		if err = a.call(nil, a.err, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "nsl-vm-"+v.ID, "-f", filepath.Join(temporary, "identity")); err != nil {
 			return err
 		}
 		if err = os.Rename(temporary, keys); err != nil {
@@ -348,38 +261,24 @@ func (a *app) prepare(e *environment) error {
 	} else if err != nil {
 		return err
 	}
-	if err = checkPrivateDir(keys, a.uid); err != nil {
+	if err := checkPrivateDir(keys, a.uid); err != nil {
 		return err
 	}
-	if err = privateFile(filepath.Join(keys, "identity"), a.uid, 0077); err != nil {
+	if err := privateFile(filepath.Join(keys, "identity"), a.uid, 0077); err != nil {
 		return err
 	}
-	if err = privateFile(filepath.Join(keys, "identity.pub"), a.uid, 0022); err != nil {
+	if err := privateFile(filepath.Join(keys, "identity.pub"), a.uid, 0022); err != nil {
 		return err
 	}
-	public, err := os.ReadFile(filepath.Join(keys, "identity.pub"))
-	if err != nil {
-		return err
-	}
-	credential, _ := json.Marshal(map[string]any{"version": 1, "id": guestID(e), "uid": e.Owner, "gid": e.GID, "public_key": strings.TrimSpace(string(public))})
-	if err = atomicWrite(filepath.Join(dir, "boot.json"), credential, 0600); err != nil {
-		return err
-	}
-	if err = os.MkdirAll(filepath.Dir(a.socket(e)), 0700); err != nil {
-		return err
-	}
-	if err = checkPrivateDir(filepath.Dir(a.socket(e)), a.uid); err != nil {
-		return err
-	}
-	config := fmt.Sprintf(`Host guest
+	config := fmt.Sprintf(`Host vm
     Hostname vsock/%d
-    User nsl
+    User root
     IdentityFile %s
     IdentitiesOnly yes
     BatchMode yes
     StrictHostKeyChecking accept-new
     UserKnownHostsFile %s
-    HostKeyAlias nsl-%s
+    HostKeyAlias nsl-vm-%s
     ProxyCommand /usr/lib/systemd/systemd-ssh-proxy %%h %%p
     ProxyUseFdpass yes
     ConnectTimeout 2
@@ -388,50 +287,32 @@ func (a *app) prepare(e *environment) error {
     ControlPersist 60
     ServerAliveInterval 10
     ServerAliveCountMax 3
-`, cid(e), sshQuote(filepath.Join(keys, "identity")), sshQuote(filepath.Join(dir, "known_hosts")), guestID(e), sshQuote(a.socket(e)))
-	if err = atomicWrite(filepath.Join(dir, "ssh.config"), []byte(config), 0600); err != nil {
+`, cid(v), sshQuote(filepath.Join(keys, "identity")), sshQuote(filepath.Join(v.dir, "known_hosts")), v.ID, sshQuote(a.socket(v)))
+	if err := atomicWrite(filepath.Join(v.dir, "ssh.config"), []byte(config), 0600); err != nil {
 		return err
 	}
-	disk := filepath.Join(dir, "disk.qcow2")
-	if _, err = os.Lstat(disk); os.IsNotExist(err) {
-		if err = privateFile(a.imagePath(e), a.uid, 0022); err != nil {
-			return err
-		}
-		st, err := os.Stat(a.imagePath(e))
-		if err != nil {
-			return err
-		}
-		if st.Size() > int64(e.Disk)*1024*1024*1024 {
-			return errors.New("requested disk is smaller than the image")
-		}
-		f, err := os.CreateTemp(dir, ".disk-*")
+	data := filepath.Join(v.dir, "data.qcow2")
+	if _, err := os.Lstat(data); errors.Is(err, os.ErrNotExist) {
+		f, err := os.CreateTemp(v.dir, ".data-*")
 		if err != nil {
 			return err
 		}
 		f.Close()
 		defer os.Remove(f.Name())
-		if err = a.call(nil, a.err, "qemu-img", "convert", "-f", "raw", "-O", "qcow2", a.imagePath(e), f.Name()); err != nil {
-			return err
-		}
-		if err = a.call(nil, a.err, "qemu-img", "resize", "-f", "qcow2", f.Name(), fmt.Sprintf("%dG", e.Disk)); err != nil {
+		if err = a.call(nil, a.err, "qemu-img", "create", "-q", "-f", "qcow2", f.Name(), fmt.Sprintf("%dG", v.DataGiB)); err != nil {
 			return err
 		}
 		if err = os.Chmod(f.Name(), 0600); err != nil {
 			return err
 		}
-		if err = os.Rename(f.Name(), disk); err != nil {
+		if err = os.Rename(f.Name(), data); err != nil {
 			return err
 		}
 	} else if err != nil {
 		return err
-	} else {
-		if err = privateFile(disk, a.uid, 0077); err != nil {
-			return err
-		}
-		if err = a.call(nil, a.err, "qemu-img", "check", "-f", "qcow2", disk); err != nil {
-			return fmt.Errorf("disk check failed; preserved disk needs inspection: %w", err)
-		}
 	}
-	e.Prepared = true
-	return a.save(e)
+	if err := privateFile(data, a.uid, 0077); err != nil {
+		return err
+	}
+	return a.saveVM(v)
 }

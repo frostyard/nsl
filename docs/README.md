@@ -11,7 +11,7 @@
 
 nsl is becoming WSL-style machines on atomic Linux. [ADR-0016](adr/0016-wsl-style-machines.md) defines machines trusted as the user, with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs them as systemd-nspawn containers in one shared VM, from signed Frostyard machine images, as the [shared-VM experiment](plans/shared-vm-experiment.md) supported. The specs below describe that target system; the [implementation plan](plans/shared-vm-implementation.md) phases the work and records what is live.
 
-Until the plan's Phase 5, the binary still implements the earlier design: one full distro VM per environment, launched with systemd-vmspawn/QEMU from seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](plans/public-image-delivery.md)). The [user guide](../README.md) describes that binary. Historical reports keep their original measurements and are labeled accordingly.
+The binary now builds and runs the nsl VM; machine commands arrive with the plan's next phases. The earlier one-VM-per-environment prototype, with seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](plans/public-image-delivery.md)), has been removed from the code; its reports remain as history.
 
 ## Index
 
@@ -20,7 +20,6 @@ Until the plan's Phase 5, the binary still implements the earlier design: one fu
 - [0017 — Shared VM and Frostyard machine images](adr/0017-shared-vm-and-machine-images.md)
 - [0016 — WSL-style machines trusted as the user](adr/0016-wsl-style-machines.md)
 - [0015 — Image verification and catalogue policy](adr/0015-image-verification-and-catalogue-policy.md)
-- [0014 — Arch kernel maintenance](adr/0014-arch-kernel-maintenance.md) — retired with the per-distro bootable images.
 - [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md) — deferred.
 - [0012 — Signed image distribution through GHCR](adr/0012-signed-image-distribution.md)
 - [0011 — Image composition and the vsock transport](adr/0011-image-profiles-and-portable-vsock.md)

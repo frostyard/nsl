@@ -1,8 +1,0 @@
-{
-  "distribution": "fedora",
-  "release": "44",
-  "architecture": "x86-64",
-  "family": "rpm",
-  "revision": 5,
-  "root_filesystem": "btrfs"
-}

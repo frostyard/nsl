@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -108,7 +107,7 @@ func newDeliveryFixture(t *testing.T) (*deliveryFixture, *imageClient) {
 	a.imageService = c
 	return f, c
 }
-func TestPullAndOfflineCreate(t *testing.T) {
+func TestPullAndOffline(t *testing.T) {
 	f, c := newDeliveryFixture(t)
 	path, digest, err := c.pull("debian:13", false)
 	if err != nil {
@@ -124,13 +123,6 @@ func TestPullAndOfflineCreate(t *testing.T) {
 	f.server.Close()
 	if _, _, err := c.pull("debian:trixie", true); err != nil {
 		t.Fatalf("offline receipt/signature round trip: %v", err)
-	}
-	if err := c.app.execute([]string{"create", "downloaded", "--distro", "debian:13", "--offline"}); err != nil {
-		t.Fatal(err)
-	}
-	e, err := c.app.owned("downloaded")
-	if err != nil || e.Digest != strings.TrimPrefix(digest, "sha256:") {
-		t.Fatalf("wrong environment: %v", err)
 	}
 	if _, _, err := c.pull("debian:13", false); err == nil {
 		t.Fatal("silent offline fallback")
@@ -181,7 +173,7 @@ func TestCatalogueRollbackExpiryAndWithdrawal(t *testing.T) {
 		t.Fatal("in-flight pull ignored withdrawal")
 	}
 }
-func TestPullFailureNeverCreatesEnvironment(t *testing.T) {
+func TestPullFailureNeverPublishes(t *testing.T) {
 	for _, mode := range []string{"signature", "compressed digest", "raw digest", "invalid zstd", "architecture", "symlink", "fifo"} {
 		t.Run(mode, func(t *testing.T) {
 			f, c := newDeliveryFixture(t)
@@ -220,11 +212,8 @@ func TestPullFailureNeverCreatesEnvironment(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := c.app.create("rejected", []string{"--distro", "debian:13"}); err == nil {
-				t.Fatal("created invalid image")
-			}
-			if _, err := os.Lstat(c.app.dir("rejected")); !os.IsNotExist(err) {
-				t.Fatalf("named environment remains: %v", err)
+			if _, _, err := c.pull("debian:13", false); err == nil {
+				t.Fatal("pulled an invalid image")
 			}
 			raws, err := filepath.Glob(filepath.Join(c.app.home, "images", "*.raw"))
 			if err != nil || len(raws) != 0 {
@@ -391,9 +380,9 @@ func TestRegistryRejectsCredentialRedirects(t *testing.T) {
 }
 func TestImageCommandValidation(t *testing.T) {
 	_, c := newDeliveryFixture(t)
-	for i, args := range [][]string{{"--distro", "debian:13", "--image", "file"}, {"--offline"}, {"--distro", "debian:13", "--cpus", "0"}} {
-		if err := c.app.create(fmt.Sprintf("bad%d", i), args); err == nil {
-			t.Fatal("accepted invalid arguments")
+	for _, args := range [][]string{{"pull"}, {"images", "extra"}, {"pull", "debian:13", "extra"}, {"images", "--cpus", "2"}} {
+		if err := c.app.imageCommand(args); err == nil {
+			t.Fatal("accepted invalid arguments", args)
 		}
 	}
 }
@@ -433,16 +422,18 @@ func TestImageCacheWriteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer syscall.Setrlimit(syscall.RLIMIT_FSIZE, &original)
-	err = c.app.create("write-failure", []string{"--distro", "debian:13"})
+	_, _, err = c.pull("debian:13", false)
 	if err == nil || !strings.Contains(err.Error(), "decompress image") {
 		t.Fatalf("expected disk write error, got %v", err)
 	}
-	if _, err := os.Lstat(c.app.dir("write-failure")); !os.IsNotExist(err) {
-		t.Fatal("failed write published environment")
-	}
 	paths, err := os.ReadDir(filepath.Join(c.app.home, "images"))
-	if err != nil || len(paths) != 0 {
-		t.Fatalf("failed write left raw/staging image: %v %v", paths, err)
+	for _, p := range paths {
+		if !p.IsDir() {
+			t.Fatalf("failed write left raw/staging image: %v", p.Name())
+		}
+	}
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &original); err != nil {
 		t.Fatal(err)

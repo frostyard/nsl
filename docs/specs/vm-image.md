@@ -10,7 +10,7 @@ The [agent protocol](agent.md) covers commands and machine operations. [Machine 
 
 | Disk | Content | Lifetime |
 | --- | --- | --- |
-| Root | The image, as a qcow2 overlay the host creates for each VM image build. | Replaced when the VM image changes. Holds no user state. |
+| Root | The image, as a 16 GiB qcow2 overlay the host creates for each VM image build; the root filesystem grows into it. | Replaced when the VM image changes and by `nsl recover`. Holds no user state. |
 | Data | A btrfs filesystem labelled `nsl-data`, with subvolumes `machines` at `/var/lib/machines` and `state` at `/var/lib/nsl`. | Kept for the VM's lifetime; grows offline and never shrinks. |
 
 The `state` subvolume holds everything that must survive a root replacement:
@@ -34,6 +34,7 @@ vmspawn passes the credential `nsl.vm`, a JSON object:
 | `uid`, `gid` | The host user's numeric UID and primary GID. |
 | `public_key` | The VM's SSH client public key. |
 | `autostart` | Whether to start every machine at boot. |
+| `idle_timeout` | The initial idle timeout in minutes, until a request carries a newer one. |
 | `shares` | Each shared tree's canonical host path, mounted at `/mnt/host` plus that path. Empty in an isolated VM. |
 | `aliases` | Top-level host aliases, as a path under `/mnt/host` and a relative symlink target, such as `/mnt/host/home` → `var/home`. |
 
@@ -79,6 +80,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 
 - The VM MUST become ready without network access. Readiness is the agent's `identity` answer over authenticated vsock SSH, which requires the data disk mounted, the binding checked and sshd running.
 - On first boot, the VM MUST record the credential's `id`, `uid`, `gid`, `role` and `machine` in `identity.json`. On later boots, a credential that differs in any of them MUST fail readiness without changing state.
+- A refused data disk or a mismatched credential MUST power the VM off at once, so the host reports the failure instead of waiting for readiness.
 - sshd MUST listen only on the nsl-owned vsock socket ([ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md)). It MUST accept only the credential's key, for `root`, forced to the agent as the [agent protocol](agent.md#transport) specifies.
 - Files that must survive a crash, including the binding and host keys, MUST be flushed to the data disk before sshd starts.
 - The VM runs on UTC; machines show the host's zone.
@@ -105,7 +107,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 ### Machines
 
 - The image MUST provide `systemd-container` (nspawn and machined), `btrfs-progs`, and tar with zstd, xattrs and ACLs. It also provides the agent at `/usr/lib/nsl/nsl-agent` and a Waypipe server.
-- Before `machines.target`, a boot service MUST write each machine's nspawn settings from its record: `Boot=yes`, `PrivateUsers=no`, `Timezone=off`, no virtual Ethernet, `BindReadOnly=/run/systemd/resolve` and, in a shared VM, `Bind=/mnt/host`. It MUST start every machine when `autostart` is true, and none otherwise.
+- Before `machines.target`, a boot service MUST write each machine's nspawn settings from its record, and the agent MUST rewrite them before starting a machine: `Boot=yes`, `PrivateUsers=no`, `Timezone=off`, no virtual Ethernet, `BindReadOnly=/run/systemd/resolve` and, in a shared VM, `Bind=/mnt/host`. It MUST start every machine when `autostart` is true, and none otherwise.
 - An idle monitor MUST count each running machine's `nsl-run-*` units and connected Waypipe clients. It MUST power off a machine that has had neither for the latest `idle_timeout` (none when it is 0), and power off the VM when no machine is running.
 
 ### Acceptance
@@ -116,7 +118,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 | --- | --- |
 | Readiness | `identity` matches the VM record and descriptor, on first and later boots. |
 | Formatting | A blank data disk becomes `nsl-data` with both subvolumes. |
-| Refusal | A data disk with an ext4 signature fails readiness and stays byte-identical. |
+| Refusal | A data disk with an existing signature (the probe writes a swap header) fails readiness quickly and stays byte-identical. |
 | Binding | A credential with a different `id` or `uid` fails readiness. |
 | Root replacement | After a new root overlay, the pinned host key, `identity.json` and a marker machine survive. |
 | Growth | After the host grows the data disk, the filesystem reports the new size. |

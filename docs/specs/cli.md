@@ -1,6 +1,6 @@
 # Spec: nsl CLI
 
-Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live. Until its Phase 5, the binary still implements the environment CLI that this contract replaces.
+Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live. The binary implements the VM commands; machine commands arrive with Phases 6 and 7.
 
 Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent protocol](agent.md), the [VM image](vm-image.md), [machine images](machine-images.md) and [image delivery](image-delivery.md).
 
@@ -24,10 +24,10 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
 | `nsl images [--offline]` | List authenticated machine-image selections and the VM image in effect. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
-| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. |
+| `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. Not available until VM images are published (Phase 10). |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
 | `nsl config` | Print the effective configuration, the source of each value and any change waiting for a VM restart. |
-| `nsl recover [NAME]` | Restart the shared VM, or isolated machine NAME's VM, check its data disk and resume interrupted work; preserve machines. |
+| `nsl recover [NAME]` | Restart the shared VM, or isolated machine NAME's VM, from a fresh root; check its data disk and resume interrupted work; preserve machines. |
 | `nsl resize [NAME] --disk GiB` | Grow the stopped shared VM's data disk, or isolated machine NAME's; never shrink. |
 | `nsl doctor`, `nsl version`, `nsl help` | Host checks, build version and usage. |
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Prepare nsl machines
+Requires=nsl-setup.service
+After=nsl-setup.service
+Before=machines.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/nsl/nsl-agent boot
+
+[Install]
+WantedBy=multi-user.target

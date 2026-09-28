@@ -77,27 +77,6 @@ func TestMetadataAmbiguityAndBounds(t *testing.T) {
 		t.Fatal("accepted oversized metadata")
 	}
 }
-func TestIncompatibleGuestFailsImmediately(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		change func(*imageDescriptor)
-	}{
-		{"architecture", func(d *imageDescriptor) { d.Architecture = "arm64" }},
-		{"protocol", func(d *imageDescriptor) { d.ProtocolMin = 2; d.ProtocolMax = 2 }},
-		{"schema", func(d *imageDescriptor) { d.Schema = 2 }},
-		{"transport", func(d *imageDescriptor) { d.Transport = "unknown" }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			a, f, e := fixture(t)
-			d := validImageDescriptor()
-			tc.change(&d)
-			f.guestDescriptor = &d
-			if err := a.start(e); !errors.Is(err, errIncompatibleImage) {
-				t.Fatalf("got %v", err)
-			}
-		})
-	}
-}
 func TestMetadataCaptureBoundAppliesToCopy(t *testing.T) {
 	b := &boundedBuffer{limit: 32}
 	// Hide Reader.WriteTo so io.Copy would use an accidentally promoted ReadFrom.
