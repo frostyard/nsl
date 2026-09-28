@@ -19,13 +19,13 @@ The job holds `packages: write` and signs with the workflow's GitHub OIDC identi
 
 **The runner account.** A normal account with a login shell and the `kvm` group, and no `docker` group. Linger keeps its user manager running. The runner and a headless sway, which advertises a `wl_seat` without input devices as the GUI acceptance needs, are user services, so jobs get the user manager, the account's primary group and `WAYLAND_DISPLAY`. A job-completed hook empties the work directory after every job, first keeping each publication's private evidence outside it for diagnosis; the Lima builder under `~/.local/share/nsl-publication-build` persists, as the workflow intends.
 
-**Acceptance decides fitness.** The measurement gates do not change for nested virtualization. The first publication on the new runner is the evidence that it can publish; until then, a temporary runner in the same group remains the fallback.
+**Acceptance decides fitness.** The functional checks and the start-time gate do not change for nested virtualization. The memory budget is set from this runner's measurements: four idle machines at or below 1,200 MiB. The earlier 950 MiB was the shared-VM experiment's single measurement on the maintainer's workstation, adopted as a limit without headroom. On the builder, the same catalogue 9 images measured 974 MiB and fresh builds 1,047 MiB, about 120 MiB above that workstation. 1,200 MiB leaves room for package drift and is still about half of four separate VMs (2,328 MiB, [ADR-0017](0017-shared-vm-and-machine-images.md)). The first publication on the new runner is the evidence that it can publish; until then, a temporary runner in the same group remains the fallback.
 
 ## Consequences
 
 - Scheduled runs find a runner, so weekly publication no longer depends on the maintainer's session.
 - The runner persists state between runs: its home and the Lima builder. Only the trusted main-branch workflow can reach it, and the guest is disposable: rebuilding it means re-creating the VM and re-registering with a new token.
-- Acceptance timings are measured one virtualization layer deeper than before. If the gates fail on the builder, fix the host or its sizing rather than the gates.
+- Acceptance timings and memory are measured one virtualization layer deeper than before, which adds about 120 MiB of VM memory for four idle machines. A later failure of a gate on the builder is a regression to fix, not a reason to raise the budget again without new measurements.
 - The runner updates itself. The VM, its image pin and its configuration change through reviewed fleet changes, not from this repository.
 
 ## Alternatives considered

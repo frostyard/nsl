@@ -10,9 +10,10 @@ then measures through the CLI, as the shared-VM experiment did:
   - host PSS of the VM unit's processes, idle with 1, 2 and 4 machines.
 
 The VM gets 4 vCPUs and 8 GiB, autostart off and idle stop off. Criteria from
-the implementation plan: four idle machines at or below 950 MiB, and an
-additional machine at p95 <= 2 s. Like the experiment that set that budget,
-the gated figures run without desktop sessions. When the host has a Wayland
+the implementation plan: four idle machines at or below 1,200 MiB, set from
+the publication runner's measurements (ADR-0019), and an additional machine
+at p95 <= 2 s. Like the shared-VM experiment, the gated figures run without
+desktop sessions. When the host has a Wayland
 session, the evidence also records four idle machines with their desktop
 sessions, and the difference, ungated. Writes JSON evidence; exits nonzero
 when a criterion fails.
@@ -34,7 +35,7 @@ import sys
 import tempfile
 import time
 
-MEMORY_LIMIT_MIB = 950
+MEMORY_LIMIT_MIB = 1200
 ADDITIONAL_P95_S = 2.0
 
 
