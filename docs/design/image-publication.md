@@ -1,6 +1,6 @@
 # Image publication
 
-Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). Contract: [signed image delivery](../specs/image-delivery.md).
+Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0019](../adr/0019-persistent-publication-runner.md). Contract: [signed image delivery](../specs/image-delivery.md).
 
 ## Overview
 
@@ -8,7 +8,7 @@ Living document. Rationale: [ADR-0015](../adr/0015-image-verification-and-catalo
 
 ## Design
 
-A self-hosted runner labeled `nsl-image-builder` supplies the host prerequisites of `nsl doctor`, a user systemd session and a Wayland compositor, headless or not, named by `WAYLAND_DISPLAY`. The GUI acceptance opens windows on it. Its work directory must lie under the runner account's home, because the translation checks need the checkout in a tree shared with machines. The job fetches a pinned Waypipe and keeps its own Lima builder in `~/.local/share/nsl-publication-build`, since a builder's mount belongs to the checkout that created it. Keep the account's normal primary GID when launching the runner so Lima can map exported file ownership; nsl handles its own KVM group entry. Clear inherited `GOROOT` and `GOBIN` so Actions selects its requested Go toolchain. Use a temporary runner restricted to this trusted main-branch workflow and remove it afterwards. Pull requests do not invoke this workflow. The runner installs no host packages or services. Pinned Lima, ORAS and cosign binaries are downloaded into ignored build output and checked against SHA256 values. Guest build packages stay inside the owned Lima VM.
+A self-hosted runner labeled `nsl-image-builder` supplies the host prerequisites of `nsl doctor`, a user systemd session and a Wayland compositor, headless or not, named by `WAYLAND_DISPLAY`. The GUI acceptance opens windows on it. Its work directory must lie under the runner account's home, because the translation checks need the checkout in a tree shared with machines. The job fetches a pinned Waypipe and keeps its own Lima builder in `~/.local/share/nsl-publication-build`, since a builder's mount belongs to the checkout that created it. Keep the account's normal primary GID when launching the runner so Lima can map exported file ownership; nsl handles its own KVM group entry. Clear inherited `GOROOT` and `GOBIN` so Actions selects its requested Go toolchain. The runner is persistent and dedicated ([ADR-0019](../adr/0019-persistent-publication-runner.md)): the `nsl-builder` VM on the maintainer's lab host, registered in the frostyard `nsl-image-builder` runner group, which admits only this repository and, where the plan allows, only this workflow on `main`. Its runner and a headless weston run as user services of an account in the `kvm` group, and a job-completed hook empties the work directory while the Lima builder stays. A temporary runner in the same group is the fallback. Pull requests do not invoke this workflow. The job installs no host packages or services. Pinned Lima, ORAS and cosign binaries are downloaded into ignored build output and checked against SHA256 values. Guest build packages stay inside the owned Lima VM.
 
 `scripts/publish-images.py build`:
 
