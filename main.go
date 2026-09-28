@@ -30,6 +30,7 @@ func (processRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 
 type app struct {
 	home, waypipe, opener, self, runtimeDir string
+	groupSwitch                             string // "sg", or "newgrp" on hosts without sg
 	uid, gid                                int
 	user, group                             string
 	r                                       runner
@@ -83,7 +84,19 @@ func newApp() (*app, error) {
 		return nil, err
 	}
 	return &app{home: home, waypipe: tool("NSL_WAYPIPE", "waypipe"), opener: tool("NSL_OPENER", "xdg-open"), self: self, runtimeDir: filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "nsl"),
-		uid: os.Getuid(), gid: gid, user: account.Username, group: group.Name, r: processRunner{}, in: os.Stdin, out: os.Stdout, err: os.Stderr, hostRoot: "/"}, nil
+		uid: os.Getuid(), gid: gid, user: account.Username, group: group.Name, r: processRunner{}, in: os.Stdin, out: os.Stdout, err: os.Stderr, hostRoot: "/",
+		groupSwitch: groupSwitcher(exec.LookPath)}, nil
+}
+
+// groupSwitcher picks the tool that runs a command under another primary group:
+// shadow's sg, or util-linux's newgrp -c where sg is absent, as on Debian 14.
+func groupSwitcher(lookPath func(string) (string, error)) string {
+	if _, err := lookPath("sg"); err != nil {
+		if _, err := lookPath("newgrp"); err == nil {
+			return "newgrp"
+		}
+	}
+	return "sg"
 }
 
 func (a *app) call(in io.Reader, out io.Writer, bin string, args ...string) error {
