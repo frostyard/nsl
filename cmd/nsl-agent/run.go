@@ -17,35 +17,54 @@ import (
 // systemd's own exit statuses for failures before the command runs.
 var systemdSteps = map[int32]string{200: "CHDIR", 203: "EXEC", 216: "GROUP", 217: "USER", 224: "PAM"}
 
-func (a *agent) runCommand(req *protocol.Request) (int, error) {
+// runnable checks that a machine can take a command session and marks it active.
+func (a *agent) runnable(req *protocol.Request) (*protocol.MachineRecord, error) {
 	rec, err := a.record(req)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	state, err := a.state(req.Machine)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if state != "running" {
-		return 0, &protocol.Error{Code: protocol.CodeNotRunning, Message: req.Machine + " is " + state}
+		return nil, &protocol.Error{Code: protocol.CodeNotRunning, Message: req.Machine + " is " + state}
 	}
 	a.saveIdleTimeout(*req.IdleTimeout)
 	a.touchActivity(req.Machine)
+	return rec, nil
+}
+
+func searchPath(home string) []string {
+	return []string{home + "/.local/bin", "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
+}
+
+func (a *agent) runCommand(req *protocol.Request) (int, error) {
+	rec, err := a.runnable(req)
+	if err != nil {
+		return 0, err
+	}
 	user, home := rec.Account.User, "/home/"+rec.Account.User
 	if req.Root {
 		user, home = "root", "/root"
 	}
-	spec := unitSpec{Argv: req.Argv, User: user, PAM: !req.Root, Directory: req.Directory,
-		SearchPath: []string{home + "/.local/bin", "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"},
-		Stdio:      [3]int{int(a.stdin.Fd()), int(a.stdout.Fd()), int(a.stderr.Fd())}}
+	spec := unitSpec{Argv: req.Argv, User: user, PAM: !req.Root, Directory: req.Directory, SearchPath: searchPath(home)}
 	if spec.Directory == "" {
 		spec.Directory = home
 	}
 	for k, v := range req.Env {
 		spec.Env = append(spec.Env, k+"="+v)
 	}
+	spec.Env = append(spec.Env, a.desktopEnv(req.Machine)...)
 	sort.Strings(spec.Env)
-	m, err := a.sys.Machine(req.Machine)
+	return a.runUnit(req.Machine, spec, req.TTY)
+}
+
+// runUnit runs a transient nsl-run unit in the machine on the session's
+// streams or a PTY, and maps its result to an exit status.
+func (a *agent) runUnit(name string, spec unitSpec, tty bool) (int, error) {
+	spec.Stdio = [3]int{int(a.stdin.Fd()), int(a.stdout.Fd()), int(a.stderr.Fd())}
+	m, err := a.sys.Machine(name)
 	if err != nil {
 		return 0, err
 	}
@@ -54,11 +73,11 @@ func (a *agent) runCommand(req *protocol.Request) (int, error) {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGTERM)
 	defer cancel()
 	var pty *ptyForwarder
-	if req.TTY {
+	if tty {
 		if !isTerminal(a.stdin) {
 			return 0, &protocol.Error{Code: protocol.CodeBadRequest, Message: "tty requires a terminal on the session"}
 		}
-		master, slave, path, err := a.sys.OpenPTY(req.Machine)
+		master, slave, path, err := a.sys.OpenPTY(name)
 		if err != nil {
 			return 0, err
 		}
@@ -87,7 +106,7 @@ func (a *agent) runCommand(req *protocol.Request) (int, error) {
 		pty.drain(time.Second)
 	}
 	if step, ok := systemdSteps[status]; ok && code == 1 {
-		fmt.Fprintf(a.stderr, "nsl-agent: %s could not start (systemd %d/%s)\n", req.Argv[0], status, step)
+		fmt.Fprintf(a.stderr, "nsl-agent: %s could not start (systemd %d/%s)\n", spec.Argv[0], status, step)
 	}
 	return protocol.ExitStatus(code, status), nil
 }

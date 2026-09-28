@@ -366,6 +366,13 @@ func (a *app) startVM(v *vmRecord, autostart bool) error {
 						return err
 					}
 				}
+				// Forwarding follows readiness; commands work without it. A fresh
+				// report shows a running forwarder without asking systemd.
+				if launched || !a.forwarding(v) {
+					if err = a.startHelper(v, portsUnit(v), portsDescription(v), nil, "_forward"); err != nil {
+						fmt.Fprintln(a.err, "nsl: port forwarding:", err)
+					}
+				}
 				return nil
 			}
 			if errors.Is(readiness, errIncompatibleImage) {
@@ -397,7 +404,7 @@ func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
 		return err
 	}
 	script := "exec " + shellQuote(a.self) + " _devices shared"
-	return a.call(nil, a.err, "systemd-run", "--user", "--unit="+vmUnit(v), "--description="+vmDescription(v), "--collect",
+	return a.call(nil, a.err, "systemd-run", "--user", "--quiet", "--unit="+vmUnit(v), "--description="+vmDescription(v), "--collect",
 		"--property=Type=exec", "--property=TimeoutStopSec=30", "--property=KillMode=mixed",
 		"--setenv=NSL_HOME="+a.home, "--setenv=NSL_DEBUG="+os.Getenv("NSL_DEBUG"), "--", "sg", "kvm", "-c", script)
 }

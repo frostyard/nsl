@@ -23,6 +23,8 @@ type system interface {
 	TerminateMachine(name string) error
 	OpenPTY(name string) (master, slave *os.File, path string, err error)
 	Machine(name string) (manager, error)
+	Leader(name string) (uint32, error)
+	BindMount(name, source, destination string) error
 }
 
 // manager is a running machine's service manager.
@@ -45,6 +47,7 @@ type unitSpec struct {
 	Env        []string
 	Stdio      [3]int // file descriptors, when TTY is empty
 	TTY        string // PTY path inside the machine
+	RuntimeDir string // RuntimeDirectory=, when set
 }
 
 const (
@@ -116,7 +119,7 @@ func (s *dbusSystem) OpenPTY(name string) (*os.File, *os.File, string, error) {
 		return nil, nil, "", fmt.Errorf("opening a PTY in %s: %w", name, err)
 	}
 	master := os.NewFile(uintptr(fd), "pty")
-	leader, err := s.leader(name)
+	leader, err := s.Leader(name)
 	if err == nil && !ptyPath.MatchString(path) {
 		err = errors.New("unexpected PTY path " + path)
 	}
@@ -131,7 +134,7 @@ func (s *dbusSystem) OpenPTY(name string) (*os.File, *os.File, string, error) {
 	return master, slave, path, nil
 }
 
-func (s *dbusSystem) leader(name string) (uint32, error) {
+func (s *dbusSystem) Leader(name string) (uint32, error) {
 	var path dbus.ObjectPath
 	if err := s.conn.Object(machinedName, machinedPath).Call(machinedIface+".GetMachine", 0, name).Store(&path); err != nil {
 		return 0, err
@@ -147,11 +150,16 @@ func (s *dbusSystem) leader(name string) (uint32, error) {
 	return leader, nil
 }
 
+// BindMount binds a VM directory into a running machine, creating the mount point.
+func (s *dbusSystem) BindMount(name, source, destination string) error {
+	return s.conn.Object(machinedName, machinedPath).Call(machinedIface+".BindMountMachine", 0, name, source, destination, false, true).Err
+}
+
 // Machine connects to the machine's system bus through its leader's root. The
 // manager's private socket refuses peers from another PID namespace; the bus
 // accepts VM root, which is machine root without a user namespace.
 func (s *dbusSystem) Machine(name string) (manager, error) {
-	leader, err := s.leader(name)
+	leader, err := s.Leader(name)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +237,9 @@ func (m *dbusManager) Start(unit string, spec unitSpec) error {
 	}
 	if spec.PAM {
 		props = append(props, property{"PAMName", dbus.MakeVariant("nsl")})
+	}
+	if spec.RuntimeDir != "" {
+		props = append(props, property{"RuntimeDirectory", dbus.MakeVariant([]string{spec.RuntimeDir})})
 	}
 	if spec.TTY != "" {
 		props = append(props, property{"TTYPath", dbus.MakeVariant(spec.TTY)},

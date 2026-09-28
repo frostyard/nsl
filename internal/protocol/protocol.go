@@ -118,30 +118,38 @@ type Request struct {
 	Image       *Image            `json:"image,omitempty"`
 	Rootfs      *Rootfs           `json:"rootfs,omitempty"`
 	TimeZone    string            `json:"time_zone,omitempty"`
+	PublicKey   string            `json:"public_key,omitempty"`
 }
 
 // Fields each operation takes beyond protocol and op. Anything else is refused.
 var operations = map[string][]string{
-	"identity": {},
-	"machines": {},
-	"vm":       {"argv"},
-	"start":    {"machine", "id", "idle_timeout"},
-	"stop":     {"machine", "id"},
-	"run":      {"machine", "id", "argv", "directory", "root", "tty", "env", "idle_timeout"},
-	"create":   {"machine", "id", "account", "image", "time_zone"},
-	"import":   {"machine", "id", "account", "rootfs", "time_zone"},
-	"export":   {"machine", "id"},
-	"remove":   {"machine", "id"},
+	"identity":  {},
+	"machines":  {},
+	"vm":        {"argv"},
+	"start":     {"machine", "id", "idle_timeout"},
+	"stop":      {"machine", "id"},
+	"run":       {"machine", "id", "argv", "directory", "root", "tty", "env", "idle_timeout"},
+	"create":    {"machine", "id", "account", "image", "time_zone"},
+	"import":    {"machine", "id", "account", "rootfs", "time_zone"},
+	"export":    {"machine", "id"},
+	"remove":    {"machine", "id"},
+	"listeners": {},
+	"display":   {"machine", "id"},
+	"ssh":       {"machine", "id", "public_key", "idle_timeout"},
 }
 
+// Passive operations observe or serve the VM; they are not activity for the
+// idle monitor.
+var Passive = map[string]bool{"identity": true, "machines": true, "listeners": true, "display": true}
+
 // Fields a request must carry for its operation.
-var required = map[string]bool{"machine": true, "id": true, "argv": true, "idle_timeout": true, "account": true, "image": true, "rootfs": true, "time_zone": true}
+var required = map[string]bool{"machine": true, "id": true, "argv": true, "idle_timeout": true, "account": true, "image": true, "rootfs": true, "time_zone": true, "public_key": true}
 
 func (r *Request) present() map[string]bool {
 	return map[string]bool{
 		"machine": r.Machine != "", "id": r.ID != "", "argv": r.Argv != nil, "directory": r.Directory != "",
 		"root": r.Root, "tty": r.TTY, "env": r.Env != nil, "idle_timeout": r.IdleTimeout != nil,
-		"account": r.Account != nil, "image": r.Image != nil, "rootfs": r.Rootfs != nil, "time_zone": r.TimeZone != "",
+		"account": r.Account != nil, "image": r.Image != nil, "rootfs": r.Rootfs != nil, "time_zone": r.TimeZone != "", "public_key": r.PublicKey != "",
 	}
 }
 
@@ -207,6 +215,9 @@ func (r *Request) Validate() error {
 		if err := r.Rootfs.validate(); err != nil {
 			return badRequest("%v", err)
 		}
+	}
+	if allowed["public_key"] && !publicKeyPattern.MatchString(r.PublicKey) {
+		return badRequest("invalid public key")
 	}
 	if allowed["time_zone"] && !ValidZone(r.TimeZone) {
 		return badRequest("invalid time zone")
@@ -472,6 +483,13 @@ func ValidDigest(s string) bool { return digestPattern.MatchString(s) }
 
 // ValidBuildID reports whether s is an image build ID.
 func ValidBuildID(s string) bool { return buildPattern.MatchString(s) }
+
+// Listener is one TCP socket listening for a machine, from the listeners operation.
+type Listener struct {
+	Port    int    `json:"port"`
+	Address string `json:"address"`
+	Machine string `json:"machine"`
+}
 
 // StartResult is the answer to start.
 type StartResult struct {

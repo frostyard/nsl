@@ -107,8 +107,10 @@ func (a *agent) handle(command string) (int, error) {
 	if (req.Op == "create" || req.Op == "import") && binding.Machine != nil && binding.Machine.ID != req.ID {
 		return 0, &protocol.Error{Code: protocol.CodeRefused, Message: "this isolated VM hosts another machine ID"}
 	}
-	if err = a.holdRequest(); err != nil {
-		return 0, err
+	if !protocol.Passive[req.Op] {
+		if err = a.holdRequest(); err != nil {
+			return 0, err
+		}
 	}
 	if a.sys == nil && req.Op != "identity" && req.Op != "vm" {
 		if a.sys, err = newSystem(); err != nil {
@@ -136,6 +138,12 @@ func (a *agent) handle(command string) (int, error) {
 		return 0, a.export(req)
 	case "remove":
 		return 0, a.remove(req)
+	case "listeners":
+		return 0, a.listeners()
+	case "display":
+		return 0, a.display(req, binding)
+	case "ssh":
+		return a.sshd(req)
 	}
 	return 0, &protocol.Error{Code: protocol.CodeBadRequest, Message: "unknown operation " + req.Op}
 }

@@ -1,0 +1,35 @@
+#!/bin/sh
+# nsl-open URL | PATH: open an http or https URL, or a file under /mnt/host,
+# with the host's default handler, through this machine's broker.
+set -eu
+if [ $# -ne 1 ]; then
+  echo 'usage: nsl-open URL | PATH' >&2
+  exit 2
+fi
+target=$1
+case $target in
+*[[:cntrl:]]*)
+  echo 'nsl-open: the target has control characters' >&2
+  exit 2 ;;
+file://*) target=${target#file://} ;;
+esac
+case $target in
+[A-Za-z]*:*) ;;
+*)
+  # A path: make it absolute and resolve /mnt/host aliases, as nsl-path does.
+  case $target in
+  /*) ;;
+  *) target=$(pwd -P)/$target ;;
+  esac
+  target=$(realpath -m -- "$target") ;;
+esac
+socket=/run/nsl/desktop/open.sock
+if [ ! -S "$socket" ]; then
+  echo 'nsl-open: no desktop session; run an nsl command from a Wayland session on the host' >&2
+  exit 1
+fi
+json=$(printf '%s' "$target" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+if ! reply=$(varlinkctl call "$socket" io.frostyard.nsl.Broker.Open "{\"target\":\"$json\"}" 2>&1); then
+  printf 'nsl-open: %s\n' "$reply" >&2
+  exit 1
+fi

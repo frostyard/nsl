@@ -34,7 +34,7 @@ Every image supplies:
 - **Nesting:** `run-nsl-proc.mount`, a fully visible procfs at `/run/nsl/proc`, and `/etc/containers/containers.conf.d/50-nsl-nspawn.conf` with `keyring = false` and `default_sysctls = []`.
 - **Presets:** a preset for every integration unit. Images apply presets on first boot, and a distro's disable-all preset would otherwise undo an enable.
 - **Desktop:** zone data, a font, a cursor theme and the Wayland client libraries, for the `gui` capability.
-- **Guest commands:** `nsl-path`; `nsl-open`, set as `BROWSER` and the `xdg-open` handler, arrives with the broker (Phase 8).
+- **Guest commands:** `nsl-path`, and `nsl-open`, a shell script that sends its target to the host's broker with `varlinkctl` (systemd 255 or newer). `nsl-open` turns a relative path into an absolute one and resolves `/mnt/host` aliases first. `nsl-open.desktop` and `/etc/xdg/mimeapps.list` make it the handler for `http` and `https`; the agent sets `BROWSER=nsl-open` while the desktop session lasts.
 - **Remote editors:** an OpenSSH server binary with no enabled service or socket, for `ssh-config`.
 - **Descriptor:** `/usr/lib/nsl/machine.json`.
 

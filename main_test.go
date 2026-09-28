@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/frostyard/nsl/internal/protocol"
@@ -27,7 +28,11 @@ type call struct {
 
 // fakeRunner emulates systemd user units, qemu-img, ssh-keygen and the agent.
 type fakeRunner struct {
+	mu                   sync.Mutex // helpers call the runner from several goroutines
 	calls                []call
+	blocking             func(ctx context.Context, bin string, args []string) (bool, error) // long-running tools, run unlocked
+	forwardFail          map[string]bool                                                    // ssh -O forward specs that fail
+	forwards             []string                                                           // ssh -O forward and cancel calls
 	states, descriptions map[string]string
 	vm                   *vmRecord // the VM whose identity the fake agent reports
 	identity             func(*protocol.Identity)
@@ -52,7 +57,17 @@ func qcow2(path string, gibs int64, backing bool) error {
 }
 
 func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Writer, env []string, bin string, args ...string) error {
+	f.mu.Lock()
 	f.calls = append(f.calls, call{bin, append([]string{}, args...)})
+	blocking := f.blocking
+	f.mu.Unlock()
+	if blocking != nil {
+		if handled, err := blocking(ctx, bin, args); handled {
+			return err
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	switch bin {
 	case "ssh-keygen":
 		path := args[len(args)-1]
@@ -116,8 +131,20 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			}
 		}
 	case "ssh":
-		if args[len(args)-2] == "exit" || strings.HasPrefix(args[len(args)-1], "-") {
-			return nil
+		for i, a := range args {
+			if a == "-O" {
+				if args[i+1] == "forward" || args[i+1] == "cancel" {
+					f.forwards = append(f.forwards, args[i+1]+" "+args[i+3])
+					if args[i+1] == "forward" && f.forwardFail[args[i+3]] {
+						fmt.Fprintln(stderr, "mux_client_forward: forwarding request failed: Port forwarding failed")
+						return errors.New("exit status 255")
+					}
+				}
+				return nil
+			}
+			if a == "-fN" {
+				return nil
+			}
 		}
 		req, err := protocol.Decode(args[len(args)-1])
 		if err != nil {
@@ -157,10 +184,11 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 	return nil
 }
 
+// ran counts calls; tests with concurrent helpers hold f.mu around it.
 func (f *fakeRunner) ran(bin string, prefix ...string) int {
 	n := 0
 	for _, c := range f.calls {
-		if c.Bin == bin && len(c.Args) >= len(prefix) && reflect.DeepEqual(c.Args[:len(prefix)], prefix) {
+		if c.Bin == bin && len(c.Args) >= len(prefix) && (len(prefix) == 0 || reflect.DeepEqual(c.Args[:len(prefix)], prefix)) {
 			n++
 		}
 	}
@@ -173,6 +201,7 @@ func testApp(t *testing.T) (*app, *fakeRunner) {
 	host := t.TempDir()
 	t.Setenv("HOME", filepath.Join(host, "home", "u"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(host, "config"))
+	t.Setenv("WAYLAND_DISPLAY", "") // desktop sessions only where a test asks
 	os.MkdirAll(filepath.Join(host, "home", "u"), 0700)
 	a := &app{home: filepath.Join(t.TempDir(), "nsl"), runtimeDir: t.TempDir(), self: "/test/nsl", waypipe: "waypipe", uid: os.Getuid(), gid: os.Getgid(),
 		user: "u", group: "u", r: f, in: strings.NewReader(""), out: io.Discard, err: io.Discard, host: &hostFacts{memoryKiB: 16 << 20, cpus: 8}, hostRoot: host}

@@ -112,7 +112,7 @@ func TestSetupBindsOnFirstBootAndChecksLater(t *testing.T) {
 		t.Fatal(err, string(b))
 	}
 	keys, _ := os.ReadFile(ta.root + runtimeDir + "/ssh/authorized_keys")
-	if string(keys) != `restrict,pty,port-forwarding,permitopen="127.0.0.1:*",command="/usr/lib/nsl/nsl-agent" ssh-ed25519 AAAA nsl`+"\n" {
+	if string(keys) != `restrict,pty,port-forwarding,permitopen="127.0.0.1:*",permitopen="[::1]:*",command="/usr/lib/nsl/nsl-agent" ssh-ed25519 AAAA nsl`+"\n" {
 		t.Fatalf("%q", keys)
 	}
 	if link, _ := os.Readlink(ta.root + "/mnt/host/home"); link != "var/home" {

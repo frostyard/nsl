@@ -158,7 +158,7 @@ func (a *agent) setup() error {
 	}
 	// Every session of this key runs the agent; forwarding is limited to VM
 	// loopback ports and the Unix sockets sshd_config allows.
-	keys := `restrict,pty,port-forwarding,permitopen="127.0.0.1:*",command="` + protocol.AgentPath + `" ` + c.PublicKey + "\n"
+	keys := `restrict,pty,port-forwarding,permitopen="127.0.0.1:*",permitopen="[::1]:*",command="` + protocol.AgentPath + `" ` + c.PublicKey + "\n"
 	if err = atomicWrite(ssh+"/authorized_keys", []byte(keys), 0600); err != nil {
 		return err
 	}

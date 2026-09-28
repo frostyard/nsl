@@ -32,10 +32,12 @@ func (e exitError) ExitCode() int { return int(e) }
 type fakeRunner struct {
 	calls   [][]string
 	handler func(argv []string, stdin io.Reader, stdout io.Writer) error
+	ctx     context.Context // of the latest call, for handlers that block
 }
 
 func (f *fakeRunner) run(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, argv ...string) error {
 	f.calls = append(f.calls, argv)
+	f.ctx = ctx
 	if f.handler != nil {
 		return f.handler(argv, stdin, stdout)
 	}
@@ -79,6 +81,9 @@ type fakeSystem struct {
 	units    map[string]string
 	manager  *fakeManager
 	managers map[string]*fakeManager // per machine, when set
+	leaders  map[string]uint32
+	binds    [][3]string
+	bound    chan struct{} // signalled after each bind, when set
 	killed   []int
 	stopped  []string
 }
@@ -103,6 +108,19 @@ func (s *fakeSystem) KillMachine(name string, signal int) error {
 func (s *fakeSystem) TerminateMachine(name string) error { return nil }
 func (s *fakeSystem) OpenPTY(name string) (*os.File, *os.File, string, error) {
 	return nil, nil, "", errors.New("no PTY in tests")
+}
+func (s *fakeSystem) Leader(name string) (uint32, error) {
+	if s.units[unitOf(name)] != "active" || s.leaders[name] == 0 {
+		return 0, errors.New("not running")
+	}
+	return s.leaders[name], nil
+}
+func (s *fakeSystem) BindMount(name, source, destination string) error {
+	s.binds = append(s.binds, [3]string{name, source, destination})
+	if s.bound != nil {
+		s.bound <- struct{}{}
+	}
+	return nil
 }
 func (s *fakeSystem) Machine(name string) (manager, error) {
 	if s.units[unitOf(name)] != "active" {

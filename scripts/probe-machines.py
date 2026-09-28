@@ -3,12 +3,16 @@
 
 Creates a machine from each image in a disposable state directory, then runs
 the agent's entry matrix (docs/specs/agent.md), the hub-image tally checks and
-the workload checks. Writes JSON evidence; exits nonzero if a check fails.
+the workload checks, including host integration: automatic port forwarding,
+the nsl-open broker and ssh-config. Writes JSON evidence; exits nonzero if a
+check fails.
 
   probe-machines.py --nsl build/nsl --vm-image VM.raw --machine-image M1.tar.zst ... \\
       --evidence build/image/evidence/machines-probe.json [--gui]
 
---gui briefly opens a window from each machine on the host desktop through Waypipe.
+When the host has a Wayland compositor, machines get desktop sessions; the
+broker check records what nsl-open asks for instead of opening it. --gui also
+opens a window from each machine on the host desktop for three seconds.
 """
 import argparse
 import base64
@@ -21,7 +25,9 @@ from pathlib import Path
 import pty
 import re
 import select
+import shlex
 import shutil
+import socket
 import statistics
 import subprocess
 import sys
@@ -75,7 +81,17 @@ class Result:
 class Probe:
     def __init__(self, nsl, home):
         self.nsl, self.home = nsl, home
-        self.env = dict(os.environ, NSL_HOME=str(home))
+        # The broker's opener records targets rather than opening them.
+        self.opened = home/'opened'
+        opener = home/'opener'
+        opener.write_text(f'#!/bin/sh\nprintf "%s\\n" "$1" >> {shlex.quote(str(self.opened))}\n')
+        opener.chmod(0o755)
+        self.env = dict(os.environ, NSL_HOME=str(home), NSL_OPENER=str(opener))
+        runtime = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}'))
+        display = os.environ.get('WAYLAND_DISPLAY') or ('wayland-0' if (runtime/'wayland-0').is_socket() else '')
+        self.desktop = bool(display)
+        if display:
+            self.env['WAYLAND_DISPLAY'] = display
         self.user = os.environ.get('USER') or subprocess.run(['id', '-un'], capture_output=True, text=True).stdout.strip()
         self.machines = {}
 
@@ -378,27 +394,61 @@ def check_files(p, name, machine, peer):
     return result
 
 
+def ports_states(p, name):
+    states = {}
+    for line in p.cli('ports', name).stdout.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) == 3 and fields[0].startswith('127.0.0.1:'):
+            states[int(fields[0].split(':')[1])] = fields[2]
+    return states
+
+
 def check_ports(p, name, machine, port, peer):
-    unit = f'nsl-http-{port}'
-    started = p.m(name, 'systemd-run', '--user', '--unit=' + unit, '--quiet', 'python3', '-m', 'http.server', str(port), '--bind', '127.0.0.1')
-    time.sleep(1.5)
-    listening = str(port) in p.vm('ss', '-Hltn', f'sport = :{port}').stdout
-    control = str(p.home/'probe-ports.sock')
-    base = ['ssh', '-F', str(p.home/'vm/ssh.config'), '-S', control]
-    subprocess.run(base + ['-o', 'ControlMaster=yes', '-o', 'ControlPersist=60', '-fN', 'vm'], capture_output=True, timeout=30)
-    forwarded = subprocess.run(base + ['-O', 'forward', '-L', f'127.0.0.1:{port}:127.0.0.1:{port}', 'vm'], capture_output=True).returncode == 0
+    """The forwarder follows machine listeners: IPv4, wildcard and ::1 only, and reports conflicts."""
+    ipv4, ipv6, taken = port, port + 100, port + 200
+    units = []
+    host = socket.socket()
+    host.bind(('127.0.0.1', taken))
+    host.listen(1)
     try:
-        status = urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=5).status
-    except OSError as error:
-        status = str(error)
-    subprocess.run(base + ['-O', 'exit', 'vm'], capture_output=True)
-    conflict = None
-    if peer:
-        conflict = p.m(peer, 'python3', '-c', f'import socket; s = socket.socket(); s.bind(("127.0.0.1", {port})); print("bound")').err.splitlines()[-1:]
-    p.m(name, 'systemctl', '--user', 'stop', unit)
-    return {'pass': started.returncode == 0 and listening and forwarded and status == 200
-            and (peer is None or bool(conflict and 'Address already in use' in conflict[0])),
-            'vm_sees_listener': listening, 'host_status': status, 'peer_bind_same_port': conflict[0] if conflict else None}
+        for listen, bind in ((ipv4, '0.0.0.0'), (ipv6, '::1'), (taken, '127.0.0.1')):
+            unit = f'nsl-http-{listen}'
+            p.m(name, 'systemd-run', '--user', '--unit=' + unit, '--quiet', 'python3', '-m', 'http.server', str(listen), '--bind', bind)
+            units.append(unit)
+        states, began = {}, time.monotonic()
+        while time.monotonic() - began < 20:
+            states = ports_states(p, name)
+            if states.get(ipv4) == 'forwarded' and states.get(ipv6) == 'forwarded' and states.get(taken, '').startswith('conflict'):
+                break
+            time.sleep(.5)
+        seconds = round(time.monotonic() - began, 1)
+        status = {}
+        for listen in (ipv4, ipv6):
+            try:
+                status[listen] = urllib.request.urlopen(f'http://127.0.0.1:{listen}/', timeout=5).status
+            except OSError as error:
+                status[listen] = str(error)
+        # The host's own listener still answers on the conflicting port.
+        client = socket.create_connection(('127.0.0.1', taken), timeout=5)
+        host.settimeout(5)
+        kept = host.accept()[0] is not None
+        client.close()
+        conflict = None
+        if peer:
+            conflict = p.m(peer, 'python3', '-c', f'import socket; s = socket.socket(); s.bind(("127.0.0.1", {ipv4})); print("bound")').err.splitlines()[-1:]
+        for unit in units:
+            p.m(name, 'systemctl', '--user', 'stop', unit)
+        gone, began = False, time.monotonic()
+        while time.monotonic() - began < 10 and not gone:
+            gone = ipv4 not in ports_states(p, name)
+            time.sleep(.5)
+    finally:
+        host.close()
+    return {'pass': states.get(ipv4) == 'forwarded' and states.get(ipv6) == 'forwarded' and states.get(taken, '').startswith('conflict')
+            and status == {ipv4: 200, ipv6: 200} and kept and gone and (peer is None or bool(conflict and 'Address already in use' in conflict[0])),
+            'states': {str(k): v for k, v in states.items() if k in (ipv4, ipv6, taken)}, 'seconds_to_forward': seconds,
+            'host_status': {str(k): v for k, v in status.items()}, 'host_listener_kept': kept, 'cancelled_after_stop': gone,
+            'peer_bind_same_port': conflict[0] if conflict else None}
 
 
 def host_translation(directory):
@@ -425,48 +475,72 @@ def check_translation(p, name, machine):
     return {'pass': ok and alias is not False, 'cases': cases, 'alias_visible': alias}
 
 
+def desktop_env(p, name, variable):
+    """Wait for the machine's desktop session to reach command sessions."""
+    for _ in range(40):
+        value = p.m(name, 'sh', '-c', f'printf %s "${variable}"').text
+        if value:
+            return value
+        time.sleep(.5)
+    return ''
+
+
 def check_gui(p, name, machine):
-    """Phase 8's mechanism by hand: Waypipe server in the VM, its socket bound into the machine."""
-    waypipe = os.environ.get('NSL_WAYPIPE', 'waypipe')
-    local = p.home/f'waypipe-{name}.sock'
-    remote = f'/run/nsl/wayland-{name}.sock'
-    display = f'/run/nsl/wayland/{name}'
-    env = dict(os.environ, WAYLAND_DISPLAY=os.environ.get('WAYLAND_DISPLAY', 'wayland-0'))
-    client = subprocess.Popen([waypipe, '--no-gpu', '--socket', str(local), 'client'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    request = base64.b64encode(json.dumps({'protocol': 1, 'op': 'vm', 'argv': [
-        'sh', '-c', f'mkdir -p {display} && chown {os.getuid()}:{os.getgid()} {display} && exec waypipe --no-gpu --socket {remote} '
-                    f'--display {display}/wayland-0 server -- sleep 120']}).encode()).decode()
-    server = None
+    """A window through the machine's persistent desktop session."""
+    display = desktop_env(p, name, 'WAYLAND_DISPLAY')
+    info = p.m(name, 'wayland-info', timeout=60)
+    interfaces = sorted({line.split("'")[1] for line in info.text.splitlines() if "interface: '" in line})
+    application = GUI_APP.get(machine['distribution'], 'galculator')
+    app = p.m(name, 'timeout', '3', 'env', 'GDK_BACKEND=wayland', application, timeout=60)
+    return {'pass': display == '/run/nsl/desktop/wayland-0' and info.returncode == 0 and 'wl_compositor' in interfaces
+            and 'xdg_wm_base' in interfaces and app.returncode == 124, 'display': display,
+            'interfaces': len(interfaces), 'application': application, 'app_returncode': app.returncode, 'app_stderr': tail(app.err, 200)}
+
+
+def check_broker(p, name, machine):
+    """nsl-open reaches the host broker, which accepts only web URLs and shared paths."""
+    if not p.desktop:
+        return {'pass': True, 'skipped': 'no Wayland compositor on the host'}
+    browser = desktop_env(p, name, 'BROWSER')
+    scratch = Path.home()/'.cache/nsl-probe-machines'/uuid.uuid4().hex
+    scratch.mkdir(mode=0o700, parents=True)
     try:
-        for _ in range(50):
-            if local.exists():
-                break
-            time.sleep(.1)
-        server = subprocess.Popen(['ssh', '-F', str(p.home/'vm/ssh.config'), '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
-                                   '-R', f'{remote}:{local}', '-T', 'vm', request], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for _ in range(100):
-            if p.vm('test', '-S', display + '/wayland-0').returncode == 0:
-                break
-            time.sleep(.2)
-        # The server runs as VM root; the machine account must reach its socket.
-        p.vm('chown', f'{os.getuid()}:{os.getgid()}', display + '/wayland-0')
-        p.vm('machinectl', 'bind', '--mkdir', name, display, '/run/nsl/wayland')
-        wayland = 'WAYLAND_DISPLAY=/run/nsl/wayland/wayland-0'
-        info = p.m(name, 'env', wayland, 'wayland-info', timeout=60)
-        interfaces = sorted({line.split("'")[1] for line in info.text.splitlines() if "interface: '" in line})
-        application = GUI_APP.get(machine['distribution'], 'galculator')
-        app = p.m(name, 'timeout', '3', 'env', wayland, 'GDK_BACKEND=wayland', application, timeout=60)
-        p.m(name, 'umount', '/run/nsl/wayland', root=True)
-        return {'pass': info.returncode == 0 and 'wl_compositor' in interfaces and 'xdg_wm_base' in interfaces and app.returncode == 124,
-                'interfaces': len(interfaces), 'application': application, 'app_returncode': app.returncode, 'app_stderr': tail(app.err, 200)}
+        (scratch/'page.html').write_text('<p>nsl</p>')
+        (scratch/'escape').symlink_to('/etc/hostname')
+        inside = '/mnt/host' + str(scratch.resolve())
+        page = str((scratch/'page.html').resolve())
+        cases = {
+            'url': (['nsl-open', 'https://example.com/nsl-probe?x=1&y="2"'], None, 'https://example.com/nsl-probe?x=1&y="2"'),
+            'path': (['nsl-open', inside + '/page.html'], None, page),
+            'relative': (['nsl-open', 'page.html'], inside, page),
+            'file_url': (['nsl-open', 'file://' + inside + '/page.html'], None, page),
+            'ftp': (['nsl-open', 'ftp://example.com/'], None, None),
+            'machine_file': (['nsl-open', '/etc/hostname'], None, None),
+            'symlink_escape': (['nsl-open', inside + '/escape'], None, None),
+        }
+        results = {}
+        for label, (argv, cd, expected) in cases.items():
+            p.opened.write_text('')
+            r = p.m(name, *argv, cd=cd)
+            recorded = p.opened.read_text().splitlines()
+            ok = (r.returncode == 0 and recorded == [expected]) if expected else (r.returncode != 0 and not recorded)
+            results[label] = {'pass': ok, 'returncode': r.returncode, 'recorded': recorded, 'stderr': tail(r.err, 160)}
     finally:
-        for process in (server, client):
-            if process:
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
+        shutil.rmtree(scratch)
+    return {'pass': browser == 'nsl-open' and all(v['pass'] for v in results.values()), 'browser': browser, 'cases': results}
+
+
+def check_ssh(p, name, machine):
+    """ssh-config reaches the machine account through the agent, with nothing listening."""
+    config = p.home/f'ssh-{name}.config'
+    config.write_text(p.cli('ssh-config', name).stdout)
+    command = ['ssh', '-F', str(config), '-o', 'BatchMode=yes', f'nsl-{name}', 'id -un; cat /proc/sys/kernel/hostname']
+    first = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    again = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    listeners = p.vm('ss', '-Hltn', 'sport = :22').stdout.strip()
+    lines = first.stdout.split()
+    return {'pass': first.returncode == 0 and lines == [p.user, name] and again.returncode == 0 and again.stdout == first.stdout and not listeners,
+            'output': lines, 'second_connection': again.returncode, 'error': tail(first.stderr) or tail(again.stderr), 'tcp_22_listeners': listeners}
 
 
 def check_persistence(p, name, machine):
@@ -493,6 +567,8 @@ def check_persistence(p, name, machine):
 
 
 def summarize(result):
+    if result.get('skipped'):
+        return True, 'skipped: ' + result['skipped']
     parts = [f'{k}={"ok" if v.get("pass") else "FAIL"}' for k, v in result.items() if isinstance(v, dict) and 'pass' in v]
     return result.get('pass', bool(parts) and all(p.endswith('=ok') for p in parts)), ' '.join(parts)
 
@@ -504,6 +580,7 @@ def main():
     parser.add_argument('--machine-image', type=Path, action='append', required=True)
     parser.add_argument('--evidence', type=Path, required=True)
     parser.add_argument('--gui', action='store_true')
+    parser.add_argument('--only', help='comma-separated checks to run, such as ssh,broker')
     o = parser.parse_args()
     if o.evidence.exists():
         parser.error('evidence file exists')
@@ -538,11 +615,14 @@ def main():
             peer = next((n for n in names if n != name), None)
             port = 18180 + index
             plan += [(name, 'podman', check_podman, (port + 10, peer)), (name, 'files', check_files, (peer,)),
-                     (name, 'ports', check_ports, (port, peer)), (name, 'translation', check_translation, ())]
+                     (name, 'ports', check_ports, (port, peer)), (name, 'translation', check_translation, ()),
+                     (name, 'broker', check_broker, ()), (name, 'ssh', check_ssh, ())]
             if o.gui:
                 plan.append((name, 'gui', check_gui, ()))
         # Last: it restarts the VM and every machine in it.
         plan += [(name, 'persistence', check_persistence, ()) for name in names]
+        if o.only:
+            plan = [step for step in plan if step[1] in o.only.split(',')]
         for name, label, function, arguments in plan:
             began = time.monotonic()
             try:

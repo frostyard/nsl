@@ -340,7 +340,14 @@ func (a *app) startMachine(m *machineRecord) (*vmRecord, error) {
 		return nil, err
 	}
 	var started protocol.StartResult
-	return v, a.agentJSON(v, protocol.Request{Op: "start", Machine: m.Name, ID: m.ID, IdleTimeout: idle}, nil, 90*time.Second, &started)
+	if err = a.agentJSON(v, protocol.Request{Op: "start", Machine: m.Name, ID: m.ID, IdleTimeout: idle}, nil, 90*time.Second, &started); err != nil {
+		return nil, err
+	}
+	// A machine without its desktop still runs commands.
+	if err = a.startDesktop(v, m); err != nil {
+		fmt.Fprintln(a.err, "nsl: desktop session:", err)
+	}
+	return v, nil
 }
 
 func (a *app) machineCommand(op string, args []string) error {
@@ -481,6 +488,9 @@ func (a *app) remove(args []string) error {
 		}
 	}
 	v, err := a.runningVM(false)
+	if err == nil {
+		err = a.stopHelper(desktopUnit(v, name), desktopDescription(v, name))
+	}
 	if err != nil {
 		return fmt.Errorf("removal of %s is pending; retry nsl remove %s --yes: %w", name, name, err)
 	}
@@ -500,6 +510,9 @@ func (a *app) remove(args []string) error {
 		if err = a.setDefault(""); err != nil {
 			return err
 		}
+	}
+	if err = os.RemoveAll(a.sshDir(name)); err != nil {
+		return err
 	}
 	if err = os.Remove(tombstone); err != nil {
 		return err

@@ -57,15 +57,15 @@ func TestIdleMachinesStop(t *testing.T) {
 	}
 	// A connected Waypipe client keeps the machine running.
 	os.WriteFile(ta.root+"/proc/net/unix", []byte("Num       RefCount Protocol Flags    Type St Inode Path\n"+
-		"0000000000000000: 00000002 00000000 00010000 0001 01 100 /run/nsl/wayland/debian/wayland-0\n"+
-		"0000000000000000: 00000003 00000000 00000000 0001 03 101 /run/nsl/wayland/debian/wayland-0\n"), 0644)
+		"0000000000000000: 00000002 00000000 00010000 0001 01 100 /run/nsl/desktop/debian/wayland-0\n"+
+		"0000000000000000: 00000003 00000000 00000000 0001 03 101 /run/nsl/desktop/debian/wayland-0\n"), 0644)
 	*clock = began.Add(300 * time.Second)
 	m.step()
 	if ta.sys.units[unitOf("debian")] != "active" {
 		t.Fatal("stopped a machine with a GUI client")
 	}
 	os.WriteFile(ta.root+"/proc/net/unix", []byte("Num       RefCount Protocol Flags    Type St Inode Path\n"+
-		"0000000000000000: 00000002 00000000 00010000 0001 01 100 /run/nsl/wayland/debian/wayland-0\n"), 0644)
+		"0000000000000000: 00000002 00000000 00010000 0001 01 100 /run/nsl/desktop/debian/wayland-0\n"), 0644)
 	// A lifecycle operation in progress defers the decision.
 	release, _ := ta.lockMachine("debian", 0)
 	*clock = began.Add(400 * time.Second)

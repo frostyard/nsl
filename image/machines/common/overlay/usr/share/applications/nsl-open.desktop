@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Open on the host
+Comment=Open web links with the host's default browser
+Exec=nsl-open %u
+NoDisplay=true
+MimeType=x-scheme-handler/http;x-scheme-handler/https;

@@ -1,6 +1,6 @@
 # Plan: Machines in a shared VM
 
-**Status: Phases 1–7 complete, 2026-09-28.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
+**Status: Phases 1–8 complete, 2026-09-28.** This plan implements [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl becomes WSL-style machines, running as systemd-nspawn containers in one nsl-owned VM, from signed Frostyard machine images, behind the [CLI contract](../specs/cli.md). The [shared-VM experiment](shared-vm-experiment.md) proved every mechanism in Python; this plan turns them into the Go CLI, a VM-side agent, two image pipelines and published artifacts.
 
 ## Working rules
 
@@ -347,6 +347,34 @@ QEMU is nearly all of the PSS; virtiofsd held 4.4 MiB and vmspawn 3 MiB while id
 - **Remote editors.** `ssh-config` prints a host alias whose proxy runs `sshd -i` in the machine through the agent, with a per-machine key.
 - **Agent operations.** Specify `listeners` and `display` in the [agent protocol](../specs/agent.md) before implementing them.
 - **Done when:** the files, ports, translation and GUI checks pass through the CLI, and broker tests refuse every other target.
+
+**Result, 2026-09-28: complete.**
+
+- **Agent operations**, specified first in the [agent protocol](../specs/agent.md):
+  - `listeners` reads the VM's TCP tables and attributes listening sockets to machines through their processes' control groups;
+  - `display` serves a machine's desktop session: it runs `waypipe server` on `/run/nsl/desktop/NAME/wayland-0`, hands it and the broker socket to the account, binds the directory into the machine at `/run/nsl/desktop`, and reports `ready`;
+  - `ssh` runs `sshd -i` in the machine with its own host key and the host's per-machine key.
+
+  `identity`, `machines`, `listeners` and `display` are passive, so watching ports or holding a desktop open does not keep an idle VM running. `run` sessions get `WAYLAND_DISPLAY` and `BROWSER=nsl-open` while the desktop session lasts. `start` binds the desktop directory whenever a machine starts, unless the machine already sees it.
+- **Ports.** `nsl-UID-vm-ID-ports.service`, bound to the VM's unit, polls `listeners` every second on its own SSH connection. It forwards IPv4 and wildcard listeners to VM `127.0.0.1`, and `::1`-only listeners, such as dev servers bound to `localhost`, to `[::1]`; the VM key now permits both. `nsl ports [NAME]` reads its report. It replaces the prototype's `ss` parsing on the host.
+- **Desktop.** `nsl-UID-vm-ID-desktop-NAME.service`, started when a command starts a shared machine from a Wayland session, runs the host's `waypipe client` and the broker and holds `display` open. It is a notify unit: starting it waits for `ready`, so even the first command after a cold start gets the display, at about 0.2 s. A session killed abruptly takes its sockets with it, and the unit restarts after a failure.
+- **Broker.** `nsl-open` in the machine layer is a shell script calling `varlinkctl`, which all four images ship, against the Varlink method `io.frostyard.nsl.Broker.Open`. It is also the machines' `http`/`https` handler. The host accepts only `http`/`https` URLs with a host, and `/mnt/host` paths whose host paths, symlinks resolved, lie in a shared tree; it runs `xdg-open` (or `NSL_OPENER`) with the target as argv.
+- **Remote editors.** `nsl ssh-config NAME` prints `Host nsl-NAME` with a per-machine key and pinned host key in `NSL_HOME/machines/NAME.ssh/`, and a proxy command, `nsl _ssh NAME`. SSH's own TCP forwarding works through it, as VS Code Remote needs.
+- **Logs.** `nsl logs [NAME]` shows the journal of the VM, forwarder and desktop units.
+- **Latency.** Checking the helper units on every command added two `systemctl` calls, about 20 ms. A fresh forwarder report or an answering broker now shows a live helper without asking systemd, and the no-op median is back to 69 ms (`machines-probe-7.json`).
+- **Images:** VM image r8 (`nsl-vm-trixie-x86-64-r8`, SHA256 `8653578b2896c93bea66e2835edeb8929f43d31ced55372708f8c215f06fa884`); r7 was superseded by the readiness report before acceptance. Machine images Debian r3, Fedora r3, Arch r4 and Tumbleweed r3 add `nsl-open`, its desktop entry and `/etc/xdg/mimeapps.list`. `probe-vm.py` passed all nine checks on r8.
+
+Acceptance on r8 with `--gui` (`machines-probe-5.json`, 2026-09-28): every check passed on all four machines except the new `ssh` check, whose own command used `hostname`, which minimal Fedora, Arch and Tumbleweed lack. The SSH connections themselves worked. With the probe fixed, `--only ssh` passed on all four (`machines-probe-6.json`).
+
+| Check | Result on each of the four machines |
+| --- | --- |
+| Ports | A `0.0.0.0` and a `::1` server forwarded within 0.5–1.6 s and answered 200 on host `127.0.0.1`. A port the host already used showed `conflict`, and the host's listener kept its connections. Forwards went away when the servers stopped. |
+| Translation | Unchanged from Phase 6. |
+| GUI | `WAYLAND_DISPLAY=/run/nsl/desktop/wayland-0` from the agent, 33 Wayland interfaces, and a window for 3 s (galculator; foot on Tumbleweed) |
+| Broker | `BROWSER=nsl-open`. Opened: an `https` URL with quotes, an absolute and a relative `/mnt/host` path, and a `file://` URL. Refused, with nothing opened: `ftp://`, `/etc/hostname` and a shared symlink to `/etc/hostname`. |
+| SSH | `ssh -F <(nsl ssh-config NAME) nsl-NAME` logged in as the account twice with a pinned host key; nothing listens on TCP 22 in the VM. |
+
+The hand check before the probe also covered what it does not: SSH port forwarding through the connection, and a killed desktop session leaving no stale display until the unit restarts it.
 
 ## Phase 9 — Isolated machines
 

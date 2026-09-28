@@ -97,11 +97,15 @@ Machines that are not isolated see the user's home, `/run/media/USER` and `/mnt`
 
 ## Networking
 
-vmspawn's user-mode networking supplies outbound access. A forwarder unit per VM discovers IPv4 TCP listeners in the VM, which include every machine's, once per second. It keeps an SSH forwarding connection and binds each port 1024–65535, except 5353 and 5355, on host `127.0.0.1`. A failed bind is reported by `ports` and retried, and never displaces an existing listener. Machines share the VM's namespace, so one port serves one machine at a time, as in WSL.
+vmspawn's user-mode networking supplies outbound access. A forwarder unit per VM, bound to the VM's unit, asks the agent for the machines' TCP listeners once per second. The agent reads the VM's socket tables and attributes each listening socket to a machine through its process's control group. The forwarder keeps its own SSH connection and binds each port 1024–65535, except 5353 and 5355, on host `127.0.0.1`: to VM `127.0.0.1` for IPv4 and wildcard listeners, and to `[::1]` for listeners only on `::1`, such as a dev server bound to `localhost`. It writes its state to `vm/ports.json`, which `ports` reads. A failed bind is reported and retried, and never displaces an existing listener. Machines share the VM's namespace, so one port serves one machine at a time, as in WSL.
 
 ## Desktop and host actions
 
-Each machine that is not isolated gets one persistent Waypipe session. It runs `waypipe server` in the VM on a display socket under `/run/nsl/wayland/`, and the socket's directory is bound into the running machine. Agent sessions receive `WAYLAND_DISPLAY`. The per-machine broker behind `nsl-open` accepts only `http`/`https` URLs and translatable `/mnt/host` paths.
+Each machine that is not isolated gets one persistent desktop session when a command starts it from a Wayland session. A user unit per machine runs `nsl _desktop NAME`: the host's `waypipe client`, the machine's broker, and one SSH session to the agent's `display` operation that forwards both sockets into the VM. In the VM, `waypipe server` serves `/run/nsl/desktop/NAME/wayland-0`, and that directory is bound into the machine at `/run/nsl/desktop`. Agent sessions receive `WAYLAND_DISPLAY` and `BROWSER=nsl-open`. The session outlives a stopped machine and ends with the VM; a restarted machine gets the directory bound again.
+
+`nsl-open` in the machine sends its target to the broker over Varlink with `varlinkctl`. The broker accepts only `http`/`https` URLs and `/mnt/host` paths whose host paths, symlinks resolved, lie in shared trees, and runs the host's `xdg-open`. A machine can already write the user's files, so opening them adds no authority. The checks keep a machine from naming host files outside the shares, but they are not a boundary: a machine that can write a shared tree can swap a checked directory for a symlink before the handler opens it.
+
+`ssh-config` prints an alias whose proxy command runs `sshd -i` in the machine through the agent, with a key generated for that machine and the machine's own host key. Remote editors therefore reach the machine account with nothing listening on the network, and their sessions count as nsl command sessions for idle stop.
 
 ## Images
 

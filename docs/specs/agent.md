@@ -9,7 +9,7 @@ Callers: the [CLI](cli.md). Host: the [VM image](vm-image.md). Targets: [machine
 ### Transport
 
 - The host reaches the VM over vsock SSH ([ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md)) as VM `root`, with that VM's client key and pinned host key.
-- The VM's sshd forces `/usr/lib/nsl/nsl-agent` for every session of that key and permits no password or interactive login. The key allows local TCP forwarding to VM loopback (`permitopen="127.0.0.1:*"`) and remote Unix-socket forwarding, which the host places under `/run/nsl/` for Waypipe. sshd grants a remote Unix-socket forward only when `AllowTcpForwarding` permits remote forwarding too. It allows no X11 or agent forwarding. The key is VM root in any case; the limits keep mistakes narrow rather than draw a trust boundary.
+- The VM's sshd forces `/usr/lib/nsl/nsl-agent` for every session of that key and permits no password or interactive login. The key allows local TCP forwarding to VM loopback (`permitopen="127.0.0.1:*"` and `permitopen="[::1]:*"`) and remote Unix-socket forwarding, which the host places under `/run/nsl/` for a machine's desktop session. sshd grants a remote Unix-socket forward only when `AllowTcpForwarding` permits remote forwarding too. It allows no X11 or agent forwarding. The key is VM root in any case; the limits keep mistakes narrow rather than draw a trust boundary.
 - The host sends exactly one request per SSH session as the session's command string. The agent reads it from `SSH_ORIGINAL_COMMAND`.
 - The session's stdin, stdout and stderr belong to the operation: a command's streams for `run`, JSON results for the others. The SSH exit status is the result.
 
@@ -28,10 +28,11 @@ A request is the standard padded base64 encoding of one UTF-8 JSON object of at 
 | `root` | boolean | `run` | Run as machine root instead of the machine account. |
 | `tty` | boolean | `run` | Run on a PTY. Requires a terminal on the session's stdin. |
 | `env` | object | `run` | Environment from the host. Names are `TERM`, `COLORTERM`, `LANG`, `LANGUAGE` or `LC_` followed by capital letters; values are at most 256 bytes without NUL or newline. Any other name is rejected. |
-| `idle_timeout` | integer | `start`, `run` | Minutes, 0–1440, from the [configuration](cli.md#configuration). The VM's idle monitor uses the latest value it receives. |
+| `idle_timeout` | integer | `start`, `run`, `ssh` | Minutes, 0–1440, from the [configuration](cli.md#configuration). The VM's idle monitor uses the latest value it receives. |
 | `account` | object | `create`, `import` | `user`, `group`, `uid`, `gid` of the host user, as in [account rules](cli.md#account-and-execution). |
 | `image` | object | `create` | `path` under the read-only image share, `digest` and `size` of the compressed root filesystem, and `build_id`. An empty `build_id` accepts the image's own; otherwise the descriptor must match it. |
 | `rootfs` | object | `import` | `digest` and `size` of the compressed root filesystem on stdin, and the `build_id` its descriptor must carry, from the archive's [manifest](cli.md#export-and-import). |
+| `public_key` | string | `ssh` | The machine's `ssh-ed25519` client key from the host, one line. |
 | `time_zone` | string | `create`, `import` | The host's IANA zone name, or `Etc/UTC`. |
 
 Example `run` request, before base64 encoding:
@@ -56,8 +57,11 @@ Example `run` request, before base64 encoding:
 | `export` | `machine`, `id` | The stopped machine's root filesystem on stdout as a zstd tar with numeric owners, modes, xattrs and ACLs. The agent validates the stream as `import` would while writing it, and fails if it would be refused. |
 | `import` | `machine`, `id`, `account`, `rootfs`, `time_zone`; the root filesystem on stdin | Verifies the stream's digest and size, validates and extracts it into a new subvolume, requires the account with its UID and GID, then applies per-machine data. JSON: `build_id`. |
 | `remove` | `machine`, `id` | Deletes a stopped machine's subvolume, settings and record. Resumable. |
+| `listeners` | none | JSON array of the TCP sockets listening in the VM's network namespace that belong to a machine: `port` (1024–65535, except 5353 and 5355), `address` (`127.0.0.1`, `0.0.0.0`, `::1` or `::`) and `machine`. The port forwarder polls it. |
+| `display` | `machine`, `id` | Serves the machine's [desktop session](#display) until the SSH session ends. Writes `ready` and a newline once the machine can use it. |
+| `ssh` | `machine`, `id`, `public_key`, `idle_timeout` | Runs `sshd -i` in the running machine on the session's streams, for [`ssh-config`](cli.md#desktop-and-host-actions). Exit status as for `run`. |
 
-Phase 8 adds `listeners`, for port discovery, and `display`, for the per-machine Waypipe session, to this table before implementing them.
+`identity`, `machines`, `listeners` and `display` observe or serve the VM and are passive: they do not count as activity for the idle monitor.
 
 ### `run`
 
@@ -65,7 +69,7 @@ The agent starts a transient service named `nsl-run-` followed by 32 random hex 
 
 - **Argv:** `ExecStartEx` with the `no-env-expand` flag, so `$VAR`, `${VAR}`, `$$` and `%` reach the program literally. A command name without a slash is found through `ExecSearchPath`: `~/.local/bin`, `/usr/local/sbin`, `/usr/local/bin`, `/usr/sbin`, `/usr/bin`, `/sbin` and `/bin`, which also becomes the command's `PATH`.
 - **Identity:** `User=` is the machine account, or root with `root`. Account sessions use `PAMName=nsl`, the image's [`nsl` PAM service](machine-images.md#machine-layer), which supplies a logind session, `XDG_RUNTIME_DIR` and the user manager. Root commands have no PAM session.
-- **Directory and environment:** `WorkingDirectory=` is the requested directory; a missing directory fails the command without running it. `Environment=` holds the allowlisted `env`. The agent adds `WAYLAND_DISPLAY` when the machine has a live display session (Phase 8).
+- **Directory and environment:** `WorkingDirectory=` is the requested directory; a missing directory fails the command without running it. `Environment=` holds the allowlisted `env`. When the machine's desktop session is live, the agent adds `WAYLAND_DISPLAY=/run/nsl/desktop/wayland-0` and `BROWSER=nsl-open`.
 - **Streams without a PTY:** the agent passes its own stdin, stdout and stderr to the unit as file descriptors. It copies no bytes, so binary data and separate streams survive.
 - **PTY:** the agent opens a PTY in the machine through machined's `OpenMachinePTY` and runs the unit on it. It copies bytes between its stdio and the PTY unchanged. It adds no terminal-title or color sequences; OSC 3008 context sequences from the machine pass. The PTY takes the session terminal's size at start and follows its changes. Ctrl-C reaches the command through the PTY's line discipline.
 - **Lifetime:** the unit has `RemainAfterExit=yes`, so its result stays readable until the agent collects it by stopping and resetting the unit. If the SSH session ends first, the agent stops the unit, delivering SIGTERM and SIGHUP and then SIGKILL after 10 s. Commands see SIGPIPE as they would in a shell (`IgnoreSIGPIPE=no`).
@@ -79,6 +83,29 @@ The agent starts a transient service named `nsl-run-` followed by 32 random hex 
 | The agent refused or failed before starting the command | 255, with an error line on stderr |
 
 A running `nsl-run-*` unit whose command has not exited is an nsl command session for idle accounting.
+
+### `ssh`
+
+The agent writes the request's key to `/etc/ssh/nsl/authorized_keys` in the machine, and creates the machine's own host key, `/etc/ssh/nsl/ssh_host_ed25519_key`, when it is missing. It then starts `sshd -i` as a `run` unit as root, without a PTY, with `RuntimeDirectory=sshd`. The options pin that host key and key file, allow only the machine account, and refuse passwords, keyboard-interactive logins and root. sshd authenticates the host's client and then serves it as the machine account, with the machine's PAM stack. Nothing listens on the network.
+
+### `display`
+
+A machine's desktop session joins the host's Waypipe client and broker to the machine through the VM. The host holds one SSH session per machine, running this operation, with two remote Unix-socket forwards:
+
+| VM path | Host end |
+| --- | --- |
+| `/run/nsl/waypipe-NAME.sock` | The host's `waypipe client` socket for the machine |
+| `/run/nsl/desktop/NAME/open.sock` | The host's broker socket for the machine |
+
+`start` creates `/run/nsl/desktop/NAME` in a shared VM, before any session. The operation then:
+
+1. waits up to 10 s for both sockets;
+2. runs `waypipe --no-gpu --socket /run/nsl/waypipe-NAME.sock --display /run/nsl/desktop/NAME/wayland-0 server -- sleep infinity` as VM root;
+3. gives `wayland-0` and `open.sock` to the machine account with mode 0600;
+4. binds `/run/nsl/desktop/NAME` into the running machine at `/run/nsl/desktop`, unless it is bound already. `start` binds it too whenever the machine starts;
+5. writes `ready`.
+
+The machine therefore sees `/run/nsl/desktop/wayland-0` and `/run/nsl/desktop/open.sock` while the session lasts. The operation ends when its stdin reaches end of file or the Waypipe server exits; it stops the server and removes both machine-visible sockets. It is refused in an isolated VM.
 
 ### Errors
 
@@ -103,10 +130,12 @@ An agent error writes one line to stderr, `nsl-agent: CODE: message`, and exits 
   - A `shared` VM hosts any number of machines, each with `Bind=/mnt/host`.
   - An `isolated` VM hosts only the machine named in its identity, with no `/mnt/host` binding, display session or broker.
 - Lifecycle operations on one machine (`start`, `stop`, `create`, `import`, `export` and `remove`) MUST serialize in the VM. One waits up to 30 s for another, then fails with `busy`. `run` MAY proceed concurrently with other sessions.
-- Every request MUST hold the VM's request lock, shared, for its lifetime, and mark the time it arrived. `start` and `run` MUST also mark the machine's latest activity. The [idle monitor](vm-image.md#machines) reads both.
+- Every request other than a passive one MUST hold the VM's request lock, shared, for its lifetime, and mark the time it arrived. `start`, `run` and `ssh` MUST also mark the machine's latest activity. The [idle monitor](vm-image.md#machines) reads both.
+- `listeners` MUST attribute each socket to a machine through the owning process's control group, `systemd-nspawn@NAME.service`, and MUST NOT report sockets of the VM's own services.
 - `create` and `import` MUST build the machine in a staging subvolume and publish it under its name only after every step succeeds. On failure they MUST delete the staging subvolume, even if the SSH session ended, and leave the name free.
 - `create` and `import` MUST verify the compressed digest and size while reading the root filesystem. They MUST refuse entries with absolute or `..` paths, links leaving the tree, entries below a symlink, OCI whiteouts, duplicates, unsupported types and trailing data. Device nodes are refused in machine images and accepted in archives. They MUST preserve numeric owners, modes, xattrs (including file capabilities) and ACLs.
 - The agent MUST NOT run commands through a shell, `machinectl shell` or `nsenter`.
+- `display` MUST NOT expose the Waypipe transport socket or any VM path other than `/run/nsl/desktop/NAME` to the machine.
 - The agent MUST NOT change `/mnt/host` content or host files except as the command it runs directs.
 
 ## Implementation
@@ -131,6 +160,9 @@ Phase 6 turns these into the agent's acceptance matrix, run through the CLI on e
 | `run` on a stopped machine | `not-running`; nothing runs. |
 | A wrong `id`, a wrong `protocol`, an unknown field, a duplicate key, `env` with `PATH`, a relative `directory`, NUL in argv, empty argv | 255 with the matching error code; nothing runs. |
 | `root: true` with `id -u` | `0`, with no PAM session. |
+| `listeners` with servers on `0.0.0.0`, `::1`, `10.0.2.15` and port 80 in machines, and one in the VM | The first two, each with its machine; nothing else. |
+| `display` while the host forwards both sockets | The machine sees `/run/nsl/desktop/wayland-0` and `open.sock`, owned by the account; `run` sessions get `WAYLAND_DISPLAY` and `BROWSER`; both sockets go when the session ends. |
+| `ssh` twice with the host's key | sshd serves the account both times with the same machine host key; no TCP port listens. |
 | No-op `true`, 50 times | Median latency recorded against the experiment's 65 ms. |
 
 ## References

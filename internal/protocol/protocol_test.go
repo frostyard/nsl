@@ -36,6 +36,9 @@ func TestRoundTrip(t *testing.T) {
 			Account: &Account{User: "bjk", Group: "bjk", UID: 1000, GID: 1000},
 			Image:   &Image{Path: ImageShare + "/" + strings.Repeat("a", 64) + ".tar.zst", Digest: "sha256:" + strings.Repeat("a", 64), Size: 7, BuildID: "nsl-machine-debian-13-x86-64-r1"}},
 		{Protocol: Version, Op: "export", Machine: "debian", ID: testID},
+		{Protocol: Version, Op: "listeners"},
+		{Protocol: Version, Op: "display", Machine: "debian", ID: testID},
+		{Protocol: Version, Op: "ssh", Machine: "debian", ID: testID, PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 nsl-debian", IdleTimeout: minutes(15)},
 		{Protocol: Version, Op: "import", Machine: "copy", ID: testID, TimeZone: "UTC", Account: &Account{User: "bjk", Group: "bjk", UID: 1000, GID: 1000},
 			Rootfs: &Rootfs{Digest: "sha256:" + strings.Repeat("c", 64), Size: 9, BuildID: "nsl-machine-debian-13-x86-64-r1"}},
 	} {
@@ -136,6 +139,15 @@ func TestValidateRefusesBadImports(t *testing.T) {
 		change(&r)
 		if _, err := Encode(r); code(err) != CodeBadRequest {
 			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestValidateRefusesBadSSHKeys(t *testing.T) {
+	for _, key := range []string{"", "ssh-rsa AAAA", "ssh-ed25519 AAAA\nssh-ed25519 BBBB", "command=\"x\" ssh-ed25519 AAAA"} {
+		r := Request{Protocol: Version, Op: "ssh", Machine: "m", ID: testID, PublicKey: key, IdleTimeout: minutes(1)}
+		if _, err := Encode(r); code(err) != CodeBadRequest {
+			t.Fatalf("%q: %v", key, err)
 		}
 	}
 }

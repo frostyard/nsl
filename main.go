@@ -29,15 +29,15 @@ func (processRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 }
 
 type app struct {
-	home, waypipe, self, runtimeDir string
-	uid, gid                        int
-	user, group                     string
-	r                               runner
-	in                              io.Reader
-	out, err                        io.Writer
-	imageService                    *imageClient
-	host                            *hostFacts // nil reads the real host
-	hostRoot                        string     // "/" outside tests; where shared trees are found
+	home, waypipe, opener, self, runtimeDir string
+	uid, gid                                int
+	user, group                             string
+	r                                       runner
+	in                                      io.Reader
+	out, err                                io.Writer
+	imageService                            *imageClient
+	host                                    *hostFacts // nil reads the real host
+	hostRoot                                string     // "/" outside tests; where shared trees are found
 }
 
 func newApp() (*app, error) {
@@ -82,7 +82,7 @@ func newApp() (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &app{home: home, waypipe: tool("NSL_WAYPIPE", "waypipe"), self: self, runtimeDir: filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "nsl"),
+	return &app{home: home, waypipe: tool("NSL_WAYPIPE", "waypipe"), opener: tool("NSL_OPENER", "xdg-open"), self: self, runtimeDir: filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "nsl"),
 		uid: os.Getuid(), gid: gid, user: account.Username, group: group.Name, r: processRunner{}, in: os.Stdin, out: os.Stdout, err: os.Stderr, hostRoot: "/"}, nil
 }
 
@@ -104,6 +104,9 @@ func usage(w io.Writer) {
   remove NAME [--yes]
   export NAME FILE
   import NAME FILE
+  ports [NAME]
+  ssh-config NAME
+  logs [NAME]
   shutdown
   update [--offline]
   update --image FILE --digest sha256:HEX
@@ -116,8 +119,8 @@ func usage(w io.Writer) {
   version
 
 Machines run as containers in one nsl VM. The VM starts on first use; update
-selects the VM image for its next start. NSL_HOME and NSL_WAYPIPE override
-state and tool locations; $XDG_CONFIG_HOME/nsl/nsl.conf holds settings.`)
+selects the VM image for its next start. NSL_HOME, NSL_WAYPIPE and NSL_OPENER
+override state and tool locations; $XDG_CONFIG_HOME/nsl/nsl.conf holds settings.`)
 }
 
 func (a *app) execute(args []string) error {
@@ -179,6 +182,21 @@ func (a *app) execute(args []string) error {
 		return a.machineCommand(args[0], rest)
 	case "update":
 		return a.update(rest)
+	case "ports":
+		return a.ports(rest)
+	case "logs":
+		return a.logs(rest)
+	case "ssh-config":
+		return a.sshConfig(rest)
+	case "_ssh":
+		return a.sshProxy(rest)
+	case "_forward":
+		if err := noArgs(); err != nil {
+			return err
+		}
+		return a.forward()
+	case "_desktop":
+		return a.desktop(rest)
 	case "_devices":
 		return a.devices(rest)
 	case "_launch":

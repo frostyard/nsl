@@ -20,7 +20,7 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl import NAME FILE [--isolated]` | Verify and import an archive under an unused name. |
 | `nsl remove NAME [--yes]` | Preview, then permanently remove a stopped machine. |
 | `nsl ports [NAME]` | Forwarding status and conflicts for one machine or all machines. |
-| `nsl logs [NAME]` | Recent host-side logs for one machine or all machines. |
+| `nsl logs [NAME]` | Recent logs of the host units nsl runs: the VM and its forwarder, and each machine's desktop session, or those of one machine. |
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
 | `nsl images [--offline]` | List authenticated machine-image selections and the VM image in effect. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
@@ -72,8 +72,10 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 ### Desktop and host actions
 
 - When the host has a Wayland session and the machine is not isolated, guest sessions MUST receive a `WAYLAND_DISPLAY` served by a persistent per-machine Waypipe session. Host display sockets MUST NOT be shared directly.
+- A command that starts a machine MUST start its desktop session when the command's environment has `WAYLAND_DISPLAY` and Waypipe is available, and the session is not running. The session is a user unit, `nsl-UID-vm-ID-desktop-NAME.service`, bound to the VM's unit. It runs the host's `waypipe client` and the machine's broker, and holds the agent's [`display`](agent.md#display) operation open. It restarts after a failure and ends with the VM.
 - The broker MUST authenticate each machine. It MUST accept only `http`/`https` URLs and translatable `/mnt/host` paths, and refuse every other target.
-- `ssh-config` MUST print a host alias that reaches the machine account through nsl, with a key generated for that machine. It MUST NOT enable a network listener in the machine.
+- The broker speaks [Varlink](https://varlink.org) on the machine's `/run/nsl/desktop/open.sock`: one method, `io.frostyard.nsl.Broker.Open`, whose `target` parameter is a URL or an absolute machine path. A URL MUST have the `http` or `https` scheme and a host. A path MUST lie under `/mnt/host`, and the host path it names, with symlinks resolved on the host, MUST lie in a shared tree. The broker opens the target with the host's `xdg-open` as argv. It answers `io.frostyard.nsl.Broker.Refused` with a `reason` for any other target, and `io.frostyard.nsl.Broker.Failed` when the opener fails. Each machine's session has its own socket, so the broker knows which machine asked.
+- `ssh-config` MUST print a host alias that reaches the machine account through nsl, with a key generated for that machine. It MUST NOT enable a network listener in the machine. The alias is `nsl-NAME`; its proxy command, `nsl _ssh NAME`, starts the machine and runs the agent's [`ssh`](agent.md#ssh) operation. The key and the pinned host key live in `NSL_HOME/machines/NAME.ssh/` and are removed with the machine.
 - Launcher entries and terminal profiles MUST be user-scoped, nsl-prefixed and removed with their machine. They MUST NOT overwrite unrelated files. This work belongs to a later phase.
 
 ### Lifecycle
@@ -84,6 +86,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - The VM MUST stop when no machine has been running, and no request has been in flight, for 60 seconds. A command that meets a VM powering itself off MUST wait for it to stop and start it again.
 - `stop` and idle stop MUST preserve all machine state.
 - Automatic forwarding MUST bind host loopback, report and retry conflicts, and never evict an existing listener. Machines share the VM's network namespace, so the same port in two machines conflicts inside the VM, as in WSL.
+- A forwarder user unit per VM, `nsl-UID-vm-ID-ports.service`, bound to the VM's unit, MUST poll the agent's `listeners` once a second. It forwards host `127.0.0.1:PORT` to VM `127.0.0.1:PORT` for listeners on `127.0.0.1`, `0.0.0.0` or `::`, and to `[::1]:PORT` for listeners only on `::1`. `nsl ports` MUST show each port's machine and state, `forwarded` or `conflict` with the error.
 - Resource limits MUST come from the configuration: one budget for the shared VM, and one for each isolated machine's VM.
 
 ### State, ownership and locking

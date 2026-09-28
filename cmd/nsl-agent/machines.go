@@ -254,6 +254,9 @@ func (a *agent) start(req *protocol.Request, binding *protocol.Binding) error {
 	if err != nil {
 		return err
 	}
+	if binding.Role == "shared" {
+		a.prepareDesktop(req.Machine, true)
+	}
 	return json.NewEncoder(a.stdout).Encode(protocol.StartResult{State: system, Seconds: float64(int((a.now()-began)*1000)) / 1000})
 }
 

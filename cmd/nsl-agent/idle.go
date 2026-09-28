@@ -15,13 +15,12 @@ import (
 // The VM powers off once no machine has run and no request has been in flight
 // for vmGrace, which also covers a VM that has just started.
 const (
-	idlePoll   = 10 * time.Second
-	vmGrace    = 60 * time.Second
-	displayDir = runtimeDir + "/wayland"
+	idlePoll = 10 * time.Second
+	vmGrace  = 60 * time.Second
 )
 
 // displaySocket is the Waypipe server's socket for a machine, in the VM.
-func displaySocket(name string) string { return displayDir + "/" + name + "/wayland-0" }
+func displaySocket(name string) string { return desktopOf(name) + "/wayland-0" }
 
 type idleMonitor struct {
 	a         *agent

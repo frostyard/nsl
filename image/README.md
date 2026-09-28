@@ -10,8 +10,8 @@ nsl builds its images from pinned [nspawn/mkosi-definitions](https://github.com/
 ```sh
 source build/poc/env.sh  # NSL_LIMACTL, when using the locally downloaded Lima
 scripts/build-image.sh --role vm
-python3 scripts/probe-vm.py --nsl build/nsl --image build/image/share/nsl-vm-trixie-x86-64-r6.raw \
-  --evidence build/image/evidence/nsl-vm-trixie-x86-64-r6-probe.json
+python3 scripts/probe-vm.py --nsl build/nsl --image build/image/share/nsl-vm-trixie-x86-64-r8.raw \
+  --evidence build/image/evidence/nsl-vm-trixie-x86-64-r8-probe.json
 ```
 
 The script builds the agent (`make agent`), composes the build input with `scripts/compose-image.py`, and builds `nsl-vm-trixie-x86-64-rN.raw` under `build/image/share/`. Next to it are the mkosi package manifest (`.manifest`) and the descriptor as built (`.json`), and the raw SHA256 is in `build/image/evidence/`. Bump `vm/profile.json`'s revision when inputs change; the script refuses to overwrite an existing artifact.
@@ -21,7 +21,7 @@ The builder needs Lima 2.2.0, Python 3, Git, Go and `flock`. It lives in `${XDG_
 To run a local build, select it and start the VM:
 
 ```sh
-nsl update --image build/image/share/nsl-vm-trixie-x86-64-r6.raw --digest sha256:HEX
+nsl update --image build/image/share/nsl-vm-trixie-x86-64-r8.raw --digest sha256:HEX
 nsl recover
 ```
 
@@ -44,8 +44,8 @@ The composer copies the agent to `/usr/lib/nsl/nsl-agent` and writes `/usr/lib/n
 
 ```sh
 scripts/build-image.sh --role machine --distribution debian     # also fedora, arch, opensuse
-python3 scripts/probe-machines.py --nsl build/nsl --vm-image build/image/share/nsl-vm-trixie-x86-64-r6.raw \
-  --machine-image build/image/share/nsl-machine-debian-trixie-x86-64-r2.tar.zst \
+python3 scripts/probe-machines.py --nsl build/nsl --vm-image build/image/share/nsl-vm-trixie-x86-64-r8.raw \
+  --machine-image build/image/share/nsl-machine-debian-trixie-x86-64-r3.tar.zst \
   --evidence build/image/evidence/machines-probe.json [--gui]
 ```
 
