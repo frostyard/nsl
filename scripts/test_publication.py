@@ -91,6 +91,8 @@ class Publication(unittest.TestCase):
 
     def test_selectors_cover_every_machine_profile(self):
         self.assertEqual(set(pub.SELECTORS), set(pub.compose.MACHINES))
+        self.assertEqual(len(set(pub.MEASURED)), 4)
+        self.assertLessEqual(set(pub.MEASURED), set(pub.compose.MACHINES))
 
     def test_refresh_and_withdrawal_preserve_history(self):
         now = datetime(2026, 9, 27, tzinfo=timezone.utc)

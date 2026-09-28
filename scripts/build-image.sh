@@ -18,7 +18,7 @@ while (($#)); do
       (($# >= 2)) || { echo "Missing value for $1" >&2; exit 2; }
       selection+=("$1" "$2"); shift 2 ;;
     --help|-h)
-      echo 'Usage: scripts/build-image.sh --role vm | --role machine --distribution debian|fedora|arch|opensuse [--release RELEASE]'
+      echo 'Usage: scripts/build-image.sh --role vm | --role machine --distribution debian|ubuntu|fedora|centos|arch|opensuse [--release RELEASE]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac

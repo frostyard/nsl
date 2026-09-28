@@ -32,7 +32,12 @@ ISSUER = 'https://token.actions.githubusercontent.com'
 SELECTORS = {('debian', 'trixie'): ['debian:trixie', 'debian:13'],
              ('fedora', '44'): ['fedora:44'],
              ('arch', 'rolling'): ['arch:rolling'],
-             ('opensuse', 'tumbleweed'): ['opensuse:tumbleweed', 'opensuse-tumbleweed:rolling']}
+             ('opensuse', 'tumbleweed'): ['opensuse:tumbleweed', 'opensuse-tumbleweed:rolling'],
+             ('ubuntu', 'resolute'): ['ubuntu:resolute', 'ubuntu:26.04'],
+             ('centos', '10'): ['centos:10', 'centos-stream:10'],
+             ('opensuse', '16.0'): ['opensuse:16.0', 'opensuse-leap:16.0']}
+# The memory budget was set with these four idle machines; measure the same four.
+MEASURED = [('debian', 'trixie'), ('fedora', '44'), ('arch', 'rolling'), ('opensuse', 'tumbleweed')]
 # Payload files and the client's bounds (docs/specs/image-delivery.md#bounds).
 KINDS = {'vm': dict(payload='disk.raw.zst', media='application/zstd', uncompressed='raw', compressed_limit=8 << 30, raw_limit=32 << 30),
          'machine': dict(payload='rootfs.tar.zst', media='application/zstd', uncompressed='rootfs', compressed_limit=4 << 30, raw_limit=16 << 30)}
@@ -180,7 +185,8 @@ def build(base):
     images = [arg for _, _, payload, _ in machine_images for arg in ('--machine-image', payload)]
     run(['python3', 'scripts/probe-machines.py', '--nsl', 'build/nsl', '--vm-image', vm_payload, *images,
          '--isolated', machine_images[0][2], '--gui', '--evidence', private/'machines.json'])
-    run(['python3', 'scripts/measure-machines.py', '--nsl', 'build/nsl', '--vm-image', vm_payload, *images,
+    measured = [arg for key, _, payload, _ in machine_images if key in MEASURED for arg in ('--machine-image', payload)]
+    run(['python3', 'scripts/measure-machines.py', '--nsl', 'build/nsl', '--vm-image', vm_payload, *measured,
          '--evidence', private/'measurements.json'])
     print('::endgroup::', flush=True)
     probe = json.loads((private/'vm.json').read_text())

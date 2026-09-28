@@ -40,31 +40,35 @@ import time
 import urllib.request
 import uuid
 
-WORKLOAD = ['python3', 'jq', 'podman', 'wayland-utils', 'galculator']
+WORKLOAD = ['python3', 'jq', 'podman', 'wayland-utils']
+# Package commands by the descriptor's family.
 INSTALL = {
     'debian': lambda pkgs: ['env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq', *pkgs],
-    'fedora': lambda pkgs: ['dnf', 'install', '-y', '-q', *pkgs],
+    'rpm': lambda pkgs: ['dnf', 'install', '-y', '-q', *pkgs],
     'arch': lambda pkgs: ['pacman', '-S', '--noconfirm', '--needed', *['python' if p == 'python3' else p for p in pkgs]],
-    'opensuse': lambda pkgs: ['zypper', '--non-interactive', 'install', *['foot' if p == 'galculator' else p for p in pkgs]],
+    'suse': lambda pkgs: ['zypper', '--non-interactive', 'install', *pkgs],
 }
-REFRESH = {'debian': ['apt-get', 'update', '-qq'], 'fedora': ['true'], 'arch': ['pacman', '-Sy', '--noconfirm'],
-           'opensuse': ['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh']}
+REFRESH = {'debian': ['apt-get', 'update', '-qq'], 'rpm': ['true'], 'arch': ['pacman', '-Sy', '--noconfirm'],
+           'suse': ['zypper', '--non-interactive', '--gpg-auto-import-keys', 'refresh']}
 REMOVE = {
     'debian': ['env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'remove', '-y', '-qq', 'jq'],
-    'fedora': ['dnf', 'remove', '-y', '-q', 'jq'],
+    'rpm': ['dnf', 'remove', '-y', '-q', 'jq'],
     'arch': ['pacman', '-R', '--noconfirm', 'jq'],
-    'opensuse': ['zypper', '--non-interactive', 'remove', 'jq'],
+    'suse': ['zypper', '--non-interactive', 'remove', 'jq'],
 }
 ZONE_DATA = {
     'debian': ['env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '--reinstall', '-y', '-qq', 'tzdata'],
-    'fedora': ['dnf', 'reinstall', '-y', '-q', 'tzdata'],
+    'rpm': ['dnf', 'reinstall', '-y', '-q', 'tzdata'],
     'arch': ['pacman', '-S', '--noconfirm', 'tzdata'],
-    'opensuse': ['zypper', '--non-interactive', 'install', '--force', 'timezone'],
+    'suse': ['zypper', '--non-interactive', 'install', '--force', 'timezone'],
 }
 # Podman 5 defaults to pasta networking; Arch packages it separately.
 EXTRA = {'arch': ['passt']}
-# galculator is not packaged for Tumbleweed; foot is a Wayland-native terminal.
-GUI_APP = {'opensuse': 'foot'}
+# A Wayland application's package and command, by distribution. galculator is not
+# packaged for openSUSE or CentOS Stream 10: foot is a Wayland-native terminal and
+# zenity a GTK 4 dialog.
+GUI_APP = {'opensuse': ('foot', ['foot']), 'centos': ('zenity', ['zenity', '--info', '--text=nsl'])}
+DEFAULT_GUI_APP = ('galculator', ['galculator'])
 ARGV = ['plain', 'with space', "single'quote", 'double"quote', '$HOME', '${HOME}', '$$', '%h', '%%', '*', '',
         'new\nline', 'tab\there', 'ünïcødé', '--flag', ';', '|', '&&', '\\backslash']
 SIGNALS = {'TERM': 143, 'INT': 130, 'HUP': 129, 'PIPE': 141, 'KILL': 137, 'SEGV': 139}
@@ -204,8 +208,10 @@ def check_tally(p, name, machine, image):
     secrets = [e for e in listing if 'private-keys-v1.d/' in e and not e.endswith('/') or e.endswith('secring.gpg')]
     keyring = p.m(name, 'sh', '-c', 'find /etc /usr/share /var/lib -path "*private-keys-v1.d/*" -o -name secring.gpg 2>/dev/null | head', root=True).text
     out['keyrings'] = {'pass': not secrets, 'image_private_keys': secrets[:5], 'machine_generated': keyring.splitlines()[:5]}
-    enabled = p.m(name, 'systemctl', 'is-enabled', 'systemd-networkd.service', 'systemd-resolved.service').text.split()
-    out['network'] = {'pass': enabled == ['masked', 'masked'], 'states': enabled}
+    listed = p.m(name, 'systemctl', 'list-unit-files', '--no-legend', '--plain', 'systemd-networkd*', 'systemd-resolved*').text
+    states = {fields[0]: fields[1] for fields in map(str.split, listed.splitlines()) if len(fields) > 1}
+    out['network'] = {'pass': {'systemd-networkd.service', 'systemd-resolved.service'} <= set(states)
+                      and all(state == 'masked' for state in states.values()), 'states': states}
     ids = {n: p.m(n, 'cat', '/etc/machine-id').text for n in p.machines}
     out['machine_id'] = {'pass': tree_id in ('', 'uninitialized') and len(set(ids.values())) == len(ids) and all(len(v) == 32 for v in ids.values()),
                          'image': tree_id, 'distinct_across_machines': len(set(ids.values())) == len(ids)}
@@ -221,8 +227,8 @@ def check_tally(p, name, machine, image):
     out['hostname'] = {'pass': r.returncode == 0 and 'unable to resolve' not in r.err and name in host, 'hosts': host, 'sudo_stderr': tail(r.err, 120)}
     link = p.m(name, 'readlink', '/etc/localtime').text
     host_zone = os.readlink('/etc/localtime').split('zoneinfo/', 1)[-1] if os.path.islink('/etc/localtime') else 'Etc/UTC'
-    p.m(name, *REFRESH[machine['distribution']], root=True, timeout=600)
-    zone = p.m(name, *ZONE_DATA[machine['distribution']], root=True, timeout=900)
+    p.m(name, *REFRESH[machine['family']], root=True, timeout=600)
+    zone = p.m(name, *ZONE_DATA[machine['family']], root=True, timeout=900)
     out['time_zone'] = {'pass': link.endswith('zoneinfo/' + host_zone) and zone.returncode == 0, 'link': link, 'zone_data_install': zone.returncode,
                         'error': tail(zone.err) if zone.returncode else ''}
     return out
@@ -236,11 +242,12 @@ def check_system(p, name, machine):
 
 
 def check_packages(p, name, machine):
-    family = machine['distribution']
+    family = machine['family']
+    package, command = GUI_APP.get(machine['distribution'], DEFAULT_GUI_APP)
     began = time.monotonic()
-    r = p.m(name, 'sudo', '-n', *INSTALL[family](WORKLOAD + EXTRA.get(family, [])), timeout=1200)
+    r = p.m(name, 'sudo', '-n', *INSTALL[family](WORKLOAD + [package] + EXTRA.get(family, [])), timeout=1200)
     install = round(time.monotonic() - began, 1)
-    present = p.m(name, 'sh', '-c', 'for c in python3 jq podman wayland-info galculator foot; do command -v $c >/dev/null && echo $c; done').text.split()
+    present = p.m(name, 'sh', '-c', f'for c in python3 jq podman wayland-info {command[0]}; do command -v $c >/dev/null && echo $c; done').text.split()
     removed = p.m(name, 'sudo', '-n', *REMOVE[family], timeout=600)
     gone = p.m(name, 'sh', '-c', 'command -v jq').returncode != 0
     sudo = p.m(name, 'sudo', '-n', 'id', '-u')
@@ -497,8 +504,8 @@ def check_gui(p, name, machine):
     display = desktop_env(p, name, 'WAYLAND_DISPLAY')
     info = p.m(name, 'wayland-info', timeout=60)
     interfaces = sorted({line.split("'")[1] for line in info.text.splitlines() if "interface: '" in line})
-    application = GUI_APP.get(machine['distribution'], 'galculator')
-    app = p.m(name, 'timeout', '3', 'env', 'GDK_BACKEND=wayland', application, timeout=60)
+    application = GUI_APP.get(machine['distribution'], DEFAULT_GUI_APP)[1]
+    app = p.m(name, 'timeout', '3', 'env', 'GDK_BACKEND=wayland', *application, timeout=60)
     return {'pass': display == '/run/nsl/desktop/wayland-0' and info.returncode == 0 and 'wl_compositor' in interfaces
             and 'xdg_wm_base' in interfaces and app.returncode == 124, 'display': display,
             'interfaces': len(interfaces), 'application': application, 'app_returncode': app.returncode, 'app_stderr': tail(app.err, 200)}
@@ -606,6 +613,11 @@ def check_persistence(p, name, machine):
     return {'pass': all(after.values()) and autostarted, **after, 'vm_and_machine_start_seconds': seconds, 'all_machines_autostarted': autostarted}
 
 
+def machine_name(descriptor):
+    """One machine per image: Tumbleweed and Leap are both opensuse."""
+    return re.sub(r'[^a-z0-9]+', '-', f"{descriptor['distribution']}-{descriptor['release']}")
+
+
 def summarize(result):
     if result.get('skipped'):
         return True, 'skipped: ' + result['skipped']
@@ -634,7 +646,7 @@ def main():
         for image, isolated in [(i, False) for i in o.machine_image] + ([(o.isolated, True)] if o.isolated else []):
             descriptor = json.loads(subprocess.run(['tar', '--zstd', '-xOf', str(image), './usr/lib/nsl/machine.json'],
                                                    capture_output=True, check=True).stdout)
-            name = 'isolated' if isolated else descriptor['distribution']
+            name = 'isolated' if isolated else machine_name(descriptor)
             digest = hashlib.sha256(image.read_bytes()).hexdigest()
             began = time.monotonic()
             if isolated:

@@ -24,13 +24,13 @@ def agent(directory, content=b'\x7fELF agent'):
 class VMImage(unittest.TestCase):
     def test_unsupported_inputs_are_rejected(self):
         for args in [('machine',), ('../vm',), ('vm', 'debian'), ('vm', None, 'trixie'), ('vm', None, None, 'arm64'),
-                     ('machine', 'ubuntu'), ('machine', 'debian', 'bookworm'), ('machine', '../vm')]:
+                     ('machine', 'gentoo'), ('machine', 'debian', 'bookworm'), ('machine', 'ubuntu', 'noble'), ('machine', '../vm')]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 compose.select(ROOT, *args)
 
     def test_builder_rejects_unsupported_options_before_tools(self):
         for args in [(), ('--role', 'machine'), ('--distribution', 'debian'), ('--release', 'trixie'), ('--role', 'vm', '--distribution', 'debian'),
-                     ('--role', 'machine', '--distribution', 'ubuntu'), ('--role', 'vm', '--destination', '/should-not-exist')]:
+                     ('--role', 'machine', '--distribution', 'gentoo'), ('--role', 'vm', '--destination', '/should-not-exist')]:
             with self.subTest(args=args):
                 result = subprocess.run(['bash', str(ROOT/'scripts/build-image.sh'), *args],
                                         env=dict(os.environ, NSL_LIMACTL='/must-not-run'),
@@ -99,9 +99,11 @@ class VMImage(unittest.TestCase):
 
     def test_machine_images_compose_each_family(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for distribution, family in [('debian', 'debian'), ('fedora', 'rpm'), ('arch', 'arch'), ('opensuse', 'suse')]:
-                destination = Path(tmp)/distribution
-                profile = compose.select(ROOT, 'machine', distribution)
+            for distribution, release, family in [('debian', 'trixie', 'debian'), ('ubuntu', 'resolute', 'debian'), ('fedora', '44', 'rpm'),
+                                                  ('centos', '10', 'rpm'), ('arch', 'rolling', 'arch'), ('opensuse', 'tumbleweed', 'suse'),
+                                                  ('opensuse', '16.0', 'suse')]:
+                destination = Path(tmp)/f'{distribution}-{release}'
+                profile = compose.select(ROOT, 'machine', distribution, release)
                 name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin')
                 descriptor = json.loads((destination/'overlay/usr/lib/nsl/machine.json').read_text())
                 self.assertEqual((descriptor['role'], descriptor['family'], descriptor['build_id'], descriptor['machine_protocol']),
@@ -116,8 +118,10 @@ class VMImage(unittest.TestCase):
                 self.assertIn('pam_systemd.so', pam.read_text())
                 self.assertEqual(pam.stat().st_mode & 0o777, 0o644)
                 self.assertEqual((destination/'overlay/usr/bin/nsl-path').stat().st_mode & 0o777, 0o755)
-                self.assertEqual((destination/'mkosi.tools.conf').is_file(), family != 'debian')
-            self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch/mkosi.local.conf').read_text())
+                # Only Debian builds with the builder's own tools.
+                self.assertEqual((destination/'mkosi.tools.conf').is_file(), distribution != 'debian')
+                self.assertEqual(config.rsplit('ToolsTree=', 1)[1].split()[0], 'no' if distribution == 'debian' else 'default')
+            self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch-rolling/mkosi.local.conf').read_text())
 
     def test_nsl_path_translates_both_ways(self):
         script = str(ROOT/'image/machines/common/overlay/usr/bin/nsl-path')

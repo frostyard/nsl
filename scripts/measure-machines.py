@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Memory and start-time regression check for machines in the shared VM.
 
-Creates a machine from each image in a disposable state directory, then
-measures through the CLI, as the shared-VM experiment did:
+Creates a machine from each of four images in a disposable state directory,
+then measures through the CLI, as the shared-VM experiment did:
 
   - cold start of the first machine, VM included, and start of an additional
     machine while the first runs (median and p95 of --trials);
   - no-op `nsl run` latency (--latency-trials);
-  - host PSS of the VM unit's processes, idle with 1, 2 and all machines.
+  - host PSS of the VM unit's processes, idle with 1, 2 and 4 machines.
 
 The VM gets 4 vCPUs and 8 GiB, autostart off and idle stop off. Criteria from
 the implementation plan: four idle machines at or below 950 MiB, and an
@@ -17,7 +17,7 @@ session, the evidence also records four idle machines with their desktop
 sessions, and the difference, ungated. Writes JSON evidence; exits nonzero
 when a criterion fails.
 
-  measure-machines.py --nsl build/nsl --vm-image VM.raw --machine-image M1.tar.zst ... \\
+  measure-machines.py --nsl build/nsl --vm-image VM.raw --machine-image M1.tar.zst ... M4.tar.zst \\
       --evidence build/image/evidence/measure.json
 """
 import argparse
@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import statistics
 import subprocess
@@ -133,8 +134,8 @@ def main():
     o = parser.parse_args()
     if o.evidence.exists():
         parser.error('evidence file exists')
-    if len(o.machine_image) < 2:
-        parser.error('measuring an additional machine needs at least two images')
+    if len(o.machine_image) != 4:
+        parser.error('the memory budget is for four idle machines; pass four images')
     log = lambda message: print(f'[{time.strftime("%H:%M:%S")}] {message}', flush=True)
     scratch = Path(tempfile.mkdtemp(prefix='nsl-measure-', dir=Path.home()/'.local/share'))
     home, config = scratch/'state', scratch/'config'
@@ -151,7 +152,7 @@ def main():
         for image in o.machine_image:
             descriptor = json.loads(subprocess.run(['tar', '--zstd', '-xOf', str(image), './usr/lib/nsl/machine.json'],
                                                    capture_output=True, check=True).stdout)
-            name = descriptor['distribution']
+            name = re.sub(r'[^a-z0-9]+', '-', f"{descriptor['distribution']}-{descriptor['release']}")
             digest = sha256(image)
             began = time.monotonic()
             nsl('create', name, '--image', str(image.resolve()), '--digest', 'sha256:' + digest)
@@ -223,7 +224,7 @@ def main():
     idle = evidence['memory'].get(f'idle_{len(names)}', {}).get('pss_mib')
     evidence['criteria'] = {
         'idle_machines': {'machines': len(names), 'pss_mib': idle, 'limit_mib': MEMORY_LIMIT_MIB,
-                          'pass': len(names) >= 4 and idle is not None and idle <= MEMORY_LIMIT_MIB},
+                          'pass': idle is not None and idle <= MEMORY_LIMIT_MIB},
         'additional_machine_p95': {'seconds': evidence['additional_machine_s']['p95'], 'limit_s': ADDITIONAL_P95_S,
                                    'pass': evidence['additional_machine_s']['p95'] <= ADDITIONAL_P95_S},
     }

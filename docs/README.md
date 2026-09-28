@@ -11,7 +11,7 @@
 
 nsl is becoming WSL-style machines on atomic Linux. [ADR-0016](adr/0016-wsl-style-machines.md) defines machines trusted as the user, with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs them as systemd-nspawn containers in one shared VM, from signed Frostyard machine images, as the [shared-VM experiment](plans/shared-vm-experiment.md) supported. The specs below describe that target system; the [implementation plan](plans/shared-vm-implementation.md) phases the work and records what is live.
 
-The binary implements the whole CLI contract: machines in the shared VM or, isolated, in VMs of their own; export and import; idle stop; forwarded ports, Waypipe windows, `nsl-open` and `ssh-config`; and the signed catalogue client. The [publication workflow](design/image-publication.md) publishes the VM image and four machine images weekly; catalogue sequence 6, on 2026-09-28, was the first. The earlier one-VM-per-environment prototype, with seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](plans/public-image-delivery.md)), has been removed from the code; its reports remain as history.
+The binary implements the whole CLI contract: machines in the shared VM or, isolated, in VMs of their own; export and import; idle stop; forwarded ports, Waypipe windows, `nsl-open` and `ssh-config`; and the signed catalogue client. The [publication workflow](design/image-publication.md) publishes the VM image and seven machine images weekly: Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, openSUSE Tumbleweed and Leap 16.0. Catalogue sequence 6, on 2026-09-28, was the first, with four machine images; the [second plan](plans/more-machine-images.md) added three. The earlier one-VM-per-environment prototype, with seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](plans/public-image-delivery.md)), has been removed from the code; its reports remain as history.
 
 ## Index
 
@@ -51,6 +51,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 ### Plans
 
 - [Machines in a shared VM](plans/shared-vm-implementation.md) — implementation of ADR-0016 and ADR-0017; start here for new work.
+- [Ubuntu, CentOS Stream and openSUSE Leap machine images](plans/more-machine-images.md) — three more machine images, accepted and published.
 - [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; evidence for ADR-0017.
 - [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — deferred until cloud-init is re-validated in machines.
 
