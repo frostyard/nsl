@@ -73,6 +73,15 @@ Commands start what they need. The shared VM starts on first use, and by default
 
 A machine with no nsl command sessions and no connected windows stops after `idle_timeout` minutes, 15 by default. Services running inside it do not keep it running. The VM powers itself off 60 seconds after its last machine stops and its last request ends. A command that arrives meanwhile waits and starts it again.
 
+To keep machines running for services, disable automatic idle stopping in the [configuration](../reference/configuration.md):
+
+```ini
+[machines]
+idle_timeout = 0
+```
+
+This applies to every machine from the next nsl command. It does not prevent an explicit `nsl stop`, `nsl shutdown` or host shutdown.
+
 ## Software in a machine
 
 Install and update software with the machine's own package manager: `apt-get`, `dnf`, `pacman` or `zypper`. A newer machine image in the catalogue affects machines created later, never an existing one.
