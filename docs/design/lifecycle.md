@@ -71,7 +71,7 @@ The VM's idle monitor makes both idle decisions, so the host runs no background 
 - the `sudo` rule;
 - the VM-side record from which nspawn settings are generated.
 
-It publishes the subvolume under the machine's name only after every step succeeds. A failure deletes the staging subvolume and leaves the name free. The first machine becomes the default.
+It publishes the subvolume under the machine's name only after every step succeeds. The agent deletes its staging subvolume on failure. The host releases the name only after cleanup is confirmed. If the create/import response or cleanup request fails, the host keeps the incomplete record and original ID; `remove NAME --yes` retries cleanup. The first machine becomes the default.
 
 Machines run with `PrivateUsers=no` in the VM's network namespace with its resolver and, in the shared VM, bind `/mnt/host`. Machine root is effectively VM root, so machines are not isolated from one another. `start` waits for the machine's manager to report `running` or `degraded`. The agent serializes lifecycle operations on each machine with a lock in `/run/nsl`, so a `start` waits for an idle stop or an export to finish.
 

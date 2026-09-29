@@ -20,7 +20,7 @@ nsl create NAME --distro DISTRO:RELEASE [--default] [--user NAME] [--isolated] [
 
 Names start with a lowercase letter, followed by lowercase letters, digits or interior hyphens, up to 24 characters. Flags follow the name.
 
-Creation verifies the cached image, imports it into the VM's data disk and applies only per-machine data: the host time zone, the hostname, the account and its `sudo` rule. A failed creation leaves the name free.
+Creation verifies the cached image, imports it into the VM's data disk and applies only per-machine data: the host time zone, the hostname, the account and its `sudo` rule. A failed creation frees the name after cleanup succeeds. If the VM cannot confirm cleanup, `nsl list` shows the machine as `incomplete` and the error tells you to run `nsl remove NAME --yes`. That command retries cleanup before freeing the name.
 
 ## Enter a machine
 

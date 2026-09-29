@@ -276,6 +276,9 @@ func (a *app) newMachine(m *machineRecord, req protocol.Request, stdin io.Reader
 	defer unlock(l)
 	*m = *locked
 	if err = a.prepareMachine(m, req, stdin, timeout); err != nil {
+		if _, recordErr := os.Lstat(a.machinePath(m.Name)); !errors.Is(recordErr, os.ErrNotExist) {
+			return fmt.Errorf("creating %s failed; its record is retained; run nsl remove %s --yes to clean up: %w", m.Name, m.Name, err)
+		}
 		return fmt.Errorf("creating %s failed; nothing was kept: %w", m.Name, err)
 	}
 	current, err := a.defaultMachine()
@@ -288,8 +291,9 @@ func (a *app) newMachine(m *machineRecord, req protocol.Request, stdin io.Reader
 	return nil
 }
 
-// prepareMachine has the agent build the machine; a failure removes both the
-// VM's partial machine, or an isolated machine's whole VM, and the host record.
+// prepareMachine has the agent build the machine. On failure it removes the
+// guest machine or isolated VM before discarding the host recovery record.
+// An unconfirmed cleanup retains the identity so remove can retry safely.
 func (a *app) prepareMachine(m *machineRecord, req protocol.Request, stdin io.Reader, timeout time.Duration) error {
 	v, err := a.machineVM(m, false)
 	if err == nil {
@@ -300,9 +304,12 @@ func (a *app) prepareMachine(m *machineRecord, req protocol.Request, stdin io.Re
 			m.BuildID, m.Prepared = result.BuildID, true
 			return a.saveMachine(m)
 		}
-		var agentErr *protocol.Error
-		if !errors.As(err, &agentErr) || agentErr.Code != protocol.CodeBusy {
-			_ = a.agentJSON(v, protocol.Request{Op: "remove", Machine: m.Name, ID: m.ID}, nil, time.Minute, nil)
+		if m.Tier == "shared" {
+			cleanupErr := a.agentJSON(v, protocol.Request{Op: "remove", Machine: m.Name, ID: m.ID}, nil, time.Minute, nil)
+			var agentErr *protocol.Error
+			if cleanupErr != nil && (!errors.As(cleanupErr, &agentErr) || agentErr.Code != protocol.CodeUnknownMachine) {
+				return errors.Join(err, fmt.Errorf("cleanup was not confirmed: %w", cleanupErr))
+			}
 		}
 	}
 	if m.Tier == "isolated" {
