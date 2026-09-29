@@ -11,7 +11,8 @@ nsl is one binary that runs as your user. It needs an x86-64 Linux host with KVM
 | Requirement                                                                                        | Used for                                              |
 | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | `systemd-vmspawn`, `systemd-run`, `systemctl` and a user systemd manager                           | Running each VM as a user unit                        |
-| QEMU (`qemu-system-x86_64`, `qemu-img`) with KVM, and UEFI firmware                                | The VM and its disks                                  |
+| QEMU (`qemu-system-x86_64`, `qemu-img`) with KVM                                                   | The VM and its disks                                  |
+| UEFI firmware without Secure Boot, with a QEMU firmware descriptor (Debian's `ovmf`)               | Booting the VM                                        |
 | virtiofsd at `/usr/libexec/virtiofsd`                                                              | Sharing your files and the image cache with the VM    |
 | OpenSSH (`ssh`, `ssh-keygen`) and `/usr/lib/systemd/systemd-ssh-proxy`                             | Reaching the VM's agent over vsock                    |
 | `sg` or util-linux `newgrp` (on Debian 14, both from `util-linux-extra`), and util-linux `unshare` | Opening the KVM devices through your `kvm` membership |
@@ -67,6 +68,6 @@ make build   # writes build/nsl
 nsl doctor
 ```
 
-`doctor` prints `OK` or `MISSING` for each tool and device, then checks KVM and vsock access through the `kvm` group, user namespaces and the user systemd manager. It reports Waypipe as optional. Without Waypipe, you can't display machine windows on the host. It exits with an error when a VM prerequisite is missing.
+`doctor` prints `OK` or `MISSING` for each tool, for the UEFI firmware systemd-vmspawn would boot the VM with, and for each device, then checks KVM and vsock access through the `kvm` group, user namespaces and the user systemd manager. systemd-vmspawn finds firmware only through a QEMU firmware descriptor in `/usr/share/qemu/firmware` or `/etc/qemu/firmware`, so firmware installed without one is reported missing. It reports Waypipe as optional. Without Waypipe, you can't display machine windows on the host. It exits with an error when a VM prerequisite is missing.
 
 Next, [create your first machine](first-machine.md).

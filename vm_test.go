@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -78,5 +82,57 @@ func TestInGroupRestoresThePrimaryGroupWithEitherTool(t *testing.T) {
 	a.groupSwitch = "sg"
 	if got := a.inGroup("u", "exec true"); !slices.Equal(got, []string{"sg", "u", "-c", "exec true"}) {
 		t.Fatal(got)
+	}
+}
+
+func TestDoctorChecksTheFirmwareLaunchSelects(t *testing.T) {
+	const describe = `{"description":"UEFI firmware for x86_64, without Secure Boot","mapping":{"device":"flash","executable":{"filename":"/usr/share/OVMF/OVMF_CODE_4M.fd","format":"raw"}}}`
+	const missing = "MISSING UEFI firmware (vmspawn found no x86_64 firmware without Secure Boot; install ovmf)\n"
+	for _, c := range []struct {
+		name      string
+		vmspawn   bool
+		firmware  string
+		want, not string
+	}{
+		{"present", true, describe, "OK /usr/share/OVMF/OVMF_CODE_4M.fd\n", missing},
+		{"missing", true, "", missing, "OK /usr/share/OVMF"},
+		{"no vmspawn", false, describe, "MISSING systemd-vmspawn\n", "UEFI"}, // nothing to ask
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, f := testApp(t)
+			var out bytes.Buffer
+			a.out, f.firmware = &out, c.firmware
+			dir := t.TempDir()
+			if c.vmspawn {
+				if err := os.WriteFile(filepath.Join(dir, "systemd-vmspawn"), nil, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", dir)
+			// The other host checks pass; only vmspawn answers from the fake.
+			f.blocking = func(ctx context.Context, bin string, args []string) (bool, error) {
+				return bin != "systemd-vmspawn", nil
+			}
+			// The test PATH lacks the other tools, so doctor fails in every case;
+			// the firmware line is what differs.
+			if err := a.doctor(); err == nil {
+				t.Fatal("doctor passed without its tools")
+			}
+			if !strings.Contains(out.String(), c.want) || strings.Contains(out.String(), c.not) {
+				t.Fatalf("doctor printed:\n%s", out.String())
+			}
+			describes := 0
+			for _, call := range f.calls {
+				if call.Bin == "systemd-vmspawn" {
+					describes++
+					if !slices.Equal(call.Args, []string{"--firmware=describe", "--secure-boot=no"}) {
+						t.Fatalf("vmspawn ran with %q", call.Args)
+					}
+				}
+			}
+			if (describes == 1) != c.vmspawn {
+				t.Fatalf("vmspawn described firmware %d times", describes)
+			}
+		})
 	}
 }

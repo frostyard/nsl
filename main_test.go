@@ -28,7 +28,7 @@ type call struct {
 	Args []string
 }
 
-// fakeRunner emulates systemd user units, qemu-img, ssh-keygen and the agent.
+// fakeRunner emulates systemd user units, vmspawn's firmware description, qemu-img, ssh-keygen and the agent.
 type fakeRunner struct {
 	mu                   sync.Mutex // helpers call the runner from several goroutines
 	calls                []call
@@ -43,6 +43,7 @@ type fakeRunner struct {
 	failResize           bool
 	failCheck            bool
 	onResize             func()
+	firmware             string // vmspawn's firmware description; empty when the host has none
 }
 
 func qcow2(path string, gibs int64, backing bool) error {
@@ -71,6 +72,13 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch bin {
+	case "systemd-vmspawn":
+		if f.firmware == "" {
+			fmt.Fprintln(stderr, "Failed to find OVMF config: No such file or directory")
+			return errors.New("exit status 1")
+		}
+		_, err := io.WriteString(out, f.firmware)
+		return err
 	case "ssh-keygen":
 		path := args[len(args)-1]
 		if err := os.WriteFile(path, []byte("private-key"), 0600); err != nil {
@@ -342,7 +350,7 @@ func TestLaunchArgumentsAndCredential(t *testing.T) {
 	for _, want := range []string{
 		"--image=" + v.dir + "/root.qcow2", "--extra-drive=qcow2:virtio-blk:" + v.dir + "/data.qcow2",
 		"--bind-ro=" + a.home + "/images/machines:/var/cache/nsl/images", "--bind=" + home + ":/mnt/host" + home,
-		"--load-credential=nsl.vm:" + v.dir + "/nsl.vm", "--cpus=8", "--ram=8G", "--register=no",
+		"--load-credential=nsl.vm:" + v.dir + "/nsl.vm", "--cpus=8", "--ram=8G", "--register=no", "--secure-boot=no",
 	} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("missing %s in %s", want, args)

@@ -608,15 +608,20 @@ func (a *app) devices(args []string) error {
 	return c.Run()
 }
 
+// vmFirmware selects the VM's firmware. doctor asks vmspawn to describe the
+// firmware these flags select, so the check matches what launch requests.
+func vmFirmware() []string { return []string{"--secure-boot=no"} }
+
 func (a *app) launchArgs(v *vmRecord, cred *protocol.Credential) []string {
 	args := []string{"--user", "--no-ask-password", "--keep-unit", "--register=no",
 		"--image=" + filepath.Join(v.dir, "root.qcow2"), "--image-format=qcow2", "--machine=nsl-" + v.ID,
 		"--cpus=" + strconv.Itoa(v.CPUs), "--ram=" + strconv.Itoa(v.Memory) + "G",
-		"--kvm=yes", "--vsock=yes", "--vsock-cid=" + strconv.FormatUint(uint64(cid(v)), 10), "--tpm=no", "--secure-boot=no",
+		"--kvm=yes", "--vsock=yes", "--vsock-cid=" + strconv.FormatUint(uint64(cid(v)), 10), "--tpm=no",
 		"--network-user-mode", "--notify-ready=no", "--pass-ssh-key=no", "--console=read-only",
 		"--load-credential=nsl.vm:" + filepath.Join(v.dir, "nsl.vm"),
 		"--extra-drive=qcow2:virtio-blk:" + filepath.Join(v.dir, "data.qcow2"),
 		"--bind-ro=" + a.machineImages() + ":" + protocol.ImageShare}
+	args = append(args, vmFirmware()...)
 	// The credential names no shares for an isolated VM.
 	for _, s := range cred.Shares {
 		args = append(args, "--bind="+s.Source+":/mnt/host"+s.Source)
@@ -678,8 +683,31 @@ func (a *app) launch(args []string) error {
 	return syscall.Exec(bin, append([]string{bin}, a.launchArgs(v, &cred)...), env)
 }
 
+// firmware returns the UEFI image vmspawn selects for launch. The check asks vmspawn
+// to describe its choice, because --firmware=list succeeds even without firmware.
+func (a *app) firmware() (string, error) {
+	b, err := a.capture(5*time.Second, "systemd-vmspawn", append([]string{"--firmware=describe"}, vmFirmware()...)...)
+	if err != nil {
+		return "", err
+	}
+	var d struct {
+		Mapping struct {
+			Executable struct {
+				Filename string `json:"filename"`
+			} `json:"executable"`
+		} `json:"mapping"`
+	}
+	if err = json.Unmarshal(b, &d); err != nil {
+		return "", err
+	}
+	if d.Mapping.Executable.Filename == "" {
+		return "", errors.New("the firmware description names no executable")
+	}
+	return d.Mapping.Executable.Filename, nil
+}
+
 func (a *app) doctor() error {
-	failed := false
+	failed, vmspawn := false, false
 	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", a.groupSwitch, "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
 		p, err := exec.LookPath(tool)
 		if err != nil {
@@ -688,6 +716,16 @@ func (a *app) doctor() error {
 				tool = "sg, or util-linux newgrp"
 			}
 			fmt.Fprintln(a.out, "MISSING", tool)
+		} else {
+			vmspawn = vmspawn || tool == "systemd-vmspawn"
+			fmt.Fprintln(a.out, "OK", p)
+		}
+	}
+	// Without vmspawn there is nothing to ask; its MISSING line already fails doctor.
+	if vmspawn {
+		if p, err := a.firmware(); err != nil {
+			failed = true
+			fmt.Fprintln(a.out, "MISSING UEFI firmware (vmspawn found no x86_64 firmware without Secure Boot; install ovmf)")
 		} else {
 			fmt.Fprintln(a.out, "OK", p)
 		}
