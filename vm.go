@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -388,6 +389,9 @@ func (a *app) startVM(v *vmRecord, autostart bool) error {
 }
 
 func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
+	if err := a.requireKVMGroup(); err != nil {
+		return fmt.Errorf("missing VM prerequisite: %w", err)
+	}
 	c, err := a.loadConfig()
 	if err != nil {
 		return err
@@ -412,6 +416,39 @@ func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
 		"--property=Type=exec", "--property=TimeoutStopSec=30", "--property=KillMode=mixed",
 		"--setenv=NSL_HOME=" + a.home, "--setenv=NSL_DEBUG=" + os.Getenv("NSL_DEBUG"), "--"}, a.inGroup("kvm", script)...)
 	return a.call(nil, a.err, "systemd-run", args...)
+}
+
+// requireKVMGroup checks the account database, not the session's stale group
+// list. Host tools preserve NSS support in our CGO_ENABLED=0 releases.
+func (a *app) requireKVMGroup() error {
+	b, err := a.capture(5*time.Second, "getent", "group", "kvm")
+	if err != nil {
+		return fmt.Errorf("cannot look up kvm group: %w", err)
+	}
+	group := strings.Split(strings.TrimSpace(string(b)), ":")
+	if len(group) != 4 || group[0] != "kvm" {
+		return errors.New("cannot look up kvm group: invalid getent response")
+	}
+	if _, err := strconv.ParseUint(group[2], 10, 32); err != nil {
+		return fmt.Errorf("cannot look up kvm group: invalid GID: %w", err)
+	}
+	b, err = a.capture(5*time.Second, "id", "-G", "--", a.user)
+	if err != nil {
+		return fmt.Errorf("cannot look up kvm group membership for %s: %w", a.user, err)
+	}
+	groups := strings.Fields(string(b))
+	if len(groups) == 0 {
+		return errors.New("cannot look up kvm group membership: empty id response")
+	}
+	for _, gid := range groups {
+		if _, err := strconv.ParseUint(gid, 10, 32); err != nil {
+			return fmt.Errorf("cannot look up kvm group membership: invalid GID: %w", err)
+		}
+	}
+	if !slices.Contains(groups, group[2]) {
+		return fmt.Errorf("kvm group membership (ask an administrator to run: sudo usermod -aG kvm %s; then retry nsl; no new login needed)", shellQuote(a.user))
+	}
+	return nil
 }
 
 // inGroup is the argv that runs script with group as the primary group, keeping
@@ -708,7 +745,7 @@ func (a *app) firmware() (string, error) {
 
 func (a *app) doctor() error {
 	failed, vmspawn := false, false
-	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", a.groupSwitch, "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
+	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", "getent", "id", a.groupSwitch, "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
 		p, err := exec.LookPath(tool)
 		if err != nil {
 			failed = true
@@ -739,11 +776,18 @@ func (a *app) doctor() error {
 			fmt.Fprintln(a.out, "OK", path)
 		}
 	}
-	// Check refreshed group access without changing membership or device modes.
-	check := a.inGroup("kvm", "test -r /dev/kvm && test -w /dev/kvm && test -r /dev/vhost-vsock && test -w /dev/vhost-vsock")
-	if _, err := a.capture(5*time.Second, check[0], check[1:]...); err != nil {
+	// A non-member's group switch can prompt for a password. Only probe device
+	// access once membership is confirmed, without changing host permissions.
+	if err := a.requireKVMGroup(); err != nil {
 		failed = true
-		fmt.Fprintln(a.out, "KVM/vsock group access:", err)
+		fmt.Fprintln(a.out, "MISSING", err)
+	} else {
+		fmt.Fprintln(a.out, "OK kvm group membership")
+		check := a.inGroup("kvm", "test -r /dev/kvm && test -w /dev/kvm && test -r /dev/vhost-vsock && test -w /dev/vhost-vsock")
+		if _, err := a.capture(5*time.Second, check[0], check[1:]...); err != nil {
+			failed = true
+			fmt.Fprintln(a.out, "KVM/vsock group access:", err)
+		}
 	}
 	if _, err := a.capture(5*time.Second, "unshare", "--user", "--map-current-user", "true"); err != nil {
 		failed = true

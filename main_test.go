@@ -44,6 +44,8 @@ type fakeRunner struct {
 	failCheck            bool
 	onResize             func()
 	firmware             string // vmspawn's firmware description; empty when the host has none
+	kvmGroup             string // getent's group record
+	accountGroups        string // id -G USER; independent of the session's groups
 }
 
 func qcow2(path string, gibs int64, backing bool) error {
@@ -72,6 +74,12 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch bin {
+	case "getent":
+		_, err := io.WriteString(out, f.kvmGroup)
+		return err
+	case "id":
+		_, err := io.WriteString(out, f.accountGroups)
+		return err
 	case "systemd-vmspawn":
 		if f.firmware == "" {
 			fmt.Fprintln(stderr, "Failed to find OVMF config: No such file or directory")
@@ -213,7 +221,7 @@ func (f *fakeRunner) ran(bin string, prefix ...string) int {
 
 func testApp(t *testing.T) (*app, *fakeRunner) {
 	t.Helper()
-	f := &fakeRunner{states: map[string]string{}, descriptions: map[string]string{}}
+	f := &fakeRunner{states: map[string]string{}, descriptions: map[string]string{}, kvmGroup: "kvm:x:993:u\n", accountGroups: "1000 993\n"}
 	host := t.TempDir()
 	t.Setenv("HOME", filepath.Join(host, "home", "u"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(host, "config"))

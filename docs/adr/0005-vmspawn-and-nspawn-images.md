@@ -12,6 +12,7 @@ The [vmspawn comparison](../plans/vmspawn-comparison.md) established a complete 
 Run every nsl VM with systemd-vmspawn and QEMU under a systemd user unit. Lima remains only an image-build tool.
 
 - **Launch** through the rootless named-device-descriptor path: open `/dev/kvm` and `/dev/vhost-vsock` under the `kvm` group, then run vmspawn in an unprivileged user namespace that maps the user to themselves.
+- **Group membership:** doctor and launch check the host account database before invoking `sg` or `newgrp`, so a non-member gets instructions to join `kvm` instead of a password prompt. Use host `getent` and `id` for NSS lookups: release binaries disable cgo, so Go's `os/user` would read only local files. Query the named account's groups so membership added since login takes effect immediately.
 - **Identity:** supply the VM's ID, the host UID and primary GID, and a unique public SSH key through a systemd credential. The VM binds that identity on first boot and rejects a different one later. Private keys stay on the host.
 - **Uniqueness:** give each VM its own unit names and vsock CID, and control a unit only after its description names the VM's ID.
 - **Transport:** SSH over vsock, with SSH, terminal and Waypipe implementations kept external.

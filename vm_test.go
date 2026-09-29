@@ -111,7 +111,7 @@ func TestDoctorChecksTheFirmwareLaunchSelects(t *testing.T) {
 			t.Setenv("PATH", dir)
 			// The other host checks pass; only vmspawn answers from the fake.
 			f.blocking = func(ctx context.Context, bin string, args []string) (bool, error) {
-				return bin != "systemd-vmspawn", nil
+				return bin != "systemd-vmspawn" && bin != "getent" && bin != "id", nil
 			}
 			// The test PATH lacks the other tools, so doctor fails in every case;
 			// the firmware line is what differs.
@@ -132,6 +132,125 @@ func TestDoctorChecksTheFirmwareLaunchSelects(t *testing.T) {
 			}
 			if (describes == 1) != c.vmspawn {
 				t.Fatalf("vmspawn described firmware %d times", describes)
+			}
+		})
+	}
+}
+
+func TestKVMGroupMembershipBeforeDoctorAndLaunch(t *testing.T) {
+	for _, c := range []struct {
+		name, group, groups, fail, want string
+	}{
+		{name: "supplementary member", group: "kvm:x:993:u\n", groups: "1000 993\n"},
+		{name: "primary member", group: "kvm:x:993:\n", groups: "993 1000\n"},
+		{name: "NSS member", group: "kvm:x:993:\n", groups: "1000 993\n"},
+		{name: "non-member", group: "kvm:x:993:other\n", groups: "1000 1993\n", want: "kvm group membership (ask an administrator to run: sudo usermod -aG kvm 'u'; then retry nsl; no new login needed)"},
+		{name: "group lookup failed", fail: "getent", want: "cannot look up kvm group: getent:"},
+		{name: "account lookup failed", group: "kvm:x:993:u\n", fail: "id", want: "cannot look up kvm group membership for u: id:"},
+		{name: "empty group", want: "invalid getent response"},
+		{name: "wrong group", group: "other:x:993:u\n", want: "invalid getent response"},
+		{name: "invalid group GID", group: "kvm:x:bad:u\n", want: "invalid GID"},
+		{name: "empty groups", group: "kvm:x:993:u\n", want: "empty id response"},
+		{name: "invalid account GID", group: "kvm:x:993:u\n", groups: "993 bad\n", want: "invalid GID"},
+	} {
+		for _, switcher := range []string{"sg", "newgrp"} {
+			for _, command := range []string{"doctor", "launch"} {
+				t.Run(c.name+"/"+switcher+"/"+command, func(t *testing.T) {
+					a, f := testApp(t)
+					a.groupSwitch = switcher
+					var v *vmRecord
+					if command == "launch" {
+						image, digest := localImage(t, "vm image")
+						if err := a.execute([]string{"update", "--image", image, "--digest", digest}); err != nil {
+							t.Fatal(err)
+						}
+						var err error
+						if v, err = a.loadVM(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					f.calls = nil
+					f.kvmGroup, f.accountGroups = c.group, c.groups
+					f.blocking = func(ctx context.Context, bin string, args []string) (bool, error) {
+						if bin == c.fail {
+							return true, errors.New("lookup failed")
+						}
+						return bin == switcher || (bin == "systemctl" && slices.Contains(args, "show-environment")), nil
+					}
+					if command == "doctor" {
+						var out bytes.Buffer
+						a.out = &out
+						t.Setenv("PATH", t.TempDir())
+						if err := a.doctor(); err == nil {
+							t.Fatal("doctor passed without its tools")
+						}
+						want := c.want
+						if want == "" {
+							want = "OK kvm group membership\n"
+						} else if !strings.Contains(out.String(), "MISSING "+c.want) && !strings.Contains(out.String(), "MISSING cannot look up") {
+							t.Fatalf("missing diagnostic:\n%s", out.String())
+						}
+						if !strings.Contains(out.String(), want) {
+							t.Fatalf("want %q in:\n%s", want, out.String())
+						}
+					} else {
+						err := a.launchVM(v, "failed", true)
+						if c.want == "" && err != nil {
+							t.Fatal(err)
+						}
+						if c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)) {
+							t.Fatalf("got %v, want %q", err, c.want)
+						}
+					}
+					invoked := false
+					for _, call := range f.calls {
+						switch call.Bin {
+						case "getent":
+							if !slices.Equal(call.Args, []string{"group", "kvm"}) {
+								t.Fatalf("group lookup: %v", call)
+							}
+						case "id":
+							if !slices.Equal(call.Args, []string{"-G", "--", a.user}) {
+								t.Fatalf("must query the account, not session groups: %v", call)
+							}
+						case "sg", "newgrp", "systemd-run":
+							invoked = true
+						default:
+							if command == "launch" && c.want != "" {
+								t.Fatalf("launch changed state before confirming membership: %v", call)
+							}
+						}
+					}
+					if invoked != (c.want == "") {
+						t.Fatalf("group switch/launch invoked = %v, want %v", invoked, c.want == "")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestDoctorReportsDeviceAccessFailureForKVMMember(t *testing.T) {
+	for _, switcher := range []string{"sg", "newgrp"} {
+		t.Run(switcher, func(t *testing.T) {
+			a, f := testApp(t)
+			a.groupSwitch = switcher
+			var out bytes.Buffer
+			a.out = &out
+			t.Setenv("PATH", t.TempDir())
+			f.blocking = func(ctx context.Context, bin string, args []string) (bool, error) {
+				if bin == switcher {
+					return true, errors.New("device access denied")
+				}
+				return bin == "systemctl", nil
+			}
+			if err := a.doctor(); err == nil {
+				t.Fatal("doctor passed without device access")
+			}
+			for _, want := range []string{"OK kvm group membership", "KVM/vsock group access: " + switcher + ": device access denied"} {
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("want %q in:\n%s", want, out.String())
+				}
 			}
 		})
 	}
