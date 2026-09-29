@@ -101,7 +101,7 @@ The failed exploratory run is kept separately from the post-fix results. Its fai
 
 ## Reproduce and inspect
 
-Follow [README setup](../../README.md), then use the scripts:
+Follow [Build from source](../../site/content/contributing/build.md), then use the scripts:
 
 ```sh
 python3 scripts/measure-poc.py --environment experiment \
