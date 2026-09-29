@@ -14,6 +14,10 @@ func (a *app) imageCommand(args []string) error {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	offline := fs.Bool("offline", false, "use a fresh signed catalogue and verified cache")
+	refresh := false
+	if args[0] == "images" {
+		fs.BoolVar(&refresh, "refresh", false, "refresh the signed catalogue")
+	}
 	selector := ""
 	rest := args[1:]
 	if args[0] == "pull" {
@@ -29,6 +33,9 @@ func (a *app) imageCommand(args []string) error {
 	if fs.NArg() != 0 {
 		return errors.New("unexpected image command arguments")
 	}
+	if *offline && refresh {
+		return errors.New("--offline and --refresh are mutually exclusive")
+	}
 	client := a.imageClient()
 	if args[0] == "pull" {
 		image, err := client.pullMachine(selector, *offline)
@@ -38,7 +45,13 @@ func (a *app) imageCommand(args []string) error {
 		fmt.Fprintf(a.out, "Verified %s\n%s\n", image.buildID, image.path)
 		return nil
 	}
-	cat, err := client.catalogue(*offline)
+	mode := catalogueCached
+	if *offline {
+		mode = catalogueOffline
+	} else if refresh {
+		mode = catalogueRefresh
+	}
+	cat, err := client.catalogue(mode)
 	if err != nil {
 		return err
 	}

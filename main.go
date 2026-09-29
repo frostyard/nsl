@@ -127,7 +127,7 @@ func usage(w io.Writer) {
   config
   recover [NAME]
   resize [NAME] --disk GiB
-  images [--offline]
+  images [--offline | --refresh]
   pull DISTRO:RELEASE [--offline]
   doctor
   version

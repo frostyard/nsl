@@ -16,6 +16,7 @@ import (
 )
 
 const catalogueArtifactType = "application/vnd.frostyard.nsl.catalogue.v1"
+const catalogueRefreshInterval = time.Hour
 
 type signatureVerifier func([]byte, []byte) error
 type imageClient struct {
@@ -59,8 +60,9 @@ func (c *imageClient) read(path string, max int64) ([]byte, error) {
 }
 
 type catalogueRecord struct {
-	Document []byte `json:"document"`
-	Bundle   []byte `json:"bundle"`
+	Document  []byte    `json:"document"`
+	Bundle    []byte    `json:"bundle"`
+	CheckedAt time.Time `json:"checked_at,omitempty"`
 }
 
 func (c *imageClient) parseCatalogue(record catalogueRecord, fresh bool) (imageCatalogue, error) {
@@ -79,9 +81,17 @@ func (c *imageClient) parseCatalogue(record catalogueRecord, fresh bool) (imageC
 	return cat, nil
 }
 
-// catalogue returns the latest authenticated catalogue, refreshed from the
-// registry unless offline, and records it before any payload is fetched.
-func (c *imageClient) catalogue(offline bool) (imageCatalogue, error) {
+type catalogueMode uint8
+
+const (
+	catalogueRefresh catalogueMode = iota
+	catalogueCached
+	catalogueOffline
+)
+
+// catalogue returns an authenticated catalogue according to mode and records
+// online refreshes before any payload is fetched.
+func (c *imageClient) catalogue(mode catalogueMode) (imageCatalogue, error) {
 	var empty imageCatalogue
 	base, err := c.init()
 	if err != nil {
@@ -106,11 +116,17 @@ func (c *imageClient) catalogue(offline bool) (imageCatalogue, error) {
 	} else if !os.IsNotExist(err) {
 		return empty, err
 	}
-	if offline {
+	if mode == catalogueOffline {
 		if old.Document == nil {
 			return empty, errors.New("no verified catalogue cached; run nsl images online first")
 		}
 		return c.parseCatalogue(old, true)
+	}
+	now := c.now()
+	if mode == catalogueCached && old.Document != nil && !old.CheckedAt.IsZero() && !old.CheckedAt.After(now) && now.Sub(old.CheckedAt) < catalogueRefreshInterval {
+		if cat, cacheErr := c.parseCatalogue(old, true); cacheErr == nil {
+			return cat, nil
+		}
 	}
 	m, err := c.registry.manifest("catalogue-v1", catalogueArtifactType)
 	if err != nil {
@@ -128,7 +144,7 @@ func (c *imageClient) catalogue(offline bool) (imageCatalogue, error) {
 	if err != nil {
 		return empty, err
 	}
-	record := catalogueRecord{Document: document, Bundle: signature}
+	record := catalogueRecord{Document: document, Bundle: signature, CheckedAt: c.now().UTC()}
 	cat, err := c.parseCatalogue(record, true)
 	if err != nil {
 		return empty, err
@@ -266,7 +282,11 @@ func (c *imageClient) pullVM(offline bool) (*cachedImage, error) {
 }
 
 func (c *imageClient) pull(k imageKind, offline bool, choose func(imageCatalogue) (catalogueEntry, error)) (*cachedImage, error) {
-	cat, err := c.catalogue(offline)
+	mode := catalogueRefresh
+	if offline {
+		mode = catalogueOffline
+	}
+	cat, err := c.catalogue(mode)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +300,7 @@ func (c *imageClient) pull(k imageKind, offline bool, choose func(imageCatalogue
 	}
 	// A concurrent refresh may withdraw the image while its payload downloads.
 	// Recheck the latest locally authenticated policy before returning it.
-	if cat, err = c.catalogue(true); err != nil {
+	if cat, err = c.catalogue(catalogueOffline); err != nil {
 		return nil, err
 	}
 	current, err := choose(cat)

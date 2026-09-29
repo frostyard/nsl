@@ -22,7 +22,7 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl ports [NAME]` | Forwarding status and conflicts for one machine or all machines. |
 | `nsl logs [NAME]` | Recent logs of the host units nsl runs: the VM and its forwarder, and each machine's desktop session, or those of one machine. |
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
-| `nsl images [--offline]` | List authenticated machine-image selections and the VM image in effect. |
+| `nsl images [--offline \| --refresh]` | List authenticated machine-image selections and the VM image in effect. Reuse a catalogue checked less than one hour ago by default; `--refresh` checks the registry immediately. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
 | `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM, isolated ones included. |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |

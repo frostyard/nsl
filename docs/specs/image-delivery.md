@@ -4,7 +4,7 @@ Contract for publishing and verifying nsl images under [ADR-0012](../adr/0012-si
 
 ## Interface
 
-- `nsl images [--offline]` lists authenticated machine selections and the VM image in effect.
+- `nsl images [--offline | --refresh]` lists authenticated machine selections and the VM image in effect. By default it reuses a catalogue checked less than one hour ago; `--refresh` checks the registry immediately.
 - `nsl pull DISTRO:RELEASE [--offline]` downloads and verifies a machine image without creating a machine.
 - `nsl create NAME --distro DISTRO:RELEASE [--offline] ...` selects a verified machine image. It also fetches the current VM image when no VM image is cached. Local `--image FILE --digest sha256:HEX` selects an unauthenticated local machine image; the two sources are mutually exclusive.
 - `nsl update [--offline]` selects the catalogue's current VM image for the next VM start. `nsl update --image FILE --digest sha256:HEX` selects a local VM image.
@@ -84,6 +84,7 @@ Decompression uses a 128 MiB window and memory bound and an exact output-size li
 - VM images are cached as verified raw disks, `images/vm/HEX.raw`, named by the raw digest. Machine images are cached as verified `rootfs.tar.zst`, `images/machines/HEX.tar.zst`, named by the compressed digest, after streaming decompression proves the uncompressed digest and size. The machine-image cache is the directory the VM reads through its read-only image share, and holds nothing else. Local `--image` files use the same names.
 - Receipts (the OCI manifest and the signed descriptor and bundle), evidence files and partial downloads live under `delivery/MANIFEST-HEX/`.
 - Record the greatest authenticated catalogue before fetching image payloads. Offline requests reverify stored signatures, metadata policy and payload digests, and require a complete cache. They MUST NOT download.
+- An online `images` request MAY reuse a cached catalogue only when it was successfully checked less than one hour ago and still passes signature and metadata validation. `images --refresh`, `pull`, `create` and `update` MUST refresh it from the registry.
 - Recheck the latest locally authenticated catalogue before a pull or update returns. Expiry or a concurrent withdrawal MUST reject the selection. A later refresh affects later selections.
 - The CLI MUST reject a VM image whose `agent_protocol` differs from its own, and a machine image whose `machine_protocol` differs from the VM image's.
 - A refresh affects future machines and the next VM start only. It MUST NOT change an existing machine. Machines update through their distro's package manager.

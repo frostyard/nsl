@@ -40,7 +40,7 @@ description: Every nsl command, its options, name rules, guest commands and envi
 
 | Command | Behavior |
 | --- | --- |
-| `nsl images [--offline]` | Authenticated machine-image selections and the VM image in effect. |
+| `nsl images [--offline \| --refresh]` | Authenticated machine-image selections and the VM image in effect. The default reuses a catalogue checked less than one hour ago; `--refresh` checks immediately. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
 | `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
