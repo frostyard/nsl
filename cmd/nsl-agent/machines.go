@@ -185,23 +185,25 @@ func (a *agent) lockMachine(name string, wait time.Duration) (func(), error) {
 	}
 }
 
-// holdRequest marks a request in flight until the agent exits. The idle monitor
-// powers the VM off only when it can take this lock exclusively.
-func (a *agent) holdRequest() error {
+// holdRequest marks a request in flight. The caller must retain and close the
+// file when the request ends, so garbage collection cannot release the lock.
+func (a *agent) holdRequest() (*os.File, error) {
 	if err := os.MkdirAll(a.path(runtimeDir), 0755); err != nil {
-		return err
+		return nil, err
 	}
 	f, err := os.OpenFile(a.path(requestsLock), os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err = unix.Flock(int(f.Fd()), unix.LOCK_SH); err != nil {
+	if err = unix.Flock(int(f.Fd()), unix.LOCK_SH); err == nil {
+		now := time.Now()
+		err = os.Chtimes(f.Name(), now, now)
+	}
+	if err != nil {
 		f.Close()
-		return err
+		return nil, err
 	}
-	// The descriptor stays open, and the lock held, for the agent's lifetime.
-	now := time.Now()
-	return os.Chtimes(f.Name(), now, now)
+	return f, nil
 }
 
 // touchActivity restarts a machine's idle clock.
