@@ -2,129 +2,51 @@
 
 # nsl — WSL-style Linux machines for atomic Linux
 
-`nsl` gives atomic Linux hosts persistent Linux machines, as WSL does for Windows. Machines are systemd-nspawn containers in one nsl-owned VM, launched with systemd-vmspawn and QEMU/KVM, and are trusted as your user: they see your home and removable media at `/mnt/host` ([ADR-0016](docs/adr/0016-wsl-style-machines.md), [ADR-0017](docs/adr/0017-shared-vm-and-machine-images.md)).
+**Keep the host atomic. Work in any distro.**
 
-**Status: pre-release.** The [implementation plan](docs/plans/shared-vm-implementation.md) has replaced the earlier one-VM-per-environment prototype, and the [CLI contract](docs/specs/cli.md) describes the system. Machines come from signed Frostyard images: Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, and openSUSE Tumbleweed and Leap 16.0. They get forwarded ports, Wayland windows, `nsl-open` and `ssh-config`. nsl exports and imports machines, and stops idle machines and the idle VM. With `--isolated`, a machine gets its own small VM with no access to your files or desktop. v0.3.0 and earlier releases are the retired prototype.
-
-The tested host is **Snow Linux 13, x86_64, systemd 261.2**, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
-
-**Documentation: [frostyard.github.io/nsl](https://frostyard.github.io/nsl/)** — installation, guides, the trust model and the command reference. Its source is in [`site/`](site/content/).
-
-## Prerequisites
-
-- systemd-vmspawn, a user systemd manager, systemd-ssh-proxy, QEMU/KVM, UEFI firmware, virtiofsd, OpenSSH, `sg` or util-linux `newgrp` (on Debian 14, both come from `util-linux-extra`), and util-linux `unshare`.
-- Existing membership in `kvm`, with access to `/dev/kvm` and `/dev/vhost-vsock`; unprivileged user namespaces must work.
-- Go 1.25.8+ to build nsl; Lima 2.2.0, Git and Python 3 to build images. Lima is used only by the image builder.
-
-nsl does not install host packages or change device permissions, groups or sudoers. `nsl doctor` checks the prerequisites.
-
-## Get started
-
-Download `nsl` from the [latest release](https://github.com/frostyard/nsl/releases/latest), or build it with `make build`. Then:
+An atomic Linux host keeps its base system read-only and replaceable. You still need somewhere to `apt install` a project's dependencies, try a toolchain packaged for another distro, or run a service. nsl gives you persistent Linux machines for that work, as WSL does on Windows. Each machine is a whole distro with its own packages and services. It opens in the directory you were in, works on your files, and stops when you stop using it.
 
 ```sh
-nsl doctor
-nsl create debian --distro debian:13   # verify and download the images; the first machine is the default
+nsl create debian --distro debian:13   # verify and cache the signed images; the first machine is the default
 nsl                                    # a login shell in the machine, in this directory
-nsl run sudo apt-get install -y podman
-nsl images                             # every published machine image
-nsl list
-nsl shutdown
+nsl run make test                      # one command, with its exit status
 ```
 
-`create --distro` verifies the signed catalogue and each image against the Frostyard publishing workflow, then caches them; `--offline` uses only the cache. Wayland windows need Waypipe on the host (`NSL_WAYPIPE` names its path).
+**Documentation: [frostyard.github.io/nsl](https://frostyard.github.io/nsl/)**
 
-## Build the images yourself
+## What you get
 
-```sh
-make build
-./scripts/bootstrap-poc.sh --waypipe   # optional: pinned Lima and Waypipe under build/poc
-source build/poc/env.sh
-build/nsl doctor
+- **Seven signed distros.** Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, and openSUSE Tumbleweed and Leap 16.0, rebuilt weekly and verified against the Frostyard publishing workflow before use. [Machine images →](https://frostyard.github.io/nsl/reference/machine-images/)
+- **Your files and your account.** Your home, removable media and `/mnt` appear at `/mnt/host`, and you have your own username, UID and GID with passwordless `sudo`. [Host files →](https://frostyard.github.io/nsl/guides/host-files/)
+- **Ports and windows on the host.** A server in a machine is reachable at the same port on host `127.0.0.1`, and Wayland applications open windows on your desktop. [Ports →](https://frostyard.github.io/nsl/guides/ports/) · [Desktop applications →](https://frostyard.github.io/nsl/guides/desktop/)
+- **Your editor.** `nsl ssh-config` gives VS Code or any SSH client a host alias for a machine. [Editors over SSH →](https://frostyard.github.io/nsl/guides/editors/)
+- **Isolation when you need it.** `--isolated` puts a machine in a VM of its own, with no host files, desktop or host actions, for software you do not trust. [Isolated machines →](https://frostyard.github.io/nsl/guides/isolated/)
+- **Backups and moves.** Export a stopped machine to an archive, and import it later or on another host. [Export and import →](https://frostyard.github.io/nsl/guides/export-import/)
+- **A host left alone.** nsl runs as your user, with no daemon of its own. It installs no host packages and changes no device permissions, groups or sudoers.
 
-# Build the VM image inside a disposable Lima VM; dependencies stay inside it.
-scripts/build-image.sh --role vm
-image=build/image/share/nsl-vm-trixie-x86-64-r9.raw
-build/nsl update --image "$image" --digest "sha256:$(sha256sum "$image" | cut -d' ' -f1)"
-build/nsl recover     # start the VM from a fresh root
+## How it works
 
-# Build a machine image and create a machine from it; the first becomes the default.
-scripts/build-image.sh --role machine --distribution debian
-machine=build/image/share/nsl-machine-debian-trixie-x86-64-r4.tar.zst
-build/nsl create debian --image "$machine" --digest "sha256:$(sha256sum "$machine" | cut -d' ' -f1)"
-build/nsl             # a login shell in the default machine, in this directory
-build/nsl run -m debian sudo apt-get install -y podman
-build/nsl list
-build/nsl shutdown
-```
+Machines are systemd-nspawn containers inside one small VM, launched with systemd-vmspawn and QEMU/KVM. The VM's root is replaceable and holds no user state; your machines live on its data disk. [How nsl works →](https://frostyard.github.io/nsl/concepts/how-it-works/)
 
-Machines are Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, openSUSE Tumbleweed or openSUSE Leap 16.0; `nsl images` lists each one's selectors, such as `debian:13`, `ubuntu:26.04`, `centos:10` or `opensuse-leap:16.0`. Your account has your username, UID and GID, a home at `/home/USER` in the machine, and passwordless `sudo`. Your home, `/run/media/USER` and `/mnt` appear read-write at `/mnt/host` plus their host paths, and commands start in the matching directory. Each machine is its own distro with its own packages and services, all in one VM.
+An ordinary machine is trusted as you: it can read and write your home, including keys and tokens, just as WSL can. It cannot become root on the host or reach host sockets. Use `--isolated` for anything you would not run as yourself. [Trust model →](https://frostyard.github.io/nsl/concepts/trust/)
 
-A server listening in a machine on port 1024 or above is reachable at the same port on host `127.0.0.1`, unless something on the host already uses it; `nsl ports` shows each port. From a Wayland session, Wayland applications in machines open windows on your desktop through Waypipe, and `nsl-open URL` (also `BROWSER`) opens web links and `/mnt/host` files with the host's handlers. `nsl ssh-config NAME >> ~/.ssh/config` lets VS Code or any SSH client reach a machine as `nsl-NAME`.
+## Is it for you?
 
-`update` verifies and caches the image, then selects it for the VM's next start. The VM's root is replaceable and holds no user state; machines and the VM's identity live on its data disk. See the [image build](image/README.md).
+nsl needs an x86-64 Linux host with KVM, systemd-vmspawn, QEMU, virtiofsd and membership in the `kvm` group; Waypipe adds desktop windows. `nsl doctor` checks each requirement. [Install →](https://frostyard.github.io/nsl/getting-started/install/)
 
-| Command                                                                  | Behavior                                                                                                                 |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `[-m NAME]`                                                              | Login shell in NAME or the default machine, in the translated current directory or the home.                             |
-| `run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]`                   | Run argv literally in the machine; exit status, streams and signals pass through.                                        |
-| `create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]` | Create a machine from a local machine image, offline.                                                                    |
-| `create NAME --distro DISTRO:RELEASE [--offline]`                        | Create a machine from a signed catalogue image.                                                                          |
-| `create NAME ... --isolated`, `import NAME FILE --isolated`              | Give the machine its own VM, without `/mnt/host`, desktop or `nsl-open`, for untrusted software.                         |
-| `start NAME`, `stop NAME`, `default NAME`                                | Start or stop a machine, or make it the default.                                                                         |
-| `export NAME FILE`, `import NAME FILE`                                   | Write a stopped machine to a new private archive, or create a machine from one.                                          |
-| `remove NAME [--yes]`                                                    | Preview, then permanently remove a stopped machine.                                                                      |
-| `ports [NAME]`                                                           | Machine ports forwarded to host `127.0.0.1`, and any conflicts.                                                          |
-| `ssh-config NAME`                                                        | Print an SSH host alias, `nsl-NAME`, for remote editors; nothing listens in the machine.                                 |
-| `logs [NAME]`                                                            | Recent logs of the VM, the forwarder and desktop sessions.                                                               |
-| `list`                                                                   | The VM's state, image, resources and data disk, anything pending until its next start, and every machine.                |
-| `update --image FILE --digest sha256:HEX`                                | Select a local VM image for the next start; `update` alone selects the catalogue's.                                      |
-| `images`, `pull DISTRO:RELEASE`                                          | List the signed catalogue, or verify and cache a machine image.                                                          |
-| `recover [NAME]`                                                         | Restart the shared VM, or isolated machine NAME's, from a fresh root, check its data disk and finish interrupted growth. |
-| `resize [NAME] --disk GiB`                                               | Grow the stopped VM's data disk; it never shrinks.                                                                       |
-| `shutdown`                                                               | Stop every machine and every VM.                                                                                         |
-| `config`                                                                 | Show the effective configuration and its sources.                                                                        |
-| `doctor`, `version`, `help`                                              | Host checks, build version and usage.                                                                                    |
+It is **pre-release**. v0.4.0 was the first release of the current design; v0.3.0 and earlier are a retired prototype. The tested host is Snow Linux 13 with systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland. Windows are Wayland only, host file edits produce no inotify events in machines, and idle machines stop even when a service inside them is busy. [Limits and troubleshooting →](https://frostyard.github.io/nsl/reference/limits/)
 
-## Configuration
+## Start
 
-Settings live in `~/.config/nsl/nsl.conf` (or under `$XDG_CONFIG_HOME`), separate from state in `NSL_HOME` (default `~/.local/share/nsl`). nsl reads the file and never writes it; an absent file means defaults.
+1. [Install nsl](https://frostyard.github.io/nsl/getting-started/install/) from the [latest release](https://github.com/frostyard/nsl/releases/latest).
+2. [Create your first machine](https://frostyard.github.io/nsl/getting-started/first-machine/).
+3. Look up [commands](https://frostyard.github.io/nsl/reference/cli/) and [configuration](https://frostyard.github.io/nsl/reference/configuration/) as you need them.
 
-```ini
-[vm]
-# GiB; the default is half the host's memory.
-memory = 16
-# The default is every host CPU.
-cpus = 8
+## Contributing
 
-[machines]
-autostart = true
-# Minutes without sessions before a machine stops; 0 disables.
-idle_timeout = 15
-```
+[Build from source](https://frostyard.github.io/nsl/contributing/build/) covers the CLI, the images and the tests; `make ci` runs what CI runs. Decisions, designs, contracts and plans start at the [documentation index](docs/README.md), and agents start at [AGENTS.md](AGENTS.md).
 
-Comments take whole lines. Resource changes apply at the VM's next start, and `nsl config` and `nsl list` show them as pending. The [CLI contract](docs/specs/cli.md#configuration) has every key and rule.
-
-## Current limits
-
-- A machine stops after `idle_timeout` minutes without nsl commands or GUI clients, and the VM stops a minute after its last machine. Services inside a machine do not keep it running.
-- Archives are unencrypted and can contain credentials; import requires your UID and GID.
-- Host file changes through virtiofs do not produce inotify events in the VM. Watched builds belong in machine storage.
-- The whole home is visible to the VM, including nsl state and keys; this matches the trust model.
-
-## Validate
-
-```sh
-mise install   # the pinned golangci-lint and svu
-make ci
-python3 scripts/probe-vm.py --nsl build/nsl --image "$image" --evidence build/image/evidence/probe.json
-python3 scripts/probe-machines.py --nsl build/nsl --vm-image "$image" --machine-image "$machine" \
-  --evidence build/image/evidence/machines.json
-```
-
-Unit tests use fake tools and local processes and need neither root nor a VM. The probes boot disposable VMs in private state directories and remove them.
-
-[Third-party license notices](THIRD_PARTY_NOTICES.txt) · [Documentation site](https://frostyard.github.io/nsl/) · [Documentation index](docs/README.md) · [CLI contract](docs/specs/cli.md) · [Architecture](docs/design/lifecycle.md)
+nsl is [MIT licensed](LICENSE). [Third-party license notices](THIRD_PARTY_NOTICES.txt).
 
 ## Credits and Inspiration
 

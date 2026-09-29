@@ -91,7 +91,7 @@ build/nsl ports dev
 build/nsl stop dev
 ```
 
-Use only disposable environments with the lifecycle probe: it deliberately kills one VM. The development probe requires Go in the guest. User setup is in the [main README](../../README.md).
+Use only disposable environments with the lifecycle probe: it deliberately kills one VM. The development probe requires Go in the guest. Build setup is in [Build from source](../../site/content/contributing/build.md).
 
 Local evidence is intentionally ignored by Git:
 

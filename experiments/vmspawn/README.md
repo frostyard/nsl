@@ -27,7 +27,7 @@ The upstream Fedora tools tree is disabled for this experiment; tools come from 
 
 ## Requirements
 
-The tested host has systemd-vmspawn/systemd-ssh-proxy 261.2, QEMU 10.0.13, virtiofsd 1.13.2, OpenSSH, `sg`, and util-linux `unshare`. The normal user belongs to `kvm`. Rootless user namespaces must work. The builder uses the existing nsl/Lima tool setup described in the [main README](../../README.md). Waypipe is required for the GUI check.
+The tested host has systemd-vmspawn/systemd-ssh-proxy 261.2, QEMU 10.0.13, virtiofsd 1.13.2, OpenSSH, `sg`, and util-linux `unshare`. The normal user belongs to `kvm`. Rootless user namespaces must work. The builder uses the existing nsl/Lima tool setup described in [Build from source](../../site/content/contributing/build.md). Waypipe is required for the GUI check.
 
 No host sudo, package installation, sudoers edit or device-permission change is performed. Dependencies needed to build the image are installed only in the builder VM.
 

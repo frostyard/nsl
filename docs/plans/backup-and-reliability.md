@@ -93,4 +93,4 @@ Local evidence:
 ## References
 
 - Implements: [lifecycle](../design/lifecycle.md), [CLI](../specs/cli.md), [ADR-0006](../adr/0006-stopped-vm-backups.md).
-- User instructions: [README](../../README.md).
+- User instructions: [export and import](../../site/content/guides/export-import.md).
