@@ -254,6 +254,8 @@ The four total 513 MB against the hub's 464 MB; they add `sudo`, PAM, zone data,
 - **Integration:** `probe-vm.py` drives this CLI: it starts (`recover`), stops (`shutdown`), recovers and grows a locally built VM, with the results in Phase 3.
 - **Not yet:** `nsl update` from the catalogue waits for published VM images (Phase 10).
 
+**Follow-up, 2026-09-29 — [issue #40](https://github.com/frostyard/nsl/issues/40):** doctor and launch now share an NSS-backed `kvm` membership check through host `getent` and `id`, which also works in the static release builds. Non-members receive an administrator command and can retry without a new login; lookup failures are distinct. Fake-runner tests cover primary and supplementary membership, NSS results without an enumerated member list, non-members, failed or malformed lookups, both `sg` and `newgrp`, launch refusing to change state after a failed check, and device-access failures after membership succeeds. `make ci` and `make site` passed. No VM image or agent changes were needed.
+
 ## Phase 6 — Agent and command execution
 
 - **The agent** is a Go program in this repository, installed in the VM image and reached through a forced SSH command ([agent protocol](../specs/agent.md)). It starts transient units in machines through systemd's D-Bus API and machined:
