@@ -6,7 +6,7 @@ description: What a machine can and cannot do on the host, why there is no read-
 
 A machine is a trusted extension of you. The VM keeps a machine's kernel, packages, services and root away from the host system. It does not keep the machine away from your files: a machine that is not isolated can read and write your home, as you.
 
-This is the same bargain WSL makes, and it is stated plainly so you can choose.
+This is the same bargain WSL makes, and we state it plainly so you can choose.
 
 ## What an ordinary machine can do
 
@@ -33,10 +33,10 @@ Read access to a home already exposes keys and credentials, so a read-only share
 
 ## Isolated machines
 
-For software you do not trust, use [`--isolated`](../guides/isolated.md). An isolated machine runs in its own VM, with no host files, no desktop session and no host actions. Its ports still reach host loopback. Isolation is chosen when a machine is created or imported, and is never taken from an archive.
+For software you do not trust, use [`--isolated`](../guides/isolated.md). An isolated machine runs in its own VM, with no host files, no desktop session and no host actions. Its ports still reach host loopback. Isolation is chosen when a machine is created or imported, and is never removed from an archive.
 
 ## Images and archives
 
-- Published images are verified against the Frostyard publishing workflow before use, and no switch disables that. See [how images are verified](../guides/images.md#how-images-are-verified).
+- Published images are verified against the signed Frostyard publishing workflow before use, and no switch disables that. See [how images are verified](../guides/images.md#how-images-are-verified).
 - Local images selected with `--image` and `--digest` are a developer path. The digest proves the bytes, not their origin.
 - [Archives](../guides/export-import.md) are unencrypted and can contain credentials. Their checksums detect damage, not tampering.

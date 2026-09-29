@@ -4,7 +4,7 @@ description: One VM, many machines, an agent over vsock, and the host units that
 
 # How nsl works
 
-nsl runs one VM for all your machines, and one more for each isolated machine. Machines are systemd-nspawn containers inside it. The host runs no daemon of its own: only user units bound to the VM, started and stopped with it.
+nsl runs one VM for all your machines, and one more for each isolated machine. Machines are systemd-nspawn containers inside it. The host requires no daemon of its own: only user units bound to the VM, started and stopped with it.
 
 ```mermaid
 flowchart LR
@@ -31,11 +31,11 @@ The shared VM boots the signed nsl VM image with systemd-vmspawn and QEMU/KVM, u
 
 The VM starts on first use and stops itself when idle. Its memory and CPUs come from [`nsl.conf`](../reference/configuration.md): by default half the host's memory and every host CPU, as in WSL. Because machines are containers, they share that budget instead of each reserving memory.
 
-Launching needs no root. nsl opens `/dev/kvm` and `/dev/vhost-vsock` through your existing `kvm` membership, inside an unprivileged user namespace, and passes them to vmspawn. It changes no host permissions, groups, packages or sudoers.
+Launching doesn't need root. nsl opens `/dev/kvm` and `/dev/vhost-vsock` through your existing `kvm` membership, inside an unprivileged user namespace, and passes them to vmspawn. `nsl` doesn't change host permissions, groups, packages or sudoers.
 
 ## Machines
 
-Each machine is a btrfs subvolume on the data disk, created from a signed machine image and run by systemd-nspawn. Machines use the VM's kernel, network namespace and resolver. In the shared VM they also bind `/mnt/host`, your shared files.
+Each machine is a btrfs subvolume on the data disk, created from a signed machine image and run by systemd-nspawn. Machines use the VM's kernel, network namespace and resolver. In the shared VM they also bind `/mnt/host`, your host's shared files.
 
 Creation needs no network once the images are cached. The VM imports the image from the read-only cache and applies only per-machine data: time zone, hostname, account, `sudo` rule and nspawn settings. Everything distro-specific is built into the image, so the host and the VM stay distribution-neutral.
 
@@ -47,13 +47,13 @@ The agent runs each command as a transient systemd unit in the machine, with a P
 
 ## Host integration
 
-| Mechanism | How |
-| --- | --- |
-| Files at `/mnt/host` | virtiofs shares, run as your user |
-| Ports | A forwarder unit per VM, `nsl-UID-vm-ID-ports.service`, polling the agent once a second |
-| Windows | A desktop unit per machine, running Waypipe between the host and the machine |
-| Links and files | A per-machine broker, reached by `nsl-open` over Varlink |
-| Editors | `nsl _ssh NAME`, which runs `sshd -i` in the machine through the agent |
+| Mechanism            | How                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| Files at `/mnt/host` | virtiofs shares, run as your user                                                       |
+| Ports                | A forwarder unit per VM, `nsl-UID-vm-ID-ports.service`, polling the agent once a second |
+| Windows              | A desktop unit per machine, running Waypipe between the host and the machine            |
+| Links and files      | A per-machine broker, reached by `nsl-open` over Varlink                                |
+| Editors              | `nsl _ssh NAME`, which runs `sshd -i` in the machine through the agent                  |
 
 ## Idle stop
 

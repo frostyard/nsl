@@ -20,11 +20,11 @@ Install it with the machine's package manager and run it:
 
 ```sh
 nsl run sudo apt-get update
-nsl run sudo apt-get install -y galculator
+nsl run sudo apt-get install -y galculator  # pick any GUI application
 nsl run galculator
 ```
 
-Applications started from a shell in the machine work the same way.
+Applications started from a shell in the machine work the same way. Perfect for running your favorite editor/IDE.
 
 ## The desktop session
 
@@ -32,11 +32,11 @@ When a command enters or starts a machine from a Wayland session, nsl starts tha
 
 Commands in the machine receive:
 
-| Variable | Value |
-| --- | --- |
-| `WAYLAND_DISPLAY` | The machine's Waypipe socket |
+| Variable           | Value                                                  |
+| ------------------ | ------------------------------------------------------ |
+| `WAYLAND_DISPLAY`  | The machine's Waypipe socket                           |
 | `XDG_SESSION_TYPE` | `wayland`, so Chromium, Electron and Qt choose Wayland |
-| `BROWSER` | `nsl-open` |
+| `BROWSER`          | `nsl-open`                                             |
 
 Machines have no X server. Applications that support only X11 do not open windows.
 

@@ -6,11 +6,11 @@ description: How machines see your home, removable media and /mnt at /mnt/host, 
 
 Machines that are not isolated see three host trees, read-write, at `/mnt/host` followed by their host path:
 
-| Host | In a machine |
-| --- | --- |
-| Your home, such as `/var/home/you` | `/mnt/host/var/home/you` |
-| `/run/media/you` | `/mnt/host/run/media/you` |
-| `/mnt` | `/mnt/host/mnt` |
+| Host                               | In a machine              |
+| ---------------------------------- | ------------------------- |
+| Your home, such as `/var/home/you` | `/mnt/host/var/home/you`  |
+| `/run/media/you`                   | `/mnt/host/run/media/you` |
+| `/mnt`                             | `/mnt/host/mnt`           |
 
 Nothing else from the host is shared: not `/usr`, `/etc`, `/tmp`, the rest of `/run`, or any pseudo-filesystem. Sharing is per machine, never per project, and every machine that is not isolated sees the same trees.
 

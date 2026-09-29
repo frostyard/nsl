@@ -6,6 +6,8 @@ description: Reach a machine from VS Code or any SSH client with nsl ssh-config,
 
 Remote editors such as VS Code's Remote - SSH connect to a machine through an SSH host alias that nsl prints. Nothing listens on the network, in the machine or on the host.
 
+Use this workflow to operate an editor on your host against a running machine, allowing you to use the machine's installed tools.
+
 ## Add the alias
 
 ```sh

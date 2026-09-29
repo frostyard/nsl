@@ -7,7 +7,7 @@ site_name: nsl
 site_url: https://frostyard.github.io/nsl/
 site_description: WSL-style Linux machines for atomic Linux hosts.
 site_author: Frostyard
-copyright: nsl is MIT licensed. Part of <a href="https://github.com/frostyard">Frostyard</a>.
+copyright: nsl is MIT licensed. Part of <a href="https://frostyard.org">Frostyard</a>.
 
 repo_name: frostyard/nsl
 repo_url: https://github.com/frostyard/nsl
