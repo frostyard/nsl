@@ -10,6 +10,10 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 GOLANGCI_LINT_VERSION := $(strip $(shell sed -n 's/^golangci-lint = "\(.*\)"/\1/p' mise.toml))
 GO_VERSION := $(strip $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod))
 
+# The repository's Go files, tracked or new, so gofmt skips ignored local
+# scratch such as build/.
+GO_FILES = $(shell git ls-files --cached --others --exclude-standard '*.go')
+
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o build/nsl .
 
@@ -21,7 +25,7 @@ test:
 	go test ./...
 
 fmt:
-	gofmt -w .
+	gofmt -w $(GO_FILES)
 
 lint: lint-version-check
 	golangci-lint run
@@ -45,7 +49,7 @@ verify:
 	go mod tidy -diff
 	python3 scripts/license-notices.py --check
 	go vet ./...
-	test -z "$$(gofmt -l .)"
+	test -z "$$(gofmt -l $(GO_FILES))"
 	$(MAKE) --no-print-directory lint
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go test ./...
