@@ -80,7 +80,7 @@ To keep machines running for services, disable automatic idle stopping in the [c
 idle_timeout = 0
 ```
 
-This applies to every machine from the next nsl command. It does not prevent an explicit `nsl stop`, `nsl shutdown` or host shutdown.
+This setting applies to every machine. Each running VM picks up a changed value on its next machine start, command or SSH connection. It does not prevent an explicit `nsl stop`, `nsl shutdown` or host shutdown.
 
 ## Software in a machine
 
