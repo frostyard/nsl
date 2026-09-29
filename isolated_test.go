@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -153,9 +154,10 @@ func TestVMCommandsCoverEveryVM(t *testing.T) {
 
 func TestRemovingAnIsolatedMachineDeletesItsVM(t *testing.T) {
 	a, f, m, v := withIsolated(t)
+	state := "running"
 	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
 		if req.Op == "machines" {
-			json.NewEncoder(stdout).Encode([]protocol.MachineStatus{{Machine: "iso", ID: m.ID, State: "running"}})
+			json.NewEncoder(stdout).Encode([]protocol.MachineStatus{{Machine: "iso", ID: m.ID, State: state}})
 			return errAnswered
 		}
 		return nil
@@ -166,7 +168,7 @@ func TestRemovingAnIsolatedMachineDeletesItsVM(t *testing.T) {
 	if _, err := a.machine("iso"); err != nil {
 		t.Fatal("a refused removal lost the machine:", err)
 	}
-	f.agent = nil
+	state = "stopped"
 	before := len(f.requests)
 	if err := a.remove([]string{"iso", "--yes"}); err != nil {
 		t.Fatal(err)
@@ -204,5 +206,66 @@ func TestFailedIsolatedCreateLeavesNoVM(t *testing.T) {
 	}
 	if _, err := os.Lstat(a.machinePath("iso")); !os.IsNotExist(err) {
 		t.Fatal("kept the record")
+	}
+}
+
+func TestIsolatedRemovalRequiresConfirmedStatus(t *testing.T) {
+	for _, scenario := range []string{"transport", "missing", "replacement", "stopping", "foreign-unit"} {
+		t.Run(scenario, func(t *testing.T) {
+			a, f, m, v := withIsolated(t)
+			if scenario == "stopping" {
+				f.states[vmUnit(v)] = "deactivating"
+			}
+			if scenario == "foreign-unit" {
+				f.descriptions[vmUnit(v)] = "someone else's VM"
+			}
+			f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+				if req.Op != "machines" {
+					return nil
+				}
+				if scenario == "transport" {
+					return errors.New("connection lost")
+				}
+				statuses := []protocol.MachineStatus{}
+				if scenario == "replacement" {
+					statuses = append(statuses, protocol.MachineStatus{Machine: m.Name, ID: randomID(), State: "stopped"})
+				}
+				if err := json.NewEncoder(stdout).Encode(statuses); err != nil {
+					return err
+				}
+				return errAnswered
+			}
+			if err := a.remove([]string{m.Name, "--yes"}); err == nil {
+				t.Fatal("removed a machine without confirming its state")
+			}
+			if _, err := os.Stat(filepath.Join(v.dir, "data.qcow2")); err != nil {
+				t.Fatal("lost data disk:", err)
+			}
+			for _, req := range f.requests {
+				if req.Op == "vm" {
+					t.Fatal("powered off a VM whose machine status was not confirmed")
+				}
+			}
+			// A later confirmed VM shutdown allows the pending removal to resume.
+			f.states[vmUnit(v)], f.descriptions[vmUnit(v)] = "inactive", vmDescription(v)
+			if err := a.remove([]string{m.Name, "--yes"}); err != nil {
+				t.Fatal("could not resume removal:", err)
+			}
+		})
+	}
+}
+
+func TestIsolatedRemovalOfStoppedVMNeedsNoAgent(t *testing.T) {
+	a, f, m, v := withIsolated(t)
+	f.states[vmUnit(v)] = "inactive"
+	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+		t.Fatal("contacted stopped VM")
+		return nil
+	}
+	if err := a.remove([]string{m.Name, "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(v.dir); !os.IsNotExist(err) {
+		t.Fatal("kept VM:", err)
 	}
 }
