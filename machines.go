@@ -553,8 +553,8 @@ func (a *app) removeIsolatedVM(m *machineRecord) error {
 			return err
 		}
 		defer unlock(l)
-		if state, ok := a.statuses([]*vmRecord{v})[m.Name]; ok && state.State != "stopped" {
-			return &protocol.Error{Code: protocol.CodeBusy, Message: m.Name + " is " + state.State + "; stop it first"}
+		if err = a.requireIsolatedStopped(v, m); err != nil {
+			return err
 		}
 		if err = a.stopVM(v); err != nil {
 			return err
@@ -564,6 +564,42 @@ func (a *app) removeIsolatedVM(m *machineRecord) error {
 		}
 	}
 	return os.RemoveAll(gone)
+}
+
+// requireIsolatedStopped checks destructive removal independently of the
+// best-effort status listing. The caller holds the VM lock.
+func (a *app) requireIsolatedStopped(v *vmRecord, m *machineRecord) error {
+	state, err := a.vmState(v)
+	if err != nil {
+		return err
+	}
+	if state == "stopped" || state == "failed" {
+		return nil
+	}
+	if state != "running" {
+		return fmt.Errorf("the VM of %s is %s; retry after it stops", m.Name, state)
+	}
+	var statuses []protocol.MachineStatus
+	if err = a.agentJSON(v, protocol.Request{Op: "machines"}, nil, 10*time.Second, &statuses); err != nil {
+		return fmt.Errorf("checking whether %s is stopped: %w", m.Name, err)
+	}
+	for _, status := range statuses {
+		if status.Machine != m.Name {
+			continue
+		}
+		if status.ID != m.ID {
+			return fmt.Errorf("%s in its VM has another ID; refusing removal", m.Name)
+		}
+		if status.State != "stopped" {
+			return &protocol.Error{Code: protocol.CodeBusy, Message: m.Name + " is " + status.State + "; stop it first"}
+		}
+		return nil
+	}
+	// Failed creation can leave an empty VM with no published machine.
+	if !m.Prepared && len(statuses) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s is missing from its VM's status report; refusing removal", m.Name)
 }
 
 // translate maps a host directory to its machine path under /mnt/host,
