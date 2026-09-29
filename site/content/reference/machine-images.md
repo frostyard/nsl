@@ -4,7 +4,7 @@ description: The published machine images, their selectors, and what every image
 
 # Machine images
 
-Frostyard publishes these machine images, rebuilt at least weekly. `nsl images` lists what the current catalogue offers.
+Frostyard publishes these machine images, rebuilt at least weekly. `nsl images` lists what the current authenticated catalogue offers, reusing a catalogue checked less than one hour ago by default. Use `nsl images --refresh` to check immediately.
 
 | Distro | Selectors | Family |
 | --- | --- | --- |

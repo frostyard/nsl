@@ -30,6 +30,141 @@ type fixtureImage struct {
 	compressed []byte
 }
 
+func TestCatalogueListingCache(t *testing.T) {
+	f, c, _ := newDeliveryFixture(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	c.now = func() time.Time { return now }
+
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	before := f.requests
+	f.mu.Unlock()
+
+	now = now.Add(catalogueRefreshInterval - time.Second)
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	if f.requests != before {
+		t.Fatal("fresh listing cache used the network")
+	}
+	f.mu.Unlock()
+
+	now = now.Add(time.Second)
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	afterTTL := f.requests
+	f.mu.Unlock()
+	if afterTTL == before {
+		t.Fatal("one-hour-old listing cache did not refresh")
+	}
+
+	if _, err := c.catalogue(catalogueRefresh); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.requests == afterTTL {
+		t.Fatal("forced catalogue refresh used the listing cache")
+	}
+}
+
+func TestCatalogueListingCacheReverification(t *testing.T) {
+	f, c, _ := newDeliveryFixture(t)
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	before := f.requests
+	f.mu.Unlock()
+
+	path := filepath.Join(c.app.home, "delivery", "catalogue.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record catalogueRecord
+	if err = json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	record.Bundle = []byte("invalid")
+	if err = atomicWrite(path, encodeJSON(record), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.catalogue(catalogueCached); err == nil {
+		t.Fatal("accepted an invalid cached catalogue signature")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.requests != before {
+		t.Fatal("invalid cached catalogue discarded rollback state by refreshing")
+	}
+}
+
+func TestCatalogueListingCacheWithoutCheckedTimeRefreshes(t *testing.T) {
+	f, c, _ := newDeliveryFixture(t)
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(c.app.home, "delivery", "catalogue.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record catalogueRecord
+	if err = json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	record.CheckedAt = time.Time{}
+	if err = atomicWrite(path, encodeJSON(record), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	before := f.requests
+	f.mu.Unlock()
+	if _, err = c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.requests == before {
+		t.Fatal("catalogue without a checked time was treated as fresh")
+	}
+}
+
+func TestExpiredListingCacheRefreshesBeforeInterval(t *testing.T) {
+	f, c, _ := newDeliveryFixture(t)
+	now := f.cat.Created.Add(time.Minute)
+	c.now = func() time.Time { return now }
+	f.mu.Lock()
+	f.cat.Expires = now.Add(30 * time.Minute)
+	f.publishCatalogue()
+	f.mu.Unlock()
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+
+	f.mu.Lock()
+	f.cat.Sequence++
+	f.cat.Expires = f.cat.Created.Add(24 * time.Hour)
+	f.publishCatalogue()
+	before := f.requests
+	f.mu.Unlock()
+	now = now.Add(31 * time.Minute)
+	if _, err := c.catalogue(catalogueCached); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.requests == before {
+		t.Fatal("expired listing cache did not refresh")
+	}
+}
+
 type deliveryFixture struct {
 	mu          sync.Mutex
 	blobs       map[string][]byte
@@ -264,7 +399,7 @@ func TestCatalogueRollbackExpiryAndWithdrawal(t *testing.T) {
 		f.cat.Expires = f.cat.Expires.Add(-time.Minute)
 		f.publishCatalogue()
 		f.mu.Unlock()
-		if _, err := c.catalogue(false); err == nil {
+		if _, err := c.catalogue(catalogueRefresh); err == nil {
 			t.Fatal("accepted rollback/equivocation")
 		}
 	}
@@ -409,7 +544,7 @@ func TestConcurrentPullsShareCompleteCache(t *testing.T) {
 
 func TestOfflineCannotFetchMissingData(t *testing.T) {
 	f, c, _ := newDeliveryFixture(t)
-	if _, err := c.catalogue(false); err != nil {
+	if _, err := c.catalogue(catalogueRefresh); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -564,7 +699,7 @@ func TestRegistryRejectsCredentialRedirects(t *testing.T) {
 
 func TestImageCommandValidation(t *testing.T) {
 	_, c, _ := newDeliveryFixture(t)
-	for _, args := range [][]string{{"pull"}, {"images", "extra"}, {"pull", "debian:13", "extra"}, {"images", "--cpus", "2"}, {"pull", "--offline"}} {
+	for _, args := range [][]string{{"pull"}, {"images", "extra"}, {"pull", "debian:13", "extra"}, {"images", "--cpus", "2"}, {"pull", "--offline"}, {"pull", "debian:13", "--refresh"}, {"images", "--offline", "--refresh"}} {
 		if err := c.app.imageCommand(args); err == nil {
 			t.Fatal("accepted invalid arguments", args)
 		}
