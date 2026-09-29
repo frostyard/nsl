@@ -19,7 +19,7 @@ description: Known limits of nsl, and what to check when something goes wrong.
 ## Troubleshooting
 
 `nsl doctor` fails
-:   A tool, device or permission is missing. Install the tool with your host's own tools, or ask an administrator to add you to the `kvm` group. nsl changes none of these itself.
+:   A tool, the UEFI firmware, a device or a permission is missing. Install the tool or firmware with your host's own tools, or ask an administrator to add you to the `kvm` group. nsl changes none of these itself.
 
 Bare `nsl` fails and lists machines
 :   There is no default machine, for example after removing it. Run `nsl default NAME`, or `nsl -m NAME`.

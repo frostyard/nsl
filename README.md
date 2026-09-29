@@ -32,7 +32,7 @@ An ordinary machine is trusted as you: it can read and write your home, includin
 
 ## Is it for you?
 
-nsl needs an x86-64 Linux host with KVM, systemd-vmspawn, QEMU, virtiofsd and membership in the `kvm` group; Waypipe adds desktop windows. `nsl doctor` checks each requirement. [Install →](https://frostyard.github.io/nsl/getting-started/install/)
+nsl needs an x86-64 Linux host with KVM, systemd-vmspawn, QEMU with UEFI firmware, virtiofsd and membership in the `kvm` group; Waypipe adds desktop windows. `nsl doctor` checks each requirement. [Install →](https://frostyard.github.io/nsl/getting-started/install/)
 
 It is **pre-release**. v0.4.0 was the first release of the current design; v0.3.0 and earlier are a retired prototype. The tested host is Snow Linux 13 with systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland. Windows are Wayland only, host file edits produce no inotify events in machines, and idle machines stop even when a service inside them is busy. [Limits and troubleshooting →](https://frostyard.github.io/nsl/reference/limits/)
 

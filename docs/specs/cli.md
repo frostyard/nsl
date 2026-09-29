@@ -90,6 +90,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - A forwarder user unit per VM, `nsl-UID-vm-ID-ports.service`, bound to the VM's unit, MUST poll the agent's `listeners` once a second. It forwards host `127.0.0.1:PORT` to VM `127.0.0.1:PORT` for listeners on `127.0.0.1`, `0.0.0.0` or `::`, and to `[::1]:PORT` for listeners only on `::1`. `nsl ports` MUST show each port's machine and state, `forwarded` or `conflict` with the error.
 - Resource limits MUST come from the configuration: one budget for the shared VM, and one for each isolated machine's VM.
 - An isolated machine's VM MUST be created with the machine, from the VM image selected for the shared VM, and MUST be deleted with it: `remove` stops it and deletes its disks. A failed creation MUST leave no isolated VM. Every VM has its own ID, units, runtime directory, keys and forwarder, and a vsock CID no other VM of the state directory uses.
+- `doctor` MUST fail when systemd-vmspawn finds no firmware for the firmware flags a VM launch passes. It asks vmspawn to describe that firmware with the same flags, because listing firmware succeeds when there is none.
 
 ### State, ownership and locking
 
