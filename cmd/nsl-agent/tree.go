@@ -16,10 +16,27 @@ import (
 
 // rootfsLimit bounds an uncompressed machine root filesystem.
 const rootfsLimit int64 = 16 << 30
+const openat2Attempts = 8
 
 // tree writes inside a machine's root as the machine would see it: absolute
 // symlinks and ".." resolve within the tree, never into the VM.
 type tree struct{ fd int }
+
+type openat2Func func(int, string, *unix.OpenHow) (int, error)
+
+// RESOLVE_IN_ROOT may transiently return EAGAIN when the kernel cannot prove
+// confinement during concurrent rename or mount activity.
+func openat2Retry(open openat2Func, dirfd int, path string, how *unix.OpenHow) (int, error) {
+	var fd int
+	var err error
+	for range openat2Attempts {
+		fd, err = open(dirfd, path, how)
+		if err != unix.EAGAIN {
+			return fd, err
+		}
+	}
+	return fd, err
+}
 
 func openTree(dir string) (*tree, error) {
 	fd, err := unix.Open(dir, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
@@ -32,7 +49,7 @@ func openTree(dir string) (*tree, error) {
 func (t *tree) close() { unix.Close(t.fd) }
 
 func (t *tree) open(rel string, flags uint64, mode uint64) (int, error) {
-	fd, err := unix.Openat2(t.fd, rel, &unix.OpenHow{Flags: flags | unix.O_CLOEXEC, Mode: mode,
+	fd, err := openat2Retry(unix.Openat2, t.fd, rel, &unix.OpenHow{Flags: flags | unix.O_CLOEXEC, Mode: mode,
 		Resolve: unix.RESOLVE_IN_ROOT | unix.RESOLVE_NO_MAGICLINKS})
 	if err != nil {
 		return -1, &os.PathError{Op: "open", Path: "/" + rel, Err: err}
