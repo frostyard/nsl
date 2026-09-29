@@ -384,6 +384,16 @@ The hand check before the probe also covered what it does not: SSH port forwardi
 - **Publication** ([run 36439364451](https://github.com/frostyard/nsl/actions/runs/36439364451), from `7be952b`): every check passed on the runner, including a `wayland`/`background` session on all seven desktops, and four idle machines measured 854 MiB. It promoted catalogue sequence **9**, manifest `sha256:7e84c3ed73103e925d4cb87e37bdc3497b520c8316b385b244037eda28851263`, which expires 2026-10-28. Sequence 8 belonged to the week's scheduled run: it fired at 11:45 UTC instead of 05:23, waited for a runner, and was cancelled before building because it would have published the previous commit.
 - **Clean host.** The released v0.4.0 CLI, with an empty state directory and `LANG=en_US.UTF-8`, created an Ubuntu machine from catalogue 9: its sessions were `wayland`/`background` with `LANG=C.UTF-8` and no locale warnings, and plain `code` opened its window on Wayland. A Tumbleweed machine kept `en_US.UTF-8`, and foot started; libxkbcommon still logs that openSUSE's foot lacks X11 compose data for the locale, which only affects compose sequences.
 
+### Request lifetime fix (issue #24), 2026-09-28
+
+The request handler now retains the shared request-lock file until the operation returns, and closes it on both success and failure. Previously the file became unreachable after `holdRequest`, so garbage collection could release the lock and let the idle monitor power off the VM during an active operation. The regression forces collection inside a real request handler and checks both the held lock and its release; it fails against the previous implementation.
+
+VM image `nsl-vm-trixie-x86-64-r10`, raw SHA256 `0974e722530a090f1e05e351e03b926314794c67be5e93f2db9fe336bf3a723e`, passed all nine VM acceptance checks (`build/image/evidence/r10-probe.json`). The build log is `build/image/evidence/build-r10.log`; the image carries systemd 257.13 and kernel 6.12.107+deb13-amd64.
+
+Acceptance host: 7.1.8+deb13-amd64, systemd 261 (261.2-1), QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1), virtiofsd 1.13.2.
+
+The four-machine benchmark also passed (`build/image/evidence/r10-measure.json`): 852.3 MiB idle and 0.674 s p95 to start another machine, using 20 startup trials and 50 command-latency trials. `make ci` passed, including race tests and cross builds.
+
 ## Phase 9 — Isolated machines
 
 - `create --isolated` and `import --isolated` give a machine its own VM from the same image, with `[isolated]` resources. It has no `/mnt/host`, broker, Waypipe or peers.

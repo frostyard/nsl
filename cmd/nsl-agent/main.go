@@ -108,9 +108,11 @@ func (a *agent) handle(command string) (int, error) {
 		return 0, &protocol.Error{Code: protocol.CodeRefused, Message: "this isolated VM hosts another machine ID"}
 	}
 	if !protocol.Passive[req.Op] {
-		if err = a.holdRequest(); err != nil {
+		held, err := a.holdRequest()
+		if err != nil {
 			return 0, err
 		}
+		defer held.Close()
 	}
 	if a.sys == nil && req.Op != "identity" && req.Op != "vm" {
 		if a.sys, err = newSystem(); err != nil {

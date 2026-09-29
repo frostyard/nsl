@@ -1,11 +1,15 @@
 package main
 
 import (
+	"errors"
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/frostyard/nsl/internal/protocol"
 	"golang.org/x/sys/unix"
 )
 
@@ -148,5 +152,58 @@ func TestRunningMachineKeepsTheVM(t *testing.T) {
 	m.step()
 	if ta.r.ran("systemctl", "poweroff") != 0 {
 		t.Fatal("powered off with machines running")
+	}
+}
+
+// Inspect the request lock from inside a real handler, after forcing collection.
+// Embedding the fake system keeps its other lifecycle behavior unchanged.
+type requestLockSystem struct {
+	system
+	check func()
+	fail  bool
+}
+
+func (s *requestLockSystem) UnitState(unit string) (string, error) {
+	s.check()
+	if s.fail {
+		return "", errors.New("injected status failure")
+	}
+	return s.system.UnitState(unit)
+}
+
+func TestRequestLockSurvivesGCUntilHandlerReturns(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
+			ta := newTestAgent(t, "shared")
+			ta.addMachine(t, "debian", machineID)
+			checked := false
+			ta.agent.sys = &requestLockSystem{system: ta.sys, fail: fail, check: func() {
+				probe, err := os.Open(ta.path(requestsLock))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer probe.Close()
+				for range 5 {
+					runtime.GC()
+					runtime.Gosched()
+					if err := unix.Flock(int(probe.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != unix.EWOULDBLOCK {
+						t.Fatalf("request lock lost during handler: %v", err)
+					}
+				}
+				checked = true
+			}}
+			_, err := ta.handle(request(t, protocol.Request{Op: "stop", Machine: "debian", ID: machineID}))
+			if (err != nil) != fail || !checked {
+				t.Fatalf("handler error=%v, checked=%v", err, checked)
+			}
+			probe, err := os.Open(ta.path(requestsLock))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer probe.Close()
+			if err := unix.Flock(int(probe.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+				t.Fatal("request lock retained after handler returned:", err)
+			}
+		})
 	}
 }
