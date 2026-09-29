@@ -89,6 +89,7 @@ The project has no users; nothing needs migration.
 
 - The data disk grows offline and never shrinks, under [ADR-0008](0008-offline-storage-management.md)'s rules for locking and resumption. Machines share its capacity; per-machine quotas are later work.
 - `remove` deletes a stopped machine's subvolume and settings.
+- A failed create or import keeps its host identity and reserves its name until cleanup is confirmed. A lost transport response does not prove that the guest kept nothing; `remove NAME --yes` retries cleanup with the original ID.
 - A stopped machine exports as a versioned archive of its root filesystem, preserving numeric owners, xattrs and ACLs, with a checksummed manifest. Import restores it into a new subvolume under an unused name. The trust tier is chosen at import (ADR-0016).
 - The VM holds no user state and is not exported. `recover` applies to the VM.
 

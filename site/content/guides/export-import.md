@@ -30,6 +30,8 @@ The name must be unused. Before anything is published, nsl checks:
 
 An archive that fails any check leaves no machine behind. The imported machine gets this host's time zone, the new hostname, a `sudo` rule and its own nspawn settings. The first machine imported into an empty nsl becomes the default, as with `create`.
 
+If the connection fails during import and cleanup cannot be confirmed, the name stays reserved and `nsl list` shows an incomplete machine. Run `nsl remove NAME --yes` to retry cleanup before importing again.
+
 The trust tier comes from the command line, defaulting to an ordinary machine. It is never read from the archive.
 
 ## What is in an archive

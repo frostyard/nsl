@@ -117,7 +117,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 
 - `create --distro`, `pull` and `update` follow the [delivery contract](image-delivery.md): the catalogue and each image are authenticated against the Frostyard publishing identity before use. `--offline` MUST use only verified cached data and never download.
 - Local `--image FILE --digest sha256:HEX` verifies the selected bytes but not a publisher. It is an explicit developer path.
-- Creation MUST NOT need the network once the images are cached. A failed creation MUST remove its subvolume and leave the name free.
+- Creation MUST NOT need the network once the images are cached. A failed create or import MUST attempt cleanup. The host MUST retain its machine record and original ID until removal is confirmed, or the agent confirms that the machine is absent under its lifecycle lock. An uncertain cleanup MUST keep the name reserved, appear as incomplete in `list`, and direct the user to retry with `remove NAME --yes`.
 - `update` MUST NOT start, stop or change a running VM. The selected VM image replaces each VM's root at that VM's next start, keeping its data disk. `config` and `list` MUST report the pending image.
 
 ### Configuration
