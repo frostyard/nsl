@@ -31,41 +31,41 @@ nsl run make test                      # one command, with its exit status
 
 <div class="grid cards" markdown>
 
-- **Any distro, one command away**
+-   **Any distro, one command away**
 
-  ***
+    ---
 
-  `nsl` opens a login shell in your default machine, in the directory you were in. `nsl run` runs one command and returns its exit status.
+    `nsl` opens a login shell in your default machine, in the directory you were in. `nsl run` runs one command and returns its exit status.
 
-- **Your files and your account**
+-   **Your files and your account**
 
-  ***
+    ---
 
-  Your `$HOME`, `/run/media/USER` and `/mnt` appear at `/mnt/host`. Inside, you keep your username, UID and GID, and passwordless `sudo`.
+    Your `$HOME`, `/run/media/USER` and `/mnt` appear at `/mnt/host`. Inside, you keep your username, UID and GID, and passwordless `sudo`.
 
-- **Ports and windows on the host**
+-   **Ports and windows on the host**
 
-  ***
+    ---
 
-  A server listening in a machine is reachable at the same port on host `127.0.0.1`. Wayland applications open windows on your desktop.
+    A server listening in a machine is reachable at the same port on host `127.0.0.1`. Wayland applications open windows on your desktop.
 
-- **Seven signed distros**
+-   **Seven signed distros**
 
-  ***
+    ---
 
-  Debian, Ubuntu, Fedora, CentOS Stream, Arch, openSUSE Tumbleweed and Leap. Rebuilt weekly, and verified against the signed Frostyard publishing workflow before use.
+    Debian, Ubuntu, Fedora, CentOS Stream, Arch, openSUSE Tumbleweed and Leap. Rebuilt weekly, and verified against the signed Frostyard publishing workflow before use.
 
-- **Isolation when you need it**
+-   **Isolation when you need it**
 
-  ***
+    ---
 
-  `--isolated` gives a machine a VM of its own, with no access to host files, desktop or host actions, for software you do not trust.
+    `--isolated` gives a machine a VM of its own, with no access to host files, desktop or host actions, for software you do not trust.
 
-- **A clean host**
+-   **A clean host**
 
-  ***
+    ---
 
-  nsl runs as your user. It installs no host packages and changes no device permissions, groups or sudoers.
+    nsl runs as your user. It installs no host packages and changes no device permissions, groups or sudoers.
 
 </div>
 
@@ -75,15 +75,15 @@ nsl run make test                      # one command, with its exit status
 
 - <span class="fy-index">01</span> **[Get started](getting-started/install.md)**
 
-  Check the host, install nsl and create your first machine.
+    Check the host, install nsl and create your first machine.
 
 - <span class="fy-index">02</span> **[Architecture](concepts/how-it-works.md)**
 
-  One VM, many machines, and what a machine may touch on the host.
+    One VM, many machines, and what a machine may touch on the host.
 
 - <span class="fy-index">03</span> **[Look it up, baby](reference/cli.md)**
 
-  Every command, every setting in `nsl.conf`, and every published image.
+    Every command, every setting in `nsl.conf`, and every published image.
 
 </div>
 
