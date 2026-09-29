@@ -12,7 +12,7 @@ Frostyard publishes these machine images, rebuilt at least weekly. `nsl images` 
 | Ubuntu 26.04 LTS | `ubuntu:26.04`, `ubuntu:resolute` | debian |
 | Fedora 44 | `fedora:44` | rpm |
 | CentOS Stream 10 | `centos:10`, `centos-stream:10` | rpm |
-| Arch Linux | `arch:rolling` | arch |
+| Arch Linux | `arch:rolling`, `arch:btw` | arch |
 | openSUSE Tumbleweed | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | suse |
 | openSUSE Leap 16.0 | `opensuse:16.0`, `opensuse-leap:16.0` | suse |
 

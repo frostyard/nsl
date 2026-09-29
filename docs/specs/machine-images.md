@@ -18,7 +18,7 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 | `ubuntu:resolute`, `ubuntu:26.04` | `debian` | The Debian family's packages; Fedora 44 tools tree, which carries the Ubuntu archive keyring. |
 | `fedora:44` | `rpm` | `systemd-pam`, `shadow-utils`, `tzdata`; Fedora 44 tools tree. |
 | `centos:10`, `centos-stream:10` | `rpm` | The rpm family's packages, and `libglvnd-gles`: GTK 4 renders through GLES, and CentOS Stream 10's `gtk4` does not require it. It brings Mesa and LLVM, about 60 MB compressed. The recipe adds EPEL, which stays enabled in the machine. Fedora 44 tools tree. |
-| `arch:rolling` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
+| `arch:rolling`, `arch:btw` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
 | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`, and `glibc-locale-base` for `C.UTF-8`; openSUSE Tumbleweed tools tree. |
 | `opensuse:16.0`, `opensuse-leap:16.0` | `suse` | The suse family's packages; openSUSE Tumbleweed tools tree. |
 
