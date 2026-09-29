@@ -31,7 +31,7 @@ ISSUER = 'https://token.actions.githubusercontent.com'
 # Catalogue selectors for each machine profile; compose-image.py's MACHINES lists the profiles.
 SELECTORS = {('debian', 'trixie'): ['debian:trixie', 'debian:13'],
              ('fedora', '44'): ['fedora:44'],
-             ('arch', 'rolling'): ['arch:rolling'],
+             ('arch', 'rolling'): ['arch:rolling', 'arch:btw'],
              ('opensuse', 'tumbleweed'): ['opensuse:tumbleweed', 'opensuse-tumbleweed:rolling'],
              ('ubuntu', 'resolute'): ['ubuntu:resolute', 'ubuntu:26.04'],
              ('centos', '10'): ['centos:10', 'centos-stream:10'],
