@@ -447,6 +447,40 @@ func (a *app) listMachines(w io.Writer, vms []*vmRecord) error {
 	return t.Flush()
 }
 
+// removalRecord reads either the active record or a pending removal. Callers
+// recheck its identity after waiting for the machine lock.
+func (a *app) removalRecord(name string) (*machineRecord, bool, error) {
+	m, err := a.readMachine(a.removingPath(name), name)
+	if errors.Is(err, os.ErrNotExist) {
+		m, err = a.machine(name)
+		return m, false, err
+	}
+	return m, err == nil, err
+}
+
+// reserveRemoval holds the manager lock only while moving the record. The
+// caller already holds the machine lock and keeps it until removal finishes.
+func (a *app) reserveRemoval(expected *machineRecord) (*machineRecord, error) {
+	manager, err := fileLock(filepath.Join(a.home, "lock"))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock(manager)
+	m, pending, err := a.removalRecord(expected.Name)
+	if err != nil {
+		return nil, err
+	}
+	if m.ID != expected.ID {
+		return nil, errors.New(expected.Name + " was replaced while waiting; retry")
+	}
+	if !pending {
+		if err = os.Rename(a.machinePath(m.Name), a.removingPath(m.Name)); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
 // remove previews, then permanently removes a stopped machine. The record
 // moves to removing/ first, so an interrupted removal resumes.
 func (a *app) remove(args []string) error {
@@ -466,17 +500,7 @@ func (a *app) remove(args []string) error {
 	if err := a.initMachines(); err != nil {
 		return err
 	}
-	manager, err := fileLock(filepath.Join(a.home, "lock"))
-	if err != nil {
-		return err
-	}
-	defer unlock(manager)
-	tombstone := a.removingPath(name)
-	m, err := a.readMachine(tombstone, name)
-	pending := err == nil
-	if errors.Is(err, os.ErrNotExist) {
-		m, err = a.machine(name)
-	}
+	m, _, err := a.removalRecord(name)
 	if err != nil {
 		return err
 	}
@@ -484,18 +508,18 @@ func (a *app) remove(args []string) error {
 		fmt.Fprintf(a.out, "This permanently deletes machine %s (%s): its packages, services and home.\nHost files under /mnt/host are not touched. Run nsl remove %s --yes to proceed.\n", name, m.BuildID, name)
 		return nil
 	}
-	if !pending {
-		l, locked, err := a.lockMachine(m)
-		if err != nil {
-			return err
-		}
-		m = locked
-		err = os.Rename(a.machinePath(name), tombstone)
-		unlock(l)
-		if err != nil {
-			return err
-		}
+	// Never wait for a machine while holding the manager lock: creation needs
+	// the manager to create its VM while it holds this same machine lock.
+	l, err := fileLock(filepath.Join(a.machinesDir(), "."+name+".lock"))
+	if err != nil {
+		return err
 	}
+	defer unlock(l)
+	m, err = a.reserveRemoval(m)
+	if err != nil {
+		return err
+	}
+	tombstone := a.removingPath(name)
 	if m.Tier == "isolated" {
 		// The machine's VM holds nothing else, so it goes with the machine.
 		err = a.removeIsolatedVM(m)
