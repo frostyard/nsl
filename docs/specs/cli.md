@@ -101,7 +101,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 
 ### Storage
 
-- `remove --yes` MUST require a stopped owned machine and the manager and machine locks. It MUST reserve the name until deletion finishes, show the machine as `Removing` in `list`, and resume from the same command after interruption. It MUST preserve host files, cached images and exported archives.
+- `remove --yes` MUST require a stopped owned machine and the manager and machine locks. It MUST reserve the name until deletion finishes, show the machine as `Removing` in `list`, and resume from the same command after interruption. It MUST preserve host files, cached images and exported archives. It MUST acquire the machine lock before the manager lock, recheck the machine ID after waiting, release the manager lock once the name is reserved for removal, and keep the machine lock until removal finishes.
 - `resize --disk` MUST require the VM to be stopped. It MUST refuse shrinking and invalid capacities (up to 4096 GiB), record the pending target before changing the disk, and validate the result before committing the new capacity. Pending growth MUST appear in `list`, block VM start, and complete through `resize` or `recover`. A capacity matching neither the committed nor the pending size MUST be refused.
 - The VM grows its data filesystem to the disk at boot; the CLI only changes and verifies virtual capacity. Machines share the data disk's capacity.
 
