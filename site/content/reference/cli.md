@@ -4,7 +4,7 @@ description: Every nsl command, its options, name rules, guest commands and envi
 
 # Commands
 
-`nsl help` prints a summary. Flags follow the machine name.
+Run `nsl help` for a quick command summary. For commands that take a machine name, put the flags after the name.
 
 ## Machines
 
@@ -45,7 +45,7 @@ description: Every nsl command, its options, name rules, guest commands and envi
 | `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM. |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
 
-A selector may end in `@sha256:HEX` to pin one image's OCI manifest, which must still be in the current catalogue.
+Add `@sha256:HEX` to a selector to pin an image's OCI manifest. That digest must still be in the current catalogue.
 
 ## Maintenance
 
@@ -65,7 +65,7 @@ A selector may end in `@sha256:HEX` to pin one image's OCI manifest, which must 
 
 ## Guest commands
 
-Every machine image installs these:
+These commands are installed inside every machine image:
 
 | Command | Behavior |
 | --- | --- |

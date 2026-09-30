@@ -4,7 +4,7 @@ description: Save a stopped machine to an archive, and create a machine from one
 
 # Export and import
 
-An archive saves a whole machine: its root filesystem, packages, services and guest home. Use archives for backups, and to move a machine to another host or another isolation tier.
+Export a machine to save its root filesystem, packages, services and guest home in one archive. You can use it as a backup, move it to another host, or import it with a different isolation tier.
 
 ## Export
 
@@ -22,17 +22,17 @@ nsl import dev2 ~/backups/dev-2026-09-28.tar
 nsl import risky ~/downloads/risky.tar --isolated
 ```
 
-The import name must be unused. Before anything is published, nsl checks:
+Choose a name that isn't already in use. Before making the imported machine available, nsl checks:
 
 - that the archive matches your host architecture and its account has your UID and primary GID;
 - the format version, names, sizes and checksum;
-- every entry of the root filesystem: no absolute or `..` paths, no links that leave the tree, no duplicates, nothing unexpected after the end. This is best-effort security.
+- every entry of the root filesystem: no absolute or `..` paths, no links that leave the tree, no duplicates, nothing unexpected after the end. These checks are best effort; they cannot make an untrusted archive safe.
 
-`nsl` refuses to import an archive that fails any check. The imported machine gets this host's time zone, the new hostname, a `sudo` rule and its own nspawn settings. The first machine imported into an empty nsl becomes the default, as with `create`.
+`nsl` refuses to import an archive that fails any check. The imported machine gets this host's time zone, the new hostname, a `sudo` rule and its own nspawn settings. If this is your first machine, it becomes the default, just as it would with `create`.
 
 If the connection fails during import and cleanup cannot be confirmed, the name stays reserved and `nsl list` shows an incomplete machine. Run `nsl remove NAME --yes` to retry cleanup before importing again.
 
-The trust tier comes from the command line, defaulting to an ordinary machine. It is never read from the archive.
+Import creates an ordinary machine unless you pass `--isolated`. The archive doesn't choose its own trust tier.
 
 ## What is in an archive
 

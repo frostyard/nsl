@@ -4,7 +4,7 @@ description: Create a machine from a signed image, enter it, run commands and st
 
 # Your first machine
 
-This walk-through creates a Debian 13 machine, works in it and stops it. It takes one download of the VM image and the machine image; after that, creation needs no network.
+Let's create a Debian 13 machine, run a few commands and stop it. The first creation downloads the VM image and the Debian machine image. Once both are cached, creating another machine from them needs no network.
 
 <div class="steps" markdown>
 
@@ -15,7 +15,7 @@ This walk-through creates a Debian 13 machine, works in it and stops it. It take
    nsl create debian --distro debian:13
    ```
 
-   nsl fetches the signed image catalogue, verifies the VM image and the Debian machine image against the Frostyard publishing workflow, and caches both. It starts the shared VM and creates the machine. Your first machine becomes the default.
+   nsl downloads the signed image catalogue, checks that both images came from the Frostyard publishing workflow, and caches them. Then it starts the shared VM and creates your Debian machine. Since this is your first machine, it becomes the default.
 
 2. **Open a shell.**
 
@@ -24,7 +24,7 @@ This walk-through creates a Debian 13 machine, works in it and stops it. It take
    nsl              # a login shell at /mnt/host/home/src/project
    ```
 
-   You get a login shell in the default machine, in `/mnt/host` followed by the directory you were in. Your username, UID and GID match the host's, and `sudo` needs no password. Directories under your home, `/run/media/USER` and `/mnt` translate this way; from anywhere else, the shell starts in your guest home and says so.
+   You're now in a login shell in the default machine, working in the same files. Their path starts with `/mnt/host`, followed by the host path. Your username, UID and GID match the host's, and `sudo` needs no password. This works for directories under your home, `/run/media/USER` and `/mnt`. From anywhere else, nsl opens the shell in your guest home and tells you.
 
 3. **Run one command.**
 
@@ -34,7 +34,7 @@ This walk-through creates a Debian 13 machine, works in it and stops it. It take
    nsl run podman run --rm docker.io/library/alpine echo hello
    ```
 
-   `run` passes its arguments literally, keeps stdout and stderr apart, and exits with the command's status.
+   These commands install Podman in the machine and use it to run an Alpine container. `run` passes arguments literally, keeps stdout and stderr separate, and returns the command's exit status.
 
 4. **Look around.**
 
@@ -49,9 +49,9 @@ This walk-through creates a Debian 13 machine, works in it and stops it. It take
    nsl shutdown
    ```
 
-   You rarely need to. A machine stops after 15 minutes without nsl sessions or windows, and the VM stops a minute after its last machine. The next `nsl` command starts them again.
+   You can usually leave this to nsl. A machine stops after 15 minutes without nsl sessions or windows, and the VM stops a minute after its last machine. The next `nsl` command starts them again.
 
-   `nsl` startup takes just a few seconds, so a running a command when the system is stopped takes just a little bit longer.
+   Starting from a stopped VM adds a few seconds to the command.
 
 </div>
 
@@ -70,4 +70,4 @@ Both machines run in the same VM and see the same host files. Each has its own p
 
 - [Machines](../guides/machines.md) covers entering, the default machine, lifecycle and removal.
 - [Host files](../guides/host-files.md) explains `/mnt/host` and directory translation.
-- [Trust model](../concepts/trust.md) says what a machine can do with your files.
+- [Trust model](../concepts/trust.md) explains what a machine can do with your files.

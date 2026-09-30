@@ -4,7 +4,7 @@ description: The nsl.conf file, its keys and defaults, syntax and rules.
 
 # Configuration
 
-Settings live in one optional file, `$XDG_CONFIG_HOME/nsl/nsl.conf`, which is `~/.config/nsl/nsl.conf` when `XDG_CONFIG_HOME` is unset, empty or relative. It is separate from state in `NSL_HOME`. nsl reads the file and never writes it; without it, every setting has its default.
+nsl works without a configuration file. To change the defaults, create `$XDG_CONFIG_HOME/nsl/nsl.conf`. If `XDG_CONFIG_HOME` is unset, empty or relative, use `~/.config/nsl/nsl.conf`. This file is separate from the state in `NSL_HOME`; nsl reads it but never writes it.
 
 ```ini
 # ~/.config/nsl/nsl.conf
@@ -69,4 +69,4 @@ isolated.cpus          2      default
 
 ## Errors
 
-nsl refuses to guess. Unknown sections or keys, duplicates, keys outside a section, invalid values and out-of-range numbers are errors of the form `PATH:LINE: message`, and nsl starts no VM with a file it only partly understands. A symlink to a missing file, or anything other than a regular file, is an error too.
+If the file contains an unknown section or key, a duplicate, a key outside a section, an invalid value or an out-of-range number, nsl reports `PATH:LINE: message` and won't start a VM. Fix the reported line before trying again. A symlink to a missing file, or anything other than a regular file, is also an error.

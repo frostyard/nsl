@@ -8,7 +8,7 @@ description: Known limits of nsl, and what to check when something goes wrong.
 
 - **x86-64 only.** The VM and machine images are x86-64.
 - **Idle stop ignores services.** A machine stops after `idle_timeout` minutes without nsl commands, editor sessions or windows, even if a service inside it is busy. Set `idle_timeout = 0` to keep machines running.
-- **No file events from the host.** Host edits under `/mnt/host` produce no inotify events in machines. Keep watched builds in the guest home.
+- **No file events from the host.** Host edits to files shared through `/mnt/host` produce no inotify events in the machine. Keep projects that need file watchers in the guest home.
 - **No automount triggers.** An unmounted host automount point appears empty in machines until the host mounts it.
 - **Wayland only.** Machines have no X server, so X11-only applications open no windows.
 - **Host loopback only.** Forwarded ports bind `127.0.0.1` on the host, and one port serves one machine at a time.
@@ -41,4 +41,4 @@ A new setting has no effect
 
 ## Report a problem
 
-Open an issue at [github.com/frostyard/nsl ↗](https://github.com/frostyard/nsl/issues) with the output of `nsl version`, `nsl doctor` and, where it helps, `nsl logs`.
+If you're still stuck, open an issue at [github.com/frostyard/nsl ↗](https://github.com/frostyard/nsl/issues). Include what you tried and the output of `nsl version` and `nsl doctor`. Add `nsl logs` when it helps explain the failure.

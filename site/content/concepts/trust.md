@@ -4,9 +4,9 @@ description: What a machine can and cannot do on the host, why there is no read-
 
 # Trust model
 
-A machine is a trusted extension of you. The VM keeps a machine's kernel, packages, services and root away from the host system. It does not keep the machine away from your files: a machine that is not isolated can read and write your home, as you.
+An ordinary machine can read and write your home with your permissions. That includes your keys, shell configuration and nsl's own state. Only run software there that you'd trust with those files.
 
-This is the same bargain WSL makes, and we state it plainly so you can choose.
+The VM separates the machine's kernel, packages, services and root from your host system. The file sharing works much like WSL: keeping packages off the host doesn't protect the files you share with the machine.
 
 ## What an ordinary machine can do
 
@@ -25,15 +25,15 @@ This is the same bargain WSL makes, and we state it plainly so you can choose.
 
 ## Machines share a VM
 
-Machines in the shared VM are not isolated from one another. Root in any machine is effectively root in the VM, and so can reach every other machine there. Treat the machines in the shared VM as one trust domain.
+The machines in the shared VM can reach one another. Root in any one of them is effectively root in the VM, with access to the other machines. Use the same level of trust for all machines in that VM.
 
 ## Why there is no read-only tier
 
-Read access to a home already exposes keys and credentials, so a read-only share would suggest a protection that does not exist. And a writable share cannot be made safe with per-feature opt-ins: a machine that can write your startup files can do anything you can. nsl offers two honest tiers instead.
+A read-only home still exposes your keys and credentials. A writable home lets a machine change your shell startup files and run code as you later. Turning individual integration features off doesn't fix either problem. That's why nsl has two choices: share your files with a machine you trust, or use an isolated machine without those shares.
 
 ## Isolated machines
 
-For software you do not trust, use [`--isolated`](../guides/isolated.md). An isolated machine runs in its own VM, with no host files, no desktop session and no host actions. Its ports still reach host loopback. Isolation is chosen when a machine is created or imported, and is never removed from an archive.
+For software you do not trust, use [`--isolated`](../guides/isolated.md). An isolated machine runs in its own VM, with no host files, no desktop session and no host actions. Its ports still reach host loopback. You choose the trust tier when creating or importing the machine; nsl never takes that choice from an archive.
 
 ## Images and archives
 

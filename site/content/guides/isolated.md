@@ -4,7 +4,7 @@ description: Machines in a VM of their own, with no host files, desktop or host 
 
 # Isolated machines
 
-An ordinary machine is trusted as you: it can read and write your home. For software you do not trust, create an isolated machine instead. It runs in its own small VM, with no access to your files or your desktop.
+Use an isolated machine to try software you don't trust with your home directory. It runs in its own small VM, without access to your host files or desktop. An ordinary machine has read-write access to your home.
 
 ```sh
 nsl create sandbox --distro fedora:44 --isolated
@@ -23,7 +23,7 @@ nsl -m sandbox
 | Ports on host `127.0.0.1` | Yes | Yes |
 | Resources | `[vm]` in `nsl.conf` | `[isolated]` in `nsl.conf`: 2 GiB and 2 CPUs by default |
 
-The isolated VM boots the same VM image as the shared VM and runs only this machine. Its credential names no shares, and the only thing mounted from the host is the read-only, verified image cache, which the machine itself never sees.
+The isolated VM uses the same VM image as the shared VM, but runs only this machine. Its credential allows no host file shares. The VM can read the verified image cache on the host; the machine can't see even that mount.
 
 ```sh
 nsl run -m sandbox --cd /home/you uname -a
@@ -31,7 +31,7 @@ nsl run -m sandbox --cd /home/you uname -a
 
 ## Managing its VM
 
-Commands that cover every VM cover isolated ones too: `list`, `ports`, `logs`, `update` and `shutdown`. Two commands take the machine's name to address its VM:
+`list`, `ports`, `logs`, `update` and `shutdown` include isolated VMs. To recover or resize one, pass its machine's name:
 
 ```sh
 nsl recover sandbox              # restart its VM from a fresh root
@@ -42,7 +42,7 @@ Removing the machine stops its VM and deletes its disks.
 
 ## Choosing the tier
 
-The tier is fixed when a machine is created or imported, and an archive never carries it. To move a machine between tiers, export it and import it under an unused name with or without `--isolated`:
+You choose the tier when creating or importing a machine. To change it later, export the machine and import it under an unused name, with or without `--isolated`. The archive itself doesn't set the tier:
 
 ```sh
 nsl stop tool

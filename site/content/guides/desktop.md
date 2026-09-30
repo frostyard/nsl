@@ -4,7 +4,7 @@ description: Wayland windows from machines through Waypipe, and opening links an
 
 # Desktop applications
 
-Wayland applications in a machine open windows on your desktop. Links and shared files opened in a machine open with your host's handlers.
+You can install a Wayland application in a machine and use it on your host desktop. When the machine asks to open a web link or shared file, your host's default application handles it.
 
 ## Requirements
 
@@ -24,11 +24,11 @@ nsl run sudo apt-get install -y galculator  # pick any GUI application
 nsl run galculator
 ```
 
-Applications started from a shell in the machine work the same way. Perfect for running your favorite editor/IDE.
+You can also start applications from a shell inside the machine. A Wayland-compatible editor runs there with the machine's tools and opens its window on your desktop.
 
 ## The desktop session
 
-When a command enters or starts a machine from a Wayland session, nsl starts that machine's desktop session if it is not running: a user unit, `nsl-UID-vm-ID-desktop-NAME.service`, that runs Waypipe between your desktop and the machine. The session restarts after a failure, outlives a stopped machine and ends with the VM.
+When you enter or start a machine from a Wayland session, nsl starts its desktop session too, if needed. The user unit `nsl-UID-vm-ID-desktop-NAME.service` runs Waypipe between your desktop and the machine. It restarts after a failure, stays up when the machine stops, and ends when the VM stops.
 
 Commands in the machine receive:
 
@@ -52,7 +52,7 @@ nsl-open report.pdf                          # relative, from a directory under 
 
 `nsl-open` asks the host to open an `http` or `https` URL, or a path under `/mnt/host`, with your default handler. It is the machine's `BROWSER` and its handler for web links, so tools that open a browser open yours.
 
-The host side is a per-machine broker. It accepts only web URLs and `/mnt/host` paths whose host paths lie in the shared trees, and refuses every other target. These checks keep a machine from naming host files outside the shares. They are not a security boundary: a machine can already write your files.
+A broker on the host handles these requests for each machine. It accepts only web URLs and `/mnt/host` paths that resolve to files in the shared trees. Everything else is refused. This keeps requests within the allowed paths, but remember that an ordinary machine can already write your files.
 
 ## Troubleshooting
 

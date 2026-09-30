@@ -4,9 +4,9 @@ description: The signed catalogue, machine images, VM image updates, offline use
 
 # Images and updates
 
-nsl uses two kinds of image, both published by Frostyard:
+Frostyard publishes two kinds of image for nsl. They have different jobs:
 
-- **The VM image**: the small Debian 13 system every nsl VM boots. It holds no user state and is replaced whole.
+- **The VM image**: the small Debian 13 system every nsl VM boots. It holds no user state, so updates replace it as a whole.
 - **Machine images**: distro root filesystems that become machines. See the [list](../reference/machine-images.md).
 
 ## Browse and cache
@@ -24,7 +24,7 @@ nsl pull ubuntu:26.04      # verify and cache one without creating a machine
 nsl update
 ```
 
-`update` verifies the catalogue's current VM image, caches it and selects it for the next start of each nsl VM, isolated ones included. It never touches a running VM. `nsl list` and `nsl config` show the pending image until then. The new image replaces the VM's root at its next start; the data disk, the machines and the VM's keys stay.
+`update` verifies and caches the current VM image from the catalogue, then selects it for every nsl VM, including isolated ones. Running VMs keep using their current image. At the next start, the new image replaces the VM's root; the data disk, machines and VM keys stay in place. Until then, `nsl list` and `nsl config` show the pending image.
 
 To apply it now, stop everything and let the next command start the VM:
 
@@ -35,11 +35,11 @@ nsl
 
 ## Update machines
 
-Machines update through their own package managers, like any installed distro. A newer machine image affects machines created after it, never existing ones.
+Update packages inside a machine with its own package manager, just as you would on an installed distro. Downloading a newer machine image only changes what you'll get when you create a new machine. Existing machines keep their installed software.
 
 ## Offline use
 
-`--offline` on `images`, `pull`, `create --distro` and `update` uses only the verified cache and never downloads. It still re-verifies signatures and digests, and needs a catalogue that has not expired.
+Add `--offline` to `images`, `pull`, `create --distro` or `update` to use the verified cache without downloading anything. Signature and digest checks still run, and the cached catalogue must not have expired.
 
 ## Pin an exact image
 
@@ -71,4 +71,4 @@ nsl create test --image nsl-machine-debian-trixie-x86-64-r4.tar.zst --digest sha
 nsl update --image nsl-vm-trixie-x86-64-r9.raw --digest sha256:HEX
 ```
 
-The digest proves the bytes are the ones you meant; it does not prove who built them. See [build from source](../contributing/build.md).
+The digest checks that the file matches the bytes you selected. It can't tell you who built the image. See [build from source](../contributing/build.md).

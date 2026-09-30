@@ -4,7 +4,7 @@ description: Automatic forwarding of machine ports to host loopback, conflicts, 
 
 # Ports
 
-A server listening in a machine on port 1024 or above is reachable at the same port on host `127.0.0.1`. There is nothing to configure: a development server started in a machine on port 5173 answers at `http://127.0.0.1:5173/` in your host browser within a second or so.
+Start a development server in a machine on port 5173, then open `http://127.0.0.1:5173/` in your host browser. nsl forwards the port automatically, usually within a second or so. This works for TCP ports 1024 through 65535, except 5353 and 5355.
 
 ## How forwarding works
 
@@ -15,7 +15,7 @@ A forwarder runs beside each VM as a user unit. Once a second it asks the VM's a
 | `127.0.0.1`, `0.0.0.0` or `::` | The VM's `127.0.0.1` |
 | Only `::1`, such as a dev server bound to `localhost` | The VM's `[::1]` |
 
-Ports 1024 to 65535 are forwarded, except 5353 and 5355. Forwarding binds host loopback only; nothing is exposed on your network.
+Forwarding binds only to host loopback. Other computers on your network can't reach these forwarded ports.
 
 ## See what is forwarded
 
@@ -24,7 +24,7 @@ nsl ports          # every machine
 nsl ports web      # one machine
 ```
 
-Each port shows its machine and its state: `forwarded`, or `conflict` with the error.
+The output lists the machine for each port. A working forward shows `forwarded`; a failed one shows `conflict` and the error.
 
 ## Conflicts
 
