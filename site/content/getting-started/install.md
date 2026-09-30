@@ -4,7 +4,7 @@ description: Host requirements, downloading and verifying a release, building fr
 
 # Install nsl
 
-nsl is one binary that runs as your user. It needs an x86-64 Linux host with KVM, because the VM and machine images are x86-64. It was tested on Snow Linux 13 with systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
+nsl is a single binary that runs as your user. You'll need an x86-64 Linux host with KVM to run the x86-64 VM and machine images. The tested setup is Snow Linux 13 with systemd 261.2, QEMU 10.0.13, virtiofsd 1.13.2 and GNOME Wayland.
 
 ## Host requirements
 
@@ -21,7 +21,7 @@ nsl is one binary that runs as your user. It needs an x86-64 Linux host with KVM
 | Unprivileged user namespaces                                                                       | Launching the VM without root                         |
 | Waypipe (optional)                                                                                 | Wayland windows from machines                         |
 
-nsl does not install host packages or change device permissions, groups or sudoers. If a requirement is missing, install it with your host's own tools; `nsl doctor` checks each one.
+Run `nsl doctor` to find out which prerequisites you're missing. Install them with your host's own tools. nsl doesn't install host packages or change device permissions, groups or sudoers.
 
 ## Download a release
 
@@ -55,7 +55,7 @@ Each release has a tarball for `linux_amd64`, a `checksums.txt`, and GitHub buil
 
 ## Build from source
 
-Building needs Go 1.25.8 or newer.
+To build it yourself, use Go 1.25.8 or newer.
 
 ```sh
 git clone https://github.com/frostyard/nsl.git
@@ -69,7 +69,9 @@ make build   # writes build/nsl
 nsl doctor
 ```
 
-`doctor` prints `OK` or `MISSING` for each tool and for the UEFI firmware systemd-vmspawn would boot the VM with. It reports device access in the current session, checks `kvm` membership in the host account database, then probes KVM and vsock access through that group. It also checks user namespaces and the user systemd manager. systemd-vmspawn finds firmware only through a QEMU firmware descriptor in `/usr/share/qemu/firmware` or `/etc/qemu/firmware`, so firmware installed without one is reported missing. It reports Waypipe as optional. Without Waypipe, you can't display machine windows on the host. It exits with an error when a VM prerequisite is missing.
+`doctor` prints `OK` or `MISSING` for each tool and for the UEFI firmware systemd-vmspawn would use. It checks device access in your current session, looks up your `kvm` membership in the host account database, then tries KVM and vsock access through that group. It also checks user namespaces and the user systemd manager. A missing VM prerequisite makes it exit with an error.
+
+Having firmware installed isn't enough on its own. systemd-vmspawn needs a QEMU firmware descriptor in `/usr/share/qemu/firmware` or `/etc/qemu/firmware`; without one, `doctor` reports the firmware as missing. Waypipe is optional, but you'll need it to display machine windows on the host.
 
 If you aren't a member of `kvm`, doctor and VM launch report the missing membership with a command such as `sudo usermod -aG kvm 'YOUR_USERNAME'` for an administrator to run. They skip the group switch so it cannot ask for a group password. Once membership is added, retry nsl; no new login is needed. Device permissions must still allow the `kvm` group access.
 

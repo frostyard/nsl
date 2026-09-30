@@ -6,7 +6,7 @@ description: Where nsl keeps state, growing the data disk, recovering a VM and r
 
 ## Where state lives
 
-nsl keeps its state in `NSL_HOME`, by default `$XDG_DATA_HOME/nsl` or `~/.local/share/nsl`. Settings live apart from it, in [`nsl.conf`](../reference/configuration.md).
+Machines, disks and keys live under `NSL_HOME`, which defaults to `$XDG_DATA_HOME/nsl` or `~/.local/share/nsl`. Settings go in a separate file, [`nsl.conf`](../reference/configuration.md).
 
 | Path in `NSL_HOME` | Content |
 | --- | --- |
@@ -21,7 +21,7 @@ nsl checks the owner, type and permissions of these files before changing anythi
 
 ## The data disk
 
-Each VM has two disks. The root is a throwaway overlay on the cached VM image. The data disk holds the machines and the VM's own state, and is what matters.
+Each VM has two disks. nsl can replace the root overlay from the cached VM image. The data disk needs more care: it holds your machines and the VM's own state.
 
 The data disk starts at 128 GiB of virtual capacity and takes host space only as it fills. Machines in a VM share it. `nsl list` shows each VM's capacity.
 
@@ -42,9 +42,9 @@ nsl recover            # the shared VM
 nsl recover sandbox    # isolated machine sandbox's VM
 ```
 
-`recover` stops the VM, finishes interrupted growth, checks the data disk without repairing it, and starts the VM again from a fresh root. Machines, keys and pinned host keys stay.
+`recover` stops the VM and finishes any interrupted disk growth. It checks the data disk without repairing it, then starts the VM with a fresh root. Your machines, keys and pinned host keys stay in place.
 
-`recover` is not a backup. It cannot rebuild deleted keys or repair a damaged filesystem. [Export](export-import.md) machines you cannot lose.
+Keep backups of machines you need. `recover` can't rebuild deleted keys or repair a damaged filesystem. Use [export](export-import.md) to save a copy before you need one.
 
 ## Logs
 

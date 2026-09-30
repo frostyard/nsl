@@ -4,7 +4,7 @@ description: The published machine images, their selectors, and what every image
 
 # Machine images
 
-Frostyard publishes these machine images, rebuilt at least weekly. `nsl images` lists what the current authenticated catalogue offers, reusing a catalogue checked less than one hour ago by default. Use `nsl images --refresh` to check immediately.
+Choose from the machine images below, rebuilt by Frostyard at least weekly. Run `nsl images` to see what's available in the current authenticated catalogue. By default, it reuses a catalogue checked less than one hour ago. Use `nsl images --refresh` to check immediately.
 
 | Distro | Selectors | Family |
 | --- | --- | --- |
@@ -16,12 +16,12 @@ Frostyard publishes these machine images, rebuilt at least weekly. `nsl images` 
 | openSUSE Tumbleweed | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | suse |
 | openSUSE Leap 16.0 | `opensuse:16.0`, `opensuse-leap:16.0` | suse |
 
-All images are x86-64. Other distros and releases join after they pass the same acceptance tests.
+All images are x86-64. A new distro or release has to pass the same acceptance tests before it's added.
 
 ## What every image provides
 
 - **Your account**, added at creation: your username, UID and GID, a home at `/home/USER`, `/bin/bash` and passwordless `sudo`. Root has no usable password.
-- **A real session** for every nsl command: a PAM login with a logind session, `XDG_RUNTIME_DIR`, a user systemd manager and a user D-Bus session.
+- **A login session** for every nsl command: a PAM login with a logind session, `XDG_RUNTIME_DIR`, a user systemd manager and a user D-Bus session.
 - **Networking from the VM.** The machine's own networkd and resolved are masked; it uses the VM's network and resolver.
 - **Nested containers.** A full procfs for nesting and a Podman drop-in, so rootless Podman works.
 - **Desktop support.** Time-zone data, a font, a cursor theme and the Wayland client libraries.

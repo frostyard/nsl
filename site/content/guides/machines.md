@@ -4,7 +4,7 @@ description: Create, enter, start, stop and remove machines; the default machine
 
 # Machines
 
-A machine is a named, persistent Linux system: a distro, its packages and services, and a guest home. Projects are ordinary directories, not machine properties. Machines run as systemd-nspawn containers in the shared VM, or, when [isolated](isolated.md), each in a VM of its own.
+A machine keeps a Linux distro, its installed packages, services and guest home under a name you choose. You can work on several projects in one machine; to nsl, they're just directories. Machines run as systemd-nspawn containers in the shared VM. An [isolated](isolated.md) machine gets a VM of its own.
 
 ## Create a machine
 
@@ -20,7 +20,9 @@ nsl create NAME --distro DISTRO:RELEASE [--default] [--user NAME] [--isolated] [
 
 Names start with a lowercase letter, followed by lowercase letters, digits or interior hyphens, up to 24 characters. Flags follow the name.
 
-Creation verifies the cached image, imports it into the VM's data disk and applies only per-machine data: the host time zone, the hostname, the account and its `sudo` rule. A failed creation frees the name after cleanup succeeds. If the VM cannot confirm cleanup, `nsl list` shows the machine as `incomplete` and the error tells you to run `nsl remove NAME --yes`. That command retries cleanup before freeing the name.
+nsl verifies the cached image and imports it onto the VM's data disk. Then it sets the host time zone, hostname, account and `sudo` rule for the new machine.
+
+If creation fails, nsl cleans up before making the name available again. If the VM can't confirm cleanup, `nsl list` shows the machine as `incomplete`. Run the suggested `nsl remove NAME --yes` command to retry cleanup and free the name.
 
 ## Enter a machine
 
@@ -45,11 +47,11 @@ When the directory cannot be translated:
 - a shell starts in the guest home and says so on stderr;
 - `run` fails without running anything, unless `--cd` names an absolute guest directory.
 
-A command meant for a project directory never runs somewhere else by accident.
+This prevents a project command from silently running in the guest home when its host directory isn't shared.
 
 ## The default machine
 
-There is at most one default. The first machine you create or import becomes it, and `nsl default NAME` changes it. Removing the default leaves none; bare `nsl` then fails and lists your machines instead of guessing.
+The first machine you create or import becomes the default. Change it with `nsl default NAME`. If you remove the default machine, you'll need to choose another. Until you do, bare `nsl` fails and lists the available machines.
 
 ## Your account in a machine
 
@@ -63,7 +65,7 @@ Creation fails, and changes nothing, when the image already has an account with 
 
 ## Start, stop and idle
 
-Commands start what they need. The shared VM starts on first use, and by default starts every machine with it; set `autostart = false` in the [configuration](../reference/configuration.md) to start machines on first use instead.
+You don't need to start the VM before using a machine. nsl starts it on demand and, by default, starts all its machines too. Set `autostart = false` in the [configuration](../reference/configuration.md) if you'd rather start each machine only when you use it.
 
 | Command | Effect |
 | --- | --- |
@@ -104,6 +106,6 @@ nsl remove old         # preview what would be deleted
 nsl remove old --yes   # delete it
 ```
 
-Removal needs a stopped machine and cannot be undone. It keeps host files, cached images and exported archives. An isolated machine's VM and its disks go with it. The name stays reserved until deletion finishes; an interrupted removal shows as `Removing` in `nsl list`, and the same command resumes it.
+Stop the machine before removing it. Removal is permanent, though your host files, cached images and exported archives stay where they are. Removing an isolated machine also deletes its VM and disks. If removal is interrupted, `nsl list` shows `Removing` and the name stays reserved. Run the same removal command to finish.
 
 To keep a copy first, [export](export-import.md) the machine.

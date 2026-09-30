@@ -6,7 +6,7 @@ description: Build nsl and its images from source, run the tests, and edit this 
 
 ## The CLI
 
-Building needs Go 1.25.8 or newer. The checks also need the golangci-lint release pinned in `mise.toml`; [mise ↗](https://mise.jdx.dev) installs it, verified against `mise.lock`.
+You'll need Go 1.25.8 or newer to build nsl. To run the checks, install the golangci-lint version pinned in `mise.toml`. [mise ↗](https://mise.jdx.dev) installs it and verifies it against `mise.lock`.
 
 ```sh
 mise install  # the pinned golangci-lint and svu
@@ -16,11 +16,11 @@ make verify   # tidiness, license notices, vet, formatting, lint and tests; chan
 make ci       # what CI runs: verify, race-enabled tests with coverage, cross builds
 ```
 
-Unit tests use fake tools and local processes. They need neither root nor a VM.
+You can run the unit tests without root or a VM. They use fake tools and local processes.
 
 ## The images
 
-Images are built from pinned [nspawn/mkosi-definitions ↗](https://github.com/nspawn/mkosi-definitions) recipes with mkosi, inside a disposable Lima VM, so build dependencies never touch the host. The builder needs Lima 2.2.0, Python 3, Git, Go and `flock`.
+The image builder runs mkosi inside a disposable Lima VM using pinned [nspawn/mkosi-definitions ↗](https://github.com/nspawn/mkosi-definitions) recipes. Build dependencies stay in that VM. On the host, you'll need Lima 2.2.0, Python 3, Git, Go and `flock`.
 
 ```sh
 make build
@@ -60,7 +60,7 @@ make site-serve   # preview at http://127.0.0.1:8000/nsl/
 make site         # build into site/dist, failing on any warning
 ```
 
-Both targets install the pinned tools into `build/site-venv` first. Change these pages in the same pull request as the behavior they describe.
+Both targets install the pinned tools into `build/site-venv` first. When you change how nsl behaves, update the relevant pages in the same pull request.
 
 ## Design documents
 

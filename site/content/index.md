@@ -10,9 +10,9 @@ hide:
 <div class="fy-hero__text" markdown>
 <p class="fy-eyebrow">NSpawn Subsystem for Linux</p>
 
-# Keep the host atomic. _Work in any distro._
+# Linux development on an atomic host {#keep-the-host-atomic-work-in-any-distro}
 
-<p class="fy-hero__lede">nsl gives a Linux host persistent Linux machines, as WSL does for Windows. Each machine is a whole distro with its own packages and services. It runs as a systemd-nspawn container in one small VM, starts when you use it, and works in your files.</p>
+<p class="fy-hero__lede">Install your development tools in a Debian, Fedora or other Linux machine and leave the host alone. nsl works much like WSL: each machine keeps its packages, services and files between sessions. The machines run as systemd-nspawn containers inside a shared VM, start when you need them, and can work in your host files.</p>
 
 [Install nsl →](getting-started/install.md){ .md-button .md-button--primary }
 [How it works](concepts/how-it-works.md){ .md-button }
@@ -31,41 +31,41 @@ nsl run make test                      # one command, with its exit status
 
 <div class="grid cards" markdown>
 
--   **Any distro, one command away**
+-   **A shell where you need it**
 
     ---
 
-    `nsl` opens a login shell in your default machine, in the directory you were in. `nsl run` runs one command and returns its exit status.
+    Run `nsl` from your project directory to open a shell in the default machine, working in the same files. Use `nsl run` for a single command; its exit status comes back to the host.
 
 -   **Your files and your account**
 
     ---
 
-    Your `$HOME`, `/run/media/USER` and `/mnt` appear at `/mnt/host`. Inside, you keep your username, UID and GID, and passwordless `sudo`.
+    Your `$HOME`, `/run/media/USER` and `/mnt` are available under `/mnt/host`. The machine uses your username, UID and GID, so files you create there still belong to you. You also get passwordless `sudo` inside the machine.
 
 -   **Ports and windows on the host**
 
     ---
 
-    A server listening in a machine is reachable at the same port on host `127.0.0.1`. Wayland applications open windows on your desktop.
+    Run a development server in the machine and reach its forwarded port on host `127.0.0.1`. Wayland applications can open windows on your desktop through Waypipe.
 
 -   **Seven signed distros**
 
     ---
 
-    Debian, Ubuntu, Fedora, CentOS Stream, Arch, openSUSE Tumbleweed and Leap. Rebuilt weekly, and verified against the signed Frostyard publishing workflow before use.
+    Choose Debian, Ubuntu, Fedora, CentOS Stream, Arch, openSUSE Tumbleweed or Leap. The images are rebuilt weekly. nsl verifies that they came from the signed Frostyard publishing workflow before using them.
 
 -   **Isolation when you need it**
 
     ---
 
-    `--isolated` gives a machine a VM of its own, with no access to host files, desktop or host actions, for software you do not trust.
+    Use `--isolated` for software you don't trust. It gets its own VM, without access to your host files, desktop or host actions.
 
--   **A clean host**
+-   **Runs as your user**
 
     ---
 
-    nsl runs as your user. It installs no host packages and changes no device permissions, groups or sudoers.
+    nsl runs as your user. You'll need the host prerequisites installed first; nsl doesn't install packages or change device permissions, groups or sudoers.
 
 </div>
 
@@ -79,11 +79,11 @@ nsl run make test                      # one command, with its exit status
 
 - <span class="fy-index">02</span> **[Architecture](concepts/how-it-works.md)**
 
-    One VM, many machines, and what a machine may touch on the host.
+    How the VM runs your machines and connects them to the host.
 
-- <span class="fy-index">03</span> **[Look it up, baby](reference/cli.md)**
+- <span class="fy-index">03</span> **[Command reference](reference/cli.md)**
 
-    Every command, every setting in `nsl.conf`, and every published image.
+    Look up commands, settings in `nsl.conf` and published images.
 
 </div>
 

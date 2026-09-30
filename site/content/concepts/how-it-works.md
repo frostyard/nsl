@@ -4,7 +4,7 @@ description: One VM, many machines, an agent over vsock, and the host units that
 
 # How nsl works
 
-nsl runs one VM for all your machines, and one more for each isolated machine. Machines are systemd-nspawn containers inside it. The host requires no daemon of its own: only user units bound to the VM, started and stopped with it.
+Your ordinary machines run as systemd-nspawn containers inside one shared VM. Each isolated machine gets a VM of its own. On the host, nsl uses systemd user units that start and stop with the VM, so there's no separate host daemon to manage.
 
 ```mermaid
 flowchart LR
@@ -26,10 +26,10 @@ flowchart LR
 
 The shared VM boots the signed nsl VM image with systemd-vmspawn and QEMU/KVM, under a user unit named `nsl-UID-vm-ID.service`. It has two disks:
 
-- **The root**, a qcow2 overlay on the cached VM image. It holds no user state, so `nsl update` and `nsl recover` simply replace it at the next start.
+- **The root**, a qcow2 overlay on the cached VM image. It holds no user state, so `nsl update` and `nsl recover` can replace it at the next start.
 - **The data disk**, a qcow2 image with a btrfs filesystem. It holds every machine and the VM's own state: its identity, its SSH host keys and the machine records.
 
-The VM starts on first use and stops itself when idle. Its memory and CPUs come from [`nsl.conf`](../reference/configuration.md): by default half the host's memory and every host CPU, as in WSL. Because machines are containers, they share that budget instead of each reserving memory.
+The VM starts when you first need it and stops when idle. By default it can use half the host's memory and every host CPU, much like WSL. You can change those limits in [`nsl.conf`](../reference/configuration.md). The machines share the VM's resources, so adding a machine doesn't reserve another VM's worth of memory.
 
 Launching doesn't need root. nsl opens `/dev/kvm` and `/dev/vhost-vsock` through your existing `kvm` membership, inside an unprivileged user namespace, and passes them to vmspawn. `nsl` doesn't change host permissions, groups, packages or sudoers.
 
@@ -37,7 +37,7 @@ Launching doesn't need root. nsl opens `/dev/kvm` and `/dev/vhost-vsock` through
 
 Each machine is a btrfs subvolume on the data disk, created from a signed machine image and run by systemd-nspawn. Machines use the VM's kernel, network namespace and resolver. In the shared VM they also bind `/mnt/host`, your host's shared files.
 
-Creation needs no network once the images are cached. The VM imports the image from the read-only cache and applies only per-machine data: time zone, hostname, account, `sudo` rule and nspawn settings. Everything distro-specific is built into the image, so the host and the VM stay distribution-neutral.
+Once the images are cached, creation needs no network. The VM imports the image from the read-only cache, then sets the time zone, hostname, account, `sudo` rule and nspawn settings for the new machine. Distro-specific setup is already in the image; the host and VM don't need separate creation logic for each distro.
 
 ## The agent
 
@@ -65,4 +65,4 @@ An isolated machine gets its own VM from the same image and launcher, created an
 
 ## Design documents
 
-These pages describe nsl for its users. The contracts and decisions behind it live in the repository: the [architecture overview ↗](https://github.com/frostyard/nsl/blob/main/docs/design/lifecycle.md), the [CLI contract ↗](https://github.com/frostyard/nsl/blob/main/docs/specs/cli.md) and the [decision records ↗](https://github.com/frostyard/nsl/tree/main/docs/adr).
+For the implementation details and the reasons behind these choices, see the [architecture overview ↗](https://github.com/frostyard/nsl/blob/main/docs/design/lifecycle.md), the [CLI contract ↗](https://github.com/frostyard/nsl/blob/main/docs/specs/cli.md) and the [decision records ↗](https://github.com/frostyard/nsl/tree/main/docs/adr).

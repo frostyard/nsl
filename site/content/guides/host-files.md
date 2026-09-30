@@ -4,7 +4,7 @@ description: How machines see your home, removable media and /mnt at /mnt/host, 
 
 # Host files
 
-Machines that are not isolated see three host trees, read-write, at `/mnt/host` followed by their host path:
+In an ordinary machine, you can read and write files from three places on the host. Add `/mnt/host` to the front of their host paths:
 
 | Host                               | In a machine              |
 | ---------------------------------- | ------------------------- |
@@ -12,7 +12,7 @@ Machines that are not isolated see three host trees, read-write, at `/mnt/host` 
 | `/run/media/you`                   | `/mnt/host/run/media/you` |
 | `/mnt`                             | `/mnt/host/mnt`           |
 
-Nothing else from the host is shared: not `/usr`, `/etc`, `/tmp`, the rest of `/run`, or any pseudo-filesystem. Sharing is per machine, never per project, and every machine that is not isolated sees the same trees.
+Every ordinary machine sees all three trees. Creating a machine for a project doesn't limit it to that project's directory. Host `/usr`, `/etc`, `/tmp`, the rest of `/run` and pseudo-filesystems are not shared.
 
 ## Paths and aliases
 
@@ -43,4 +43,4 @@ Files created through `/mnt/host` belong to you on the host. The share runs with
 
 ## What this means for trust
 
-A machine that can write your home can change your shell startup files, keys and nsl's own state. That is the model: a machine is trusted as you. The [trust model](../concepts/trust.md) explains why there is no read-only tier, and when to use `--isolated` instead.
+Write access to your home includes your shell startup files, keys and nsl's own state. Treat software in an ordinary machine as software running with your permissions. The [trust model](../concepts/trust.md) explains why there is no read-only tier and when to use `--isolated`.
