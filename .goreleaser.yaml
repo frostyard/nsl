@@ -30,6 +30,21 @@ archives:
       - THIRD_PARTY_NOTICES.txt
 checksum:
   name_template: checksums.txt
+homebrew_casks:
+  - name: nsl
+    binaries:
+      - nsl
+    directory: Casks
+    skip_upload: auto
+    repository:
+      owner: frostyard
+      name: homebrew-tap
+      token: "{{ .Env.ORG_PAT }}"
+    caveats: |
+      nsl requires an x86-64 Linux host with KVM, systemd-vmspawn, QEMU,
+      UEFI firmware, virtiofsd and membership in the kvm group.
+      Run nsl doctor to check host prerequisites; install them with your host's tools.
+      Installation guide: https://frostyard.github.io/nsl/getting-started/install/
 changelog:
   sort: asc
   filters:

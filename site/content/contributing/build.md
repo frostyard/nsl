@@ -18,6 +18,24 @@ make ci       # what CI runs: verify, race-enabled tests with coverage, cross bu
 
 You can run the unit tests without root or a VM. They use fake tools and local processes.
 
+### Releases and the Homebrew tap
+
+`make bump` tags the next stable version from a clean, verified `main`.
+The release workflow uses GoReleaser Pro to publish the Linux archives and
+generate `Casks/nsl.rb` in
+[`frostyard/homebrew-tap` ↗](https://github.com/frostyard/homebrew-tap).
+Snapshots and prerelease tags do not update the stable cask.
+
+The workflow needs `GORELEASER_KEY` and the Frostyard `ORG_PAT` secret available
+to nsl. `ORG_PAT` must have Contents write access to the tap; the workflow's
+`GITHUB_TOKEN` only publishes this repository's release and provenance.
+Missing tap credentials fail the workflow before publication.
+
+Run `make release-check` with GoReleaser Pro when editing `.goreleaser.yaml`.
+The release-config CI job runs the same Pro configuration check.
+See [ADR-0020 ↗](https://github.com/frostyard/nsl/blob/main/docs/adr/0020-homebrew-tap-publication.md)
+for the publication decision.
+
 ## The images
 
 The image builder runs mkosi inside a disposable Lima VM using pinned [nspawn/mkosi-definitions ↗](https://github.com/nspawn/mkosi-definitions) recipes. Build dependencies stay in that VM. On the host, you'll need Lima 2.2.0, Python 3, Git, Go and `flock`.

@@ -1,5 +1,5 @@
 ---
-description: Host requirements, downloading and verifying a release, building from source, and nsl doctor.
+description: Host requirements, installing with Homebrew, downloading and verifying a release, building from source, and nsl doctor.
 ---
 
 # Install nsl
@@ -22,6 +22,28 @@ nsl is a single binary that runs as your user. You'll need an x86-64 Linux host 
 | Waypipe (optional)                                                                                 | Wayland windows from machines                         |
 
 Run `nsl doctor` to find out which prerequisites you're missing. Install them with your host's own tools. nsl doesn't install host packages or change device permissions, groups or sudoers.
+
+## Install with Homebrew
+
+On Linux with [Homebrew ↗](https://brew.sh/), install the CLI from the
+[Frostyard tap ↗](https://github.com/frostyard/homebrew-tap):
+
+```sh
+brew install --cask frostyard/tap/nsl
+nsl doctor
+```
+
+The cask becomes available with the first stable release after this integration
+lands. It installs only the CLI; the host requirements above still apply.
+VM and machine images are downloaded and verified when you create a machine.
+Uninstalling the cask leaves your machines and nsl state intact.
+
+To update the CLI:
+
+```sh
+brew update
+brew upgrade --cask frostyard/tap/nsl
+```
 
 ## Download a release
 

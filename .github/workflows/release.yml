@@ -19,6 +19,14 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Require Homebrew tap token
+        env:
+          ORG_PAT: ${{ secrets.ORG_PAT }}
+        run: |
+          if [ -z "$ORG_PAT" ]; then
+            echo "::error::ORG_PAT must be available to nsl with Contents write access to frostyard/homebrew-tap."
+            exit 1
+          fi
       # mise.toml and mise.lock pin every tool the gates run beyond Go (frostyard/core
       # ADR-0043): this installs the locked golangci-lint that make ci runs,
       # checksum-verified. Go still comes from setup-go (go.mod).
@@ -38,6 +46,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          ORG_PAT: ${{ secrets.ORG_PAT }}
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
