@@ -38,7 +38,7 @@ It is **pre-release**. v0.4.0 was the first release of the current design; v0.3.
 
 ## Start
 
-1. [Install nsl](https://frostyard.github.io/nsl/getting-started/install/) with Homebrew (`brew install --cask frostyard/tap/nsl`, available from the next stable release) or from the [latest release](https://github.com/frostyard/nsl/releases/latest).
+1. [Install nsl](https://frostyard.github.io/nsl/getting-started/install/) with Homebrew (`brew tap frostyard/tap`, then `brew install --cask frostyard/tap/nsl`, available from the next stable release) or from the [latest release](https://github.com/frostyard/nsl/releases/latest).
 2. [Create your first machine](https://frostyard.github.io/nsl/getting-started/first-machine/).
 3. Look up [commands](https://frostyard.github.io/nsl/reference/cli/) and [configuration](https://frostyard.github.io/nsl/reference/configuration/) as you need them.
 

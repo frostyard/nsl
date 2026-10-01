@@ -26,9 +26,11 @@ Run `nsl doctor` to find out which prerequisites you're missing. Install them wi
 ## Install with Homebrew
 
 On Linux with [Homebrew ↗](https://brew.sh/), install the CLI from the
-[Frostyard tap ↗](https://github.com/frostyard/homebrew-tap):
+[Frostyard tap ↗](https://github.com/frostyard/homebrew-tap). Add the tap
+first, then install the cask:
 
 ```sh
+brew tap frostyard/tap
 brew install --cask frostyard/tap/nsl
 nsl doctor
 ```
