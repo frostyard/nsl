@@ -47,7 +47,7 @@ source build/poc/env.sh
 
 # The VM image.
 scripts/build-image.sh --role vm
-image=build/image/share/nsl-vm-trixie-x86-64-r9.raw
+image=build/image/share/nsl-vm-trixie-x86-64-r10.raw
 build/nsl update --image "$image" --digest "sha256:$(sha256sum "$image" | cut -d' ' -f1)"
 build/nsl recover
 
@@ -56,6 +56,8 @@ scripts/build-image.sh --role machine --distribution debian
 machine=build/image/share/nsl-machine-debian-trixie-x86-64-r4.tar.zst
 build/nsl create debian --image "$machine" --digest "sha256:$(sha256sum "$machine" | cut -d' ' -f1)"
 ```
+
+Each build prints a `Built PATH` line. Use that path for `image` or `machine` if the profile revision differs from these examples.
 
 `--distribution` also takes `ubuntu`, `fedora`, `centos`, `arch` and `opensuse`; `--distribution opensuse --release 16.0` builds Leap. The [image build notes ↗](https://github.com/frostyard/nsl/blob/main/image/README.md) describe the layers and the builder.
 
