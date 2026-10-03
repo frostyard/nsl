@@ -18,14 +18,10 @@ hide:
 [How it works](concepts/how-it-works.md){ .md-button }
 
 </div>
-<img class="fy-hero__icon" src="assets/nsl.svg" alt="NSL">
+<img class="fy-hero__icon" src="assets/nsl.svg" alt="">
 </div>
 
-```sh
-nsl create debian --distro debian:13   # verify the signed images; the first machine is the default
-nsl                                    # a login shell in the machine, in this directory
-nsl run make test                      # one command, with its exit status
-```
+[Create your first machine](getting-started/first-machine.md) walks through creation, a login shell, running a command and stopping the VM.
 
 ## What a machine gives you
 
@@ -81,9 +77,17 @@ nsl run make test                      # one command, with its exit status
 
     How the VM runs your machines and connects them to the host.
 
-- <span class="fy-index">03</span> **[Command reference](reference/cli.md)**
+- <span class="fy-index">03</span> **[Guides](guides/machines.md)**
+
+    Work with machines, host files, ports, desktop applications and backups.
+
+- <span class="fy-index">04</span> **[Command reference](reference/cli.md)**
 
     Look up commands, settings in `nsl.conf` and published images.
+
+- <span class="fy-index">05</span> **[Limits and troubleshooting](reference/limits.md)**
+
+    Check known limits and find help when a command fails.
 
 </div>
 

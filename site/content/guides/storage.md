@@ -49,8 +49,14 @@ Keep backups of machines you need. `recover` can't rebuild deleted keys or repai
 ## Logs
 
 ```sh
-nsl logs          # the VM, its port forwarder and every desktop session
-nsl logs dev      # those of one machine
+nsl logs          # every VM, its port forwarder and desktop sessions
+nsl logs dev      # the desktop session of ordinary machine dev
+```
+
+For an isolated machine, `nsl logs NAME` also includes its own VM and forwarder. With a name, `logs` prints a hint for reading the machine's own journal:
+
+```sh
+nsl run -m dev --root journalctl -n 100
 ```
 
 A VM that fails to become ready keeps its disks, and the error points to `logs` and `recover`.

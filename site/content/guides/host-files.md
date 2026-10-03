@@ -12,7 +12,7 @@ In an ordinary machine, you can read and write files from three places on the ho
 | `/run/media/you`                   | `/mnt/host/run/media/you` |
 | `/mnt`                             | `/mnt/host/mnt`           |
 
-Every ordinary machine sees all three trees. Creating a machine for a project doesn't limit it to that project's directory. Host `/usr`, `/etc`, `/tmp`, the rest of `/run` and pseudo-filesystems are not shared.
+Every ordinary machine sees the trees that exist as directories when the shared VM launches. For example, if `/run/media/USER` is created after launch, restart the VM with `nsl shutdown` and then `nsl` to share it. Creating a machine for a project doesn't limit it to that project's directory. Host `/usr`, `/etc`, `/tmp`, the rest of `/run` and pseudo-filesystems are not shared.
 
 ## Paths and aliases
 

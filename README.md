@@ -6,11 +6,7 @@
 
 An atomic Linux host keeps its base system read-only and replaceable. You still need somewhere to `apt install` a project's dependencies, try a toolchain packaged for another distro, or run a service. nsl gives you persistent Linux machines for that work, as WSL does on Windows. Each machine is a whole distro with its own packages and services. It opens in the directory you were in, works on your files, and stops when you stop using it.
 
-```sh
-nsl create debian --distro debian:13   # verify and cache the signed images; the first machine is the default
-nsl                                    # a login shell in the machine, in this directory
-nsl run make test                      # one command, with its exit status
-```
+[Create your first machine](https://frostyard.github.io/nsl/getting-started/first-machine/) walks through creation, a login shell, running a command and stopping the VM.
 
 **Documentation: [frostyard.github.io/nsl](https://frostyard.github.io/nsl/)**
 
@@ -38,7 +34,7 @@ It is **pre-release**. v0.4.0 was the first release of the current design; v0.3.
 
 ## Start
 
-1. [Install nsl](https://frostyard.github.io/nsl/getting-started/install/) with Homebrew (`brew tap frostyard/tap`, then `brew install --cask frostyard/tap/nsl`, available from the next stable release) or from the [latest release](https://github.com/frostyard/nsl/releases/latest).
+1. [Install nsl](https://frostyard.github.io/nsl/getting-started/install/) with Homebrew or a release tarball.
 2. [Create your first machine](https://frostyard.github.io/nsl/getting-started/first-machine/).
 3. Look up [commands](https://frostyard.github.io/nsl/reference/cli/) and [configuration](https://frostyard.github.io/nsl/reference/configuration/) as you need them.
 
