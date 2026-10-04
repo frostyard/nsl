@@ -29,6 +29,12 @@ install VM images, provision host prerequisites, change device permissions or
 group membership, or remove machine state on uninstall. Direct release
 downloads remain available.
 
+Name release archives `nsl_OS_ARCH.tar.gz`, without the version, beside the
+existing `checksums.txt`. The install guide then downloads through GitHub's
+`releases/latest/download/` URLs and names no release, so it cannot fall
+behind. Each release's own download URLs still carry its tag, and the cask
+pins every archive by checksum.
+
 ## Consequences
 
 - The next stable tagged release creates the cask; merging the integration
@@ -40,6 +46,8 @@ downloads remain available.
 - Tap publication requires a cross-repository credential in addition to the
   existing GoReleaser Pro key. A failed tap update needs attention even if
   GitHub release artifacts have already been uploaded.
+- A downloaded archive's file name does not show its version; the release tag
+  and `nsl version` do.
 
 ## Alternatives considered
 
@@ -49,6 +57,10 @@ downloads remain available.
   `homebrew_casks`; Linux casks also match the existing Frostyard tap.
 - **Homebrew dependencies for host tools:** cannot satisfy the host's systemd,
   firmware descriptors, device permissions and fixed virtiofsd path reliably.
+- **Versioned archive names, with the version in the install guide:** every
+  release leaves the guide stale until someone edits it; it named 0.5.1 after
+  0.7.0 shipped. Filling in the version when the site builds, or in a bot pull
+  request after each release, adds machinery for the same result.
 
 ## References
 

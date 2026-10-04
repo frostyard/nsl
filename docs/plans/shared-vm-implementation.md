@@ -449,6 +449,15 @@ selected the correct archive URL and SHA256, and exposed only the `nsl` binary.
 attempted: the next stable release creates the cask, provided `ORG_PAT` is
 available to nsl with Contents write access to the tap.
 
+**Stable archive names, 2026-10-03:** release archives drop the version from
+their names ([ADR-0020](../adr/0020-homebrew-tap-publication.md)), so the
+install guide downloads through `releases/latest/download/`; it had named
+0.5.1 after 0.7.0 shipped. GoReleaser Pro 2.18.2 passed `goreleaser check`,
+and a snapshot release with publication disabled wrote `nsl_linux_amd64.tar.gz`
+and `nsl_linux_arm64.tar.gz` with `checksums.txt`, and a cask whose URLs keep
+the tag and pin each archive's SHA256. The guide's URLs resolve from the first
+release after this change.
+
 ## Requirements carried from the experiment
 
 Each item was found by a failing check and must not regress.

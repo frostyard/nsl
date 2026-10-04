@@ -22,7 +22,10 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 archives:
-  - formats:
+  # No version in the name, so releases/latest/download/ URLs in the install
+  # guide always reach the newest release (ADR-0020).
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats:
       - tar.gz
     files:
       - README.md
