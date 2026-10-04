@@ -31,6 +31,10 @@ to nsl. `ORG_PAT` must have Contents write access to the tap; the workflow's
 `GITHUB_TOKEN` only publishes this repository's release and provenance.
 Missing tap credentials fail the workflow before publication.
 
+Archive names carry no version, such as `nsl_linux_amd64.tar.gz`, because the
+[install guide](../getting-started/install.md#download-a-release) downloads
+them through `releases/latest/download/`. Keep them stable.
+
 Run `make release-check` with GoReleaser Pro when editing `.goreleaser.yaml`.
 The release-config CI job runs the same Pro configuration check.
 See [ADR-0020 ↗](https://github.com/frostyard/nsl/blob/main/docs/adr/0020-homebrew-tap-publication.md)

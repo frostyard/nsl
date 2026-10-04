@@ -35,8 +35,7 @@ brew install --cask frostyard/tap/nsl
 nsl doctor
 ```
 
-The cask becomes available with the first stable release after this integration
-lands. It installs only the CLI; the host requirements above still apply.
+The cask installs only the CLI; the host requirements above still apply.
 VM and machine images are downloaded and verified when you create a machine.
 Uninstalling the cask leaves your machines and nsl state intact.
 
@@ -49,30 +48,32 @@ brew upgrade --cask frostyard/tap/nsl
 
 ## Download a release
 
-Each release has a tarball for `linux_amd64`, a `checksums.txt`, and GitHub build provenance for both.
+Each release has a tarball for `linux_amd64`, a `checksums.txt`, and GitHub build provenance for both. The files have the same names in every release, so these steps always fetch the newest one.
 
 <div class="steps" markdown>
 
 1. Download the tarball and the checksums from the [latest release ↗](https://github.com/frostyard/nsl/releases/latest):
 
    ```sh
-   version=0.5.1
-   base=https://github.com/frostyard/nsl/releases/download/v$version
-   curl -LO "$base/nsl_${version}_linux_amd64.tar.gz" -LO "$base/checksums.txt"
+   base=https://github.com/frostyard/nsl/releases/latest/download
+   curl -LO "$base/nsl_linux_amd64.tar.gz" -LO "$base/checksums.txt"
    ```
+
+   To pin a release instead, set `base` to `https://github.com/frostyard/nsl/releases/download/vVERSION`.
 
 2. Check the tarball against the checksums, and its provenance with the GitHub CLI:
 
    ```sh
    sha256sum --ignore-missing -c checksums.txt
-   gh attestation verify "nsl_${version}_linux_amd64.tar.gz" --repo frostyard/nsl
+   gh attestation verify nsl_linux_amd64.tar.gz --repo frostyard/nsl
    ```
 
-3. Unpack the binary somewhere on your `PATH`:
+3. Unpack the binary somewhere on your `PATH`, and check which release you have:
 
    ```sh
-   tar -xzf "nsl_${version}_linux_amd64.tar.gz" nsl
+   tar -xzf nsl_linux_amd64.tar.gz nsl
    install -m 0755 nsl ~/.local/bin/nsl
+   nsl version
    ```
 
 </div>
