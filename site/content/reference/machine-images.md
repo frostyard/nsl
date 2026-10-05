@@ -27,6 +27,7 @@ All images are x86-64. A new distro or release has to pass the same acceptance t
 - **Desktop support.** Time-zone data, a font, a cursor theme and the Wayland client libraries.
 - **The `C.UTF-8` locale.** Install other locales with the distro's packages.
 - **`nsl-open` and `nsl-path`**, with `nsl-open` as the handler for web links.
+- **Your directory for new terminal tabs.** Interactive bash and zsh report the working directory with OSC 7 when the terminal asks for it, so [Igloo ↗](https://github.com/frostyard/igloo) opens new tabs in the directory you were in.
 - **An OpenSSH server**, with no service enabled, for [`ssh-config`](../guides/editors.md).
 - **A unique identity per machine.** Each machine gets its own machine ID on first boot. Images ship no SSH host keys and no package-keyring private keys.
 
