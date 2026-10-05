@@ -39,6 +39,7 @@ Every image supplies:
 - **Locale:** a compiled `C.UTF-8`. The agent uses it for a host locale the machine lacks ([agent](agent.md#run)); users install other locales with their distro's packages.
 - **Desktop:** zone data, a font, a cursor theme and the Wayland client libraries, for the `gui` capability.
 - **Guest commands:** `nsl-path`, and `nsl-open`, a shell script that sends its target to the host's broker with `varlinkctl` (systemd 255 or newer). `nsl-open` turns a relative path into an absolute one and resolves `/mnt/host` aliases first. `nsl-open.desktop` and `/etc/xdg/mimeapps.list` make it the handler for `http` and `https`; the agent sets `BROWSER=nsl-open` while the desktop session lasts.
+- **Terminal directory:** `/etc/profile.d/nsl-osc7.sh` reports the shell's directory with OSC 7 at each prompt, as VTE's `vte.sh` does, so the terminal can open new tabs there. It acts only in interactive bash and zsh with `VTE_VERSION` 3405 or newer, and stands aside when `vte.sh` is loaded. `nsl run` forwards only `TERM`, `COLORTERM` and locale variables, so the script acts only when the terminal sets `VTE_VERSION` in the machine's environment. Igloo does, and maps the machine paths it receives back to host paths. The layer ships this script rather than `vte.sh` because CentOS Stream 10 and openSUSE package `vte.sh` only inside the GTK 3 VTE library.
 - **Remote editors:** an OpenSSH server binary with no enabled service or socket, for `ssh-config`.
 - **Descriptor:** `/usr/lib/nsl/machine.json`.
 

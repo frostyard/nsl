@@ -3,5 +3,5 @@
   "release": "resolute",
   "architecture": "x86-64",
   "family": "debian",
-  "revision": 1
+  "revision": 2
 }

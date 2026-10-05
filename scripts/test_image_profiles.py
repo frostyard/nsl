@@ -118,10 +118,45 @@ class VMImage(unittest.TestCase):
                 self.assertIn('pam_systemd.so', pam.read_text())
                 self.assertEqual(pam.stat().st_mode & 0o777, 0o644)
                 self.assertEqual((destination/'overlay/usr/bin/nsl-path').stat().st_mode & 0o777, 0o755)
+                self.assertEqual((destination/'overlay/etc/profile.d/nsl-osc7.sh').stat().st_mode & 0o777, 0o644)
                 # Only Debian builds with the builder's own tools.
                 self.assertEqual((destination/'mkosi.tools.conf').is_file(), distribution != 'debian')
                 self.assertEqual(config.rsplit('ToolsTree=', 1)[1].split()[0], 'no' if distribution == 'debian' else 'default')
             self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch-rolling/mkosi.local.conf').read_text())
+
+    def test_osc7_reports_the_directory_in_vte_terminals(self):
+        script = str(ROOT/'image/machines/common/overlay/etc/profile.d/nsl-osc7.sh')
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)/'a b'/'ü~x'
+            directory.mkdir(parents=True)
+            uri = 'file://box' + str(directory).replace(' ', '%20').replace('ü', '%C3%BC')
+            expected = f'\033]7;{uri}\033\\'
+            env = {'PATH': os.environ['PATH'], 'HOME': tmp, 'VTE_VERSION': '8401', 'HOSTNAME': 'box', 'HOST': 'box'}
+
+            def shell(*argv, body, **overrides):
+                return subprocess.run([*argv, f'. "{script}"; {body}'], cwd=directory, capture_output=True, text=True,
+                                      env={**env, **overrides})
+
+            bash = ['bash', '--noprofile', '--norc', '-i', '-c']
+            self.assertEqual(shell(*bash, body='__nsl_osc7').stdout, expected)
+            # Registered once, ahead of an existing prompt command.
+            run = shell(*bash, body=f'. "{script}"; echo "$PROMPT_COMMAND"', PROMPT_COMMAND='history -a')
+            self.assertEqual(run.stdout, '__nsl_osc7;history -a\n')
+            # vte.sh, when loaded, reports the directory instead.
+            self.assertEqual(shell(*bash, body='__vte_osc7() { :; }; __nsl_osc7').stdout, '')
+            # Only VTE terminals and interactive shells.
+            self.assertEqual(shell(*bash, body='echo "[$PROMPT_COMMAND]"', VTE_VERSION='').stdout, '[]\n')
+            run = subprocess.run(['bash', '--noprofile', '--norc', '-c', f'. "{script}"; echo "[$PROMPT_COMMAND]"'],
+                                 capture_output=True, text=True, env=env)
+            self.assertEqual(run.stdout, '[]\n')
+            # POSIX shells read profile.d too and must return cleanly.
+            run = subprocess.run(['sh', '-c', f'. "{script}"; echo "rc=$?"'], capture_output=True, text=True, env=env)
+            self.assertEqual((run.returncode, run.stdout), (0, 'rc=0\n'))
+            if shutil.which('zsh'):
+                zsh = ['zsh', '-f', '-i', '-c']
+                self.assertEqual(shell(*zsh, body='__nsl_osc7').stdout, expected)
+                run = shell(*zsh, body=f'. "{script}"; print -r -- "${{precmd_functions[*]}}"')
+                self.assertEqual(run.stdout, '__nsl_osc7\n')
 
     def test_nsl_path_translates_both_ways(self):
         script = str(ROOT/'image/machines/common/overlay/usr/bin/nsl-path')
