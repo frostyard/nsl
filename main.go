@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -111,7 +113,7 @@ func usage(w io.Writer) {
   run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]
   create NAME --distro DISTRO:RELEASE [--offline] [--default] [--user NAME]
   create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]
-  list
+  list [--json]
   default NAME
   start NAME
   stop NAME
@@ -124,17 +126,18 @@ func usage(w io.Writer) {
   shutdown
   update [--offline]
   update --image FILE --digest sha256:HEX
-  config
+  config [--json]
   recover [NAME]
   resize [NAME] --disk GiB
-  images [--offline | --refresh]
+  images [--offline | --refresh] [--json]
   pull DISTRO:RELEASE [--offline]
   doctor
   version
 
 Machines run as containers in one nsl VM. The VM starts on first use; update
-selects the VM image for its next start. NSL_HOME, NSL_WAYPIPE and NSL_OPENER
-override state and tool locations; $XDG_CONFIG_HOME/nsl/nsl.conf holds settings.`)
+selects the VM image for its next start. --json prints list, images and config
+for other programs. NSL_HOME, NSL_WAYPIPE and NSL_OPENER override state and tool
+locations; $XDG_CONFIG_HOME/nsl/nsl.conf holds settings.`)
 }
 
 func (a *app) execute(args []string) error {
@@ -161,15 +164,17 @@ func (a *app) execute(args []string) error {
 	case "doctor":
 		return a.doctor()
 	case "config":
-		if err := noArgs(); err != nil {
+		asJSON, err := a.jsonOnly(args[0], rest)
+		if err != nil {
 			return err
 		}
-		return a.configCommand()
+		return a.configCommand(asJSON)
 	case "list":
-		if err := noArgs(); err != nil {
+		asJSON, err := a.jsonOnly(args[0], rest)
+		if err != nil {
 			return err
 		}
-		return a.list()
+		return a.list(asJSON)
 	case "shutdown":
 		if err := noArgs(); err != nil {
 			return err
@@ -211,6 +216,27 @@ func (a *app) execute(args []string) error {
 		return a.launch(rest)
 	}
 	return fmt.Errorf("unknown command %s; see nsl help", args[0])
+}
+
+// jsonOnly parses the arguments of a command whose only option is --json.
+func (a *app) jsonOnly(command string, args []string) (bool, error) {
+	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs.SetOutput(a.err)
+	asJSON := fs.Bool("json", false, "print JSON for other programs")
+	if err := fs.Parse(args); err != nil {
+		return false, err
+	}
+	if fs.NArg() != 0 {
+		return false, errors.New("usage: " + command + " [--json]")
+	}
+	return *asJSON, nil
+}
+
+// writeJSON prints the one JSON document of a --json command (ADR-0021).
+func writeJSON(w io.Writer, v any) error {
+	e := json.NewEncoder(w)
+	e.SetIndent("", "  ")
+	return e.Encode(v)
 }
 
 func main() {

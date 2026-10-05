@@ -82,18 +82,43 @@ func (k configKey) set(value string, line int) error {
 	return nil
 }
 
-func (k configKey) show() (value, from string) {
+// settingListing is one setting in config, as the table and as JSON.
+type settingListing struct {
+	Key    string `json:"key"`
+	Value  any    `json:"value"`
+	Min    *int   `json:"min,omitempty"`
+	Max    *int   `json:"max,omitempty"`
+	Unit   string `json:"unit,omitempty"`
+	Source string `json:"source"`
+	Line   int    `json:"line,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func (k configKey) listing() settingListing {
+	l := settingListing{Key: k.name}
 	var s source
 	if k.flag != nil {
-		value, s = strconv.FormatBool(k.flag.value), k.flag.source
+		l.Value, s = k.flag.value, k.flag.source
 	} else {
-		value, s = strconv.Itoa(k.number.value), k.number.source
+		lo, hi := k.min, k.max
+		l.Value, l.Min, l.Max, l.Unit, s = k.number.value, &lo, &hi, k.unit, k.number.source
 	}
+	if s.line > 0 {
+		l.Source, l.Line = "file", s.line
+	} else {
+		l.Source, l.Reason = "default", s.reason
+	}
+	return l
+}
+
+// text is the setting's VALUE and SOURCE columns.
+func (l settingListing) text() (value, from string) {
+	value = fmt.Sprint(l.Value)
 	switch {
-	case s.line > 0:
-		return value, fmt.Sprintf("file (line %d)", s.line)
-	case s.reason != "":
-		return value, "default (" + s.reason + ")"
+	case l.Line > 0:
+		return value, fmt.Sprintf("file (line %d)", l.Line)
+	case l.Reason != "":
+		return value, "default (" + l.Reason + ")"
 	}
 	return value, "default"
 }
@@ -262,10 +287,42 @@ func (a *app) loadConfig() (*config, error) {
 	return readConfig(path, *host)
 }
 
-func (a *app) configCommand() error {
+// pendingChange is a change waiting for a VM's next start.
+type pendingChange struct {
+	VM     string `json:"vm"`
+	Change string `json:"change"`
+}
+
+func (a *app) configCommand(asJSON bool) error {
 	c, err := a.loadConfig()
 	if err != nil {
 		return err
+	}
+	settings := []settingListing{}
+	for _, k := range c.keys() {
+		settings = append(settings, k.listing())
+	}
+	all, err := a.allVMs()
+	if err != nil {
+		return err
+	}
+	pending := []pendingChange{}
+	for _, v := range all {
+		running, err := a.vmState(v)
+		if err != nil {
+			return err
+		}
+		for _, p := range a.pending(v, c, running == "running") {
+			pending = append(pending, pendingChange{v.label(), p})
+		}
+	}
+	if asJSON {
+		return writeJSON(a.out, struct {
+			Path     string           `json:"path"`
+			Present  bool             `json:"present"`
+			Settings []settingListing `json:"settings"`
+			Pending  []pendingChange  `json:"pending"`
+		}{c.path, c.present, settings, pending})
 	}
 	state := ""
 	if !c.present {
@@ -274,25 +331,15 @@ func (a *app) configCommand() error {
 	fmt.Fprintf(a.out, "Configuration file: %s%s\n\n", c.path, state)
 	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "SETTING\tVALUE\tSOURCE")
-	for _, k := range c.keys() {
-		value, from := k.show()
-		fmt.Fprintf(w, "%s\t%s\t%s\n", k.name, value, from)
+	for _, l := range settings {
+		value, from := l.text()
+		fmt.Fprintf(w, "%s\t%s\t%s\n", l.Key, value, from)
 	}
 	if err = w.Flush(); err != nil {
 		return err
 	}
-	all, err := a.allVMs()
-	if err != nil {
-		return err
-	}
-	for _, v := range all {
-		running, err := a.vmState(v)
-		if err != nil {
-			return err
-		}
-		for _, p := range a.pending(v, c, running == "running") {
-			fmt.Fprintf(a.out, "Pending at the next start of the %s VM: %s\n", v.label(), p)
-		}
+	for _, p := range pending {
+		fmt.Fprintf(a.out, "Pending at the next start of the %s VM: %s\n", p.VM, p.Change)
 	}
 	return nil
 }

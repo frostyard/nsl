@@ -413,27 +413,35 @@ func (a *app) statuses(vms []*vmRecord) map[string]protocol.MachineStatus {
 	return out
 }
 
-func (a *app) listMachines(w io.Writer, vms []*vmRecord) error {
+// machineListing is one machine in list, as the table and as JSON.
+type machineListing struct {
+	Name    string `json:"name"`
+	State   string `json:"state"`
+	Image   string `json:"image"`
+	Tier    string `json:"tier"`
+	Default bool   `json:"default"`
+}
+
+// machineListings reports every owned machine and every unfinished removal.
+func (a *app) machineListings(vms []*vmRecord) ([]machineListing, error) {
+	out := []machineListing{}
 	names, err := a.machineNames()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	removing, _ := filepath.Glob(filepath.Join(a.home, "removing", "*.json"))
 	if len(names) == 0 && len(removing) == 0 {
-		fmt.Fprintln(w, "No machines; create one with nsl create NAME --distro DISTRO:RELEASE")
-		return nil
+		return out, nil
 	}
 	current, err := a.defaultMachine()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	statuses := a.statuses(vms)
-	t := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(t, "MACHINE\tSTATE\tIMAGE\tTIER\tDEFAULT")
 	for _, name := range names {
 		m, err := a.machine(name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		state := "stopped"
 		if s, ok := statuses[name]; ok && s.ID == m.ID {
@@ -442,14 +450,35 @@ func (a *app) listMachines(w io.Writer, vms []*vmRecord) error {
 		if !m.Prepared {
 			state = "incomplete"
 		}
-		mark := ""
-		if name == current {
-			mark = "*"
-		}
-		fmt.Fprintf(t, "%s\t%s\t%s\t%s\t%s\n", name, state, m.BuildID, m.Tier, mark)
+		out = append(out, machineListing{Name: name, State: state, Image: m.BuildID, Tier: m.Tier, Default: name == current})
 	}
 	for _, p := range removing {
-		fmt.Fprintf(t, "%s\tremoving\t\t\t\n", strings.TrimSuffix(filepath.Base(p), ".json"))
+		out = append(out, machineListing{Name: strings.TrimSuffix(filepath.Base(p), ".json"), State: "removing"})
+	}
+	return out, nil
+}
+
+func (a *app) listMachines(w io.Writer, vms []*vmRecord) error {
+	machines, err := a.machineListings(vms)
+	if err != nil {
+		return err
+	}
+	return printMachines(w, machines)
+}
+
+func printMachines(w io.Writer, machines []machineListing) error {
+	if len(machines) == 0 {
+		fmt.Fprintln(w, "No machines; create one with nsl create NAME --distro DISTRO:RELEASE")
+		return nil
+	}
+	t := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(t, "MACHINE\tSTATE\tIMAGE\tTIER\tDEFAULT")
+	for _, m := range machines {
+		mark := ""
+		if m.Default {
+			mark = "*"
+		}
+		fmt.Fprintf(t, "%s\t%s\t%s\t%s\t%s\n", m.Name, m.State, m.Image, m.Tier, mark)
 	}
 	return t.Flush()
 }

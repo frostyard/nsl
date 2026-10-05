@@ -125,6 +125,55 @@ func TestStartStopDefaultAndList(t *testing.T) {
 	}
 }
 
+func TestListJSON(t *testing.T) {
+	fresh, _ := testApp(t)
+	var out bytes.Buffer
+	fresh.out = &out
+	if err := fresh.execute([]string{"list", "--json"}); err != nil || out.String() != "{\n  \"vms\": [],\n  \"machines\": []\n}\n" {
+		t.Fatalf("%v %q", err, out.String())
+	}
+
+	a, _, _ := withMachine(t)
+	v, _ := a.loadVM()
+	// An unfinished removal lists without an image, tier or default.
+	os.MkdirAll(filepath.Dir(a.removingPath("old")), 0700)
+	os.WriteFile(a.removingPath("old"), []byte("{}"), 0600)
+	a.out = &out
+	out.Reset()
+	if err := a.execute([]string{"list", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var list vmsAndMachines
+	jsonDocument(t, out.Bytes(), &list)
+	if len(list.VMs) != 1 {
+		t.Fatalf("%+v", list.VMs)
+	}
+	got := list.VMs[0]
+	if got.Name != "shared" || got.Role != "shared" || got.State != "running" || got.Image != v.ImageBuild ||
+		got.CPUs != v.CPUs || got.MemoryGiB != v.Memory || got.DataDiskGiB != v.DataGiB || got.Pending == nil || len(got.Pending) != 0 {
+		t.Fatalf("%+v", got)
+	}
+	if len(list.Machines) != 2 {
+		t.Fatalf("%+v", list.Machines)
+	}
+	if m := list.Machines[0]; m.Name != "debian" || m.State != "stopped" || m.Image != "nsl-machine-debian-trixie-x86-64-r1" || m.Tier != "shared" || !m.Default {
+		t.Fatalf("%+v", m)
+	}
+	if m := list.Machines[1]; m.Name != "old" || m.State != "removing" || m.Image != "" || m.Tier != "" || m.Default {
+		t.Fatalf("%+v", m)
+	}
+	// The table reports the same machines.
+	out.Reset()
+	if err := a.execute([]string{"list"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"debian   stopped   nsl-machine-debian-trixie-x86-64-r1  shared  *", "old      removing"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in\n%s", want, out.String())
+		}
+	}
+}
+
 func TestRemovePreviewsThenRemoves(t *testing.T) {
 	a, f, m := withMachine(t)
 	var out bytes.Buffer

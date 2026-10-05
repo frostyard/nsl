@@ -11,7 +11,7 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl [-m NAME]` | Login shell in NAME or the default machine, in the translated host directory or the guest home. |
 | `nsl run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]` | Run argv in the machine. A PTY is used when stdin and stdout are terminals. Flags precede COMMAND; `--` ends them. |
 | `nsl create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]` | Prepare a machine from a verified catalogue selection, and select the catalogue's VM image first when none is selected. `--image FILE --digest sha256:HEX` replaces `--distro` to select a local machine image. |
-| `nsl list` | Every nsl VM (the shared VM, and each isolated machine's) with its state, image and resources, any pending restart, and every owned machine with its state, image, trust tier and default marker. |
+| `nsl list [--json]` | Every nsl VM (the shared VM, and each isolated machine's) with its state, image and resources, any pending restart, and every owned machine with its state, image, trust tier and default marker. |
 | `nsl default NAME` | Make NAME the default machine. |
 | `nsl start NAME` | Start a machine, and its VM if needed, and wait for readiness. |
 | `nsl stop NAME` | Stop one machine and preserve all state. |
@@ -22,11 +22,11 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl ports [NAME]` | Forwarding status and conflicts for one machine or all machines. |
 | `nsl logs [NAME]` | Recent logs of the host units nsl runs: the VM and its forwarder, and each machine's desktop session, or those of one machine. |
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
-| `nsl images [--offline \| --refresh]` | List authenticated machine-image selections and the VM image in effect. Reuse a catalogue checked less than one hour ago by default; `--refresh` checks the registry immediately. |
+| `nsl images [--offline \| --refresh] [--json]` | List authenticated machine-image selections and the VM image in effect. Reuse a catalogue checked less than one hour ago by default; `--refresh` checks the registry immediately. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
 | `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM, isolated ones included. |
 | `nsl update --image FILE --digest sha256:HEX` | Select a local VM image instead. |
-| `nsl config` | Print the effective configuration, the source of each value and any change waiting for a VM restart. |
+| `nsl config [--json]` | Print the effective configuration, the source of each value and any change waiting for a VM restart. |
 | `nsl recover [NAME]` | Restart the shared VM, or isolated machine NAME's VM, from a fresh root; check its data disk and resume interrupted work; preserve machines. |
 | `nsl resize [NAME] --disk GiB` | Grow the stopped shared VM's data disk, or isolated machine NAME's; never shrink. |
 | `nsl doctor`, `nsl version`, `nsl help` | Host checks, build version and usage. |
@@ -160,6 +160,77 @@ Rules:
 - A command-line flag MAY override a key for one invocation, with the source `flag`. nsl MUST NOT rewrite the file.
 - Changes to `vm` or `isolated` resources MUST apply at the next start of the affected VM, and `nsl config` and `nsl list` MUST report the pending restart. `autostart` applies at the next VM start; `idle_timeout` applies from the next nsl command.
 
+### Machine-readable output
+
+`--json` makes `list`, `images` and `config` print a JSON document for other programs ([ADR-0021](../adr/0021-machine-readable-output.md)).
+
+- On success, stdout MUST hold exactly one JSON object and a newline, and nothing else. On failure, stdout MUST stay empty; the message goes to stderr and the exit status is non-zero, as without `--json`.
+- The document and the table MUST be rendered from the same values. `--json` MUST NOT start, stop or change anything the table command would not.
+- Arrays MUST be present, possibly empty. Consumers MUST ignore fields they do not know.
+- An image is its build ID when nsl knows it, otherwise `sha256:` and the full hex digest; `""` when there is none.
+
+`nsl list --json`:
+
+```json
+{
+  "vms": [
+    {"name": "shared", "role": "shared", "state": "running", "image": "nsl-vm-trixie-x86-64-r9",
+     "cpus": 8, "memory_gib": 16, "data_disk_gib": 128, "pending": ["vm.memory 4 GiB (running with 8)"]}
+  ],
+  "machines": [
+    {"name": "trixie", "state": "running", "image": "nsl-machine-debian-trixie-x86-64-r4", "tier": "shared", "default": true},
+    {"name": "old", "state": "removing", "image": "", "tier": "", "default": false}
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `vms[].name` | `shared`, or the isolated machine the VM belongs to. |
+| `vms[].role` | `shared` or `isolated`. |
+| `vms[].state` | `running`, `stopping`, `failed` or `stopped`. |
+| `vms[].image` | The VM image of the VM's root. |
+| `vms[].cpus`, `vms[].memory_gib` | The running VM's resources; absent while it is not running. |
+| `vms[].data_disk_gib` | The committed data-disk capacity. |
+| `vms[].pending` | Changes that apply at the VM's next start, as `list` prints them. |
+| `machines[].state` | `running`, `starting`, `stopping` or `stopped` from the VM, `incomplete` when creation did not finish, or `removing` while removal is unfinished. |
+| `machines[].image` | The machine image's build ID; `""` for imported machines and machines being removed. |
+| `machines[].tier` | `shared` or `isolated`; `""` while being removed. |
+| `machines[].default` | Whether this is the default machine. |
+
+`nsl images --json`:
+
+```json
+{
+  "catalogue": {"sequence": 14, "expires": "2026-11-04T13:09:26Z"},
+  "images": [
+    {"kind": "vm", "selectors": [], "build": "nsl-vm-trixie-x86-64-r10", "manifest": "sha256:…", "cached": false},
+    {"kind": "machine", "selectors": ["debian:trixie", "debian:13"], "build": "nsl-machine-debian-trixie-x86-64-r4",
+     "manifest": "sha256:…", "cached": true}
+  ],
+  "vm_image": {"image": "nsl-vm-trixie-x86-64-r9", "pending": false}
+}
+```
+
+`images` lists the catalogue's x86-64 entries in catalogue order; `manifest` is the OCI manifest digest a selector can pin with `@sha256:HEX`. `vm_image` is `null` when no VM image is selected; `pending` is `true` when the image is selected for the next VM start.
+
+`nsl config --json`:
+
+```json
+{
+  "path": "/home/u/.config/nsl/nsl.conf",
+  "present": true,
+  "settings": [
+    {"key": "vm.memory", "value": 16, "min": 1, "max": 128, "unit": "GiB", "source": "default", "reason": "half of host memory"},
+    {"key": "vm.cpus", "value": 4, "min": 1, "max": 64, "unit": "CPUs", "source": "file", "line": 3},
+    {"key": "machines.autostart", "value": true, "source": "default"}
+  ],
+  "pending": [{"vm": "shared", "change": "vm.cpus 4 (running with 8)"}]
+}
+```
+
+`settings` lists every key in the table's order. A number has `min`, `max` and `unit`; a boolean has none. `source` is `default` or `file`; `line` is present for `file`, and `reason` for a default derived from the host.
+
 ### Open interface questions
 
 - Whether to translate absolute host symlinks that point into shared trees; see the [experiment plan](../plans/shared-vm-experiment.md).
@@ -171,6 +242,6 @@ Unit tests use fake tools and local processes and need neither root nor a VM. In
 
 ## References
 
-- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md).
+- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md).
 - Contracts: [agent](agent.md), [VM image](vm-image.md), [machine images](machine-images.md), [image delivery](image-delivery.md), [provisioning](provisioning.md) (deferred).
 - Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](../plans/shared-vm-implementation.md).

@@ -375,6 +375,40 @@ func TestUpdateAndCreateFromTheCatalogue(t *testing.T) {
 			t.Fatalf("missing %q in\n%s", want, out.String())
 		}
 	}
+	out.Reset()
+	if err := a.execute([]string{"images", "--offline", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var images struct {
+		Catalogue struct {
+			Sequence int64  `json:"sequence"`
+			Expires  string `json:"expires"`
+		} `json:"catalogue"`
+		Images []struct {
+			Kind      string   `json:"kind"`
+			Selectors []string `json:"selectors"`
+			Build     string   `json:"build"`
+			Manifest  string   `json:"manifest"`
+			Cached    bool     `json:"cached"`
+		} `json:"images"`
+		VMImage *struct {
+			Image   string `json:"image"`
+			Pending bool   `json:"pending"`
+		} `json:"vm_image"`
+	}
+	jsonDocument(t, out.Bytes(), &images)
+	if images.Catalogue.Sequence != 11 || !strings.HasSuffix(images.Catalogue.Expires, "Z") || len(images.Images) < 2 {
+		t.Fatalf("%+v", images)
+	}
+	if vm := images.Images[0]; vm.Kind != "vm" || vm.Selectors == nil || len(vm.Selectors) != 0 || vm.Build != "nsl-vm-trixie-x86-64-r1" || !vm.Cached || !strings.HasPrefix(vm.Manifest, "sha256:") {
+		t.Fatalf("%+v", vm)
+	}
+	if m := images.Images[1]; m.Kind != "machine" || strings.Join(m.Selectors, ",") != "debian:trixie,debian:13" || m.Build != "nsl-machine-debian-trixie-x86-64-r1" || !m.Cached {
+		t.Fatalf("%+v", m)
+	}
+	if v, _ := a.loadVM(); images.VMImage == nil || images.VMImage.Image != "sha256:"+v.PendingImage || !images.VMImage.Pending {
+		t.Fatalf("%+v", images.VMImage)
+	}
 	for _, args := range [][]string{
 		{"create", "x", "--distro", "debian:13", "--image", "f", "--digest", hashBytes(nil)},
 		{"create", "x", "--offline", "--image", "f", "--digest", hashBytes(nil)},
@@ -699,7 +733,7 @@ func TestRegistryRejectsCredentialRedirects(t *testing.T) {
 
 func TestImageCommandValidation(t *testing.T) {
 	_, c, _ := newDeliveryFixture(t)
-	for _, args := range [][]string{{"pull"}, {"images", "extra"}, {"pull", "debian:13", "extra"}, {"images", "--cpus", "2"}, {"pull", "--offline"}, {"pull", "debian:13", "--refresh"}, {"images", "--offline", "--refresh"}} {
+	for _, args := range [][]string{{"pull"}, {"images", "extra"}, {"pull", "debian:13", "extra"}, {"images", "--cpus", "2"}, {"pull", "--offline"}, {"pull", "debian:13", "--refresh"}, {"images", "--offline", "--refresh"}, {"pull", "debian:13", "--json"}} {
 		if err := c.app.imageCommand(args); err == nil {
 			t.Fatal("accepted invalid arguments", args)
 		}
