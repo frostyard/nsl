@@ -240,6 +240,61 @@ func testApp(t *testing.T) (*app, *fakeRunner) {
 	return a, f
 }
 
+// jsonDocument decodes a --json command's output, which must be exactly one
+// object with no fields the test does not expect.
+func jsonDocument(t *testing.T, out []byte, v any) {
+	t.Helper()
+	d := json.NewDecoder(bytes.NewReader(out))
+	d.DisallowUnknownFields()
+	if err := d.Decode(v); err != nil {
+		t.Fatalf("%v in\n%s", err, out)
+	}
+	if d.More() {
+		t.Fatalf("more than one document in\n%s", out)
+	}
+}
+
+// vmsAndMachines is list's JSON document.
+type vmsAndMachines struct {
+	VMs []struct {
+		Name        string   `json:"name"`
+		Role        string   `json:"role"`
+		State       string   `json:"state"`
+		Image       string   `json:"image"`
+		CPUs        int      `json:"cpus"`
+		MemoryGiB   int      `json:"memory_gib"`
+		DataDiskGiB int      `json:"data_disk_gib"`
+		Pending     []string `json:"pending"`
+	} `json:"vms"`
+	Machines []struct {
+		Name    string `json:"name"`
+		State   string `json:"state"`
+		Image   string `json:"image"`
+		Tier    string `json:"tier"`
+		Default bool   `json:"default"`
+	} `json:"machines"`
+}
+
+// configDocument is config's JSON document.
+type configDocument struct {
+	Path     string `json:"path"`
+	Present  bool   `json:"present"`
+	Settings []struct {
+		Key    string `json:"key"`
+		Value  any    `json:"value"`
+		Min    *int   `json:"min"`
+		Max    *int   `json:"max"`
+		Unit   string `json:"unit"`
+		Source string `json:"source"`
+		Line   int    `json:"line"`
+		Reason string `json:"reason"`
+	} `json:"settings"`
+	Pending []struct {
+		VM     string `json:"vm"`
+		Change string `json:"change"`
+	} `json:"pending"`
+}
+
 func localImage(t *testing.T, content string) (string, string) {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "vm.raw")
@@ -510,11 +565,30 @@ func TestPendingRestartIsReported(t *testing.T) {
 	if err := a.execute([]string{"list"}); err != nil || !strings.Contains(out.String(), "vm.memory 4 GiB") || !strings.Contains(out.String(), "running") {
 		t.Fatal(err, out.String())
 	}
+	out.Reset()
+	if err := a.execute([]string{"config", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var config configDocument
+	jsonDocument(t, out.Bytes(), &config)
+	if len(config.Pending) != 1 || config.Pending[0].VM != "shared" || config.Pending[0].Change != "vm.memory 4 GiB (running with 8)" {
+		t.Fatalf("%+v", config.Pending)
+	}
+	out.Reset()
+	if err := a.execute([]string{"list", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var list vmsAndMachines
+	jsonDocument(t, out.Bytes(), &list)
+	if len(list.VMs) != 1 || list.VMs[0].State != "running" || list.VMs[0].CPUs != 8 || list.VMs[0].MemoryGiB != 8 ||
+		len(list.VMs[0].Pending) != 1 || list.VMs[0].Pending[0] != "vm.memory 4 GiB (running with 8)" {
+		t.Fatalf("%+v", list.VMs)
+	}
 }
 
 func TestUsage(t *testing.T) {
 	a, _ := testApp(t)
-	for _, args := range [][]string{{"shell"}, {"list", "x"}, {"shutdown", "now"}} {
+	for _, args := range [][]string{{"shell"}, {"list", "x"}, {"list", "--yaml"}, {"config", "--json", "x"}, {"shutdown", "now"}} {
 		if err := a.execute(args); err == nil {
 			t.Fatal("accepted", args)
 		}

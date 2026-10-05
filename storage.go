@@ -367,41 +367,97 @@ func (a *app) pending(v *vmRecord, c *config, running bool) []string {
 	return out
 }
 
-func (a *app) list() error {
+// vmListing is one VM in list, as the table and as JSON.
+type vmListing struct {
+	Name        string   `json:"name"`
+	Role        string   `json:"role"`
+	State       string   `json:"state"`
+	Image       string   `json:"image"`
+	CPUs        int      `json:"cpus,omitempty"`
+	MemoryGiB   int      `json:"memory_gib,omitempty"`
+	DataDiskGiB int      `json:"data_disk_gib"`
+	Pending     []string `json:"pending"`
+}
+
+// imageName is an image's build ID when known, otherwise its digest.
+func imageName(build, digest string) string {
+	switch {
+	case build != "":
+		return build
+	case digest != "":
+		return "sha256:" + digest
+	}
+	return ""
+}
+
+// shortImage abbreviates a digest image name for tables.
+func shortImage(image string) string {
+	if strings.HasPrefix(image, "sha256:") && len(image) > len("sha256:")+12 {
+		return image[:len("sha256:")+12]
+	}
+	return image
+}
+
+func (a *app) list(asJSON bool) error {
 	all, err := a.allVMs()
 	if err != nil {
 		return err
 	}
-	if len(all) == 0 {
+	if len(all) == 0 && !asJSON {
 		fmt.Fprintln(a.out, "No nsl VM yet")
 		return nil
 	}
-	c, err := a.loadConfig()
-	if err != nil {
-		return err
+	vms := []vmListing{}
+	if len(all) != 0 {
+		c, err := a.loadConfig()
+		if err != nil {
+			return err
+		}
+		for _, v := range all {
+			state, err := a.vmState(v)
+			if err != nil {
+				return err
+			}
+			l := vmListing{Name: v.label(), Role: v.Role, State: state, Image: imageName(v.ImageBuild, v.Image),
+				DataDiskGiB: v.DataGiB, Pending: a.pending(v, c, state == "running")}
+			if state == "running" {
+				l.CPUs, l.MemoryGiB = v.CPUs, v.Memory
+			}
+			if l.Pending == nil {
+				l.Pending = []string{}
+			}
+			vms = append(vms, l)
+		}
+	}
+	// Like the table, report no machines without a VM, and leave a fresh
+	// state directory untouched.
+	machines := []machineListing{}
+	if len(all) != 0 {
+		if machines, err = a.machineListings(all); err != nil {
+			return err
+		}
+	}
+	if asJSON {
+		return writeJSON(a.out, struct {
+			VMs      []vmListing      `json:"vms"`
+			Machines []machineListing `json:"machines"`
+		}{vms, machines})
 	}
 	var pending []string
 	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "VM\tSTATE\tIMAGE\tRESOURCES\tDATA DISK")
-	for _, v := range all {
-		state, err := a.vmState(v)
-		if err != nil {
-			return err
-		}
-		image := v.ImageBuild
-		if image == "" && v.Image != "" {
-			image = "sha256:" + v.Image[:12]
-		}
+	for _, l := range vms {
+		image := shortImage(l.Image)
 		if image == "" {
 			image = "-"
 		}
 		resources := "-"
-		if state == "running" {
-			resources = fmt.Sprintf("%d CPUs, %d GiB", v.CPUs, v.Memory)
+		if l.State == "running" {
+			resources = fmt.Sprintf("%d CPUs, %d GiB", l.CPUs, l.MemoryGiB)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d GiB\n", v.label(), state, image, resources, v.DataGiB)
-		for _, p := range a.pending(v, c, state == "running") {
-			pending = append(pending, fmt.Sprintf("Pending at the next start of the %s VM: %s", v.label(), p))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d GiB\n", l.Name, l.State, image, resources, l.DataDiskGiB)
+		for _, p := range l.Pending {
+			pending = append(pending, fmt.Sprintf("Pending at the next start of the %s VM: %s", l.Name, p))
 		}
 	}
 	if err = w.Flush(); err != nil {
@@ -411,5 +467,5 @@ func (a *app) list() error {
 		fmt.Fprintln(a.out, p)
 	}
 	fmt.Fprintln(a.out)
-	return a.listMachines(a.out, all)
+	return printMachines(a.out, machines)
 }

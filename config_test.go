@@ -26,7 +26,7 @@ var configForms = map[string]string{
 func shown(c *config) map[string]string {
 	got := map[string]string{}
 	for _, k := range c.keys() {
-		value, from := k.show()
+		value, from := k.listing().text()
 		got[k.name] = value + " " + from
 	}
 	return got
@@ -346,13 +346,42 @@ func TestConfigCommand(t *testing.T) {
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
-	if err := a.execute([]string{"config", "extra"}); err == nil || err.Error() != "usage: config" {
+	out.Reset()
+	if err := a.execute([]string{"config", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var doc configDocument
+	jsonDocument(t, out.Bytes(), &doc)
+	if doc.Path != path || !doc.Present || len(doc.Settings) != 6 || doc.Pending == nil || len(doc.Pending) != 0 {
+		t.Fatalf("%+v", doc)
+	}
+	memory, cpus, autostart, idle := doc.Settings[0], doc.Settings[1], doc.Settings[2], doc.Settings[3]
+	if memory.Key != "vm.memory" || memory.Value != 30.0 || *memory.Min != 1 || *memory.Max != 128 || memory.Unit != "GiB" ||
+		memory.Source != "default" || memory.Reason != "half of host memory" || memory.Line != 0 {
+		t.Fatalf("%+v", memory)
+	}
+	if cpus.Key != "vm.cpus" || cpus.Value != 4.0 || cpus.Source != "file" || cpus.Line != 3 || cpus.Reason != "" {
+		t.Fatalf("%+v", cpus)
+	}
+	if autostart.Key != "machines.autostart" || autostart.Value != false || autostart.Min != nil || autostart.Max != nil || autostart.Unit != "" || autostart.Line != 6 {
+		t.Fatalf("%+v", autostart)
+	}
+	// A minimum of zero is still reported.
+	if idle.Key != "machines.idle_timeout" || idle.Value != 0.0 || idle.Min == nil || *idle.Min != 0 || *idle.Max != 1440 {
+		t.Fatalf("%+v", idle)
+	}
+	if err := a.execute([]string{"config", "extra"}); err == nil || err.Error() != "usage: config [--json]" {
 		t.Fatal(err)
 	}
 	os.WriteFile(path, []byte("[vm]\nmemory = 8G\n"), 0600)
 	out.Reset()
 	err := a.execute([]string{"config"})
 	if err == nil || err.Error() != path+`:2: vm.memory must be a whole number of GiB from 1 to 128, got "8G"` || out.Len() != 0 {
+		t.Fatal(err, out.String())
+	}
+	// Errors leave stdout empty with --json too.
+	err = a.execute([]string{"config", "--json"})
+	if err == nil || out.Len() != 0 {
 		t.Fatal(err, out.String())
 	}
 }

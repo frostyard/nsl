@@ -62,7 +62,7 @@ func TestFailedPreparationRetainsIdentityUntilCleanup(t *testing.T) {
 				}
 				var listing bytes.Buffer
 				a.out = &listing
-				if err := a.list(); err != nil || !strings.Contains(listing.String(), "incomplete") {
+				if err := a.list(false); err != nil || !strings.Contains(listing.String(), "incomplete") {
 					t.Fatal("missing incomplete status:", err, listing.String())
 				}
 				if err := a.execute(args); err == nil || !strings.Contains(err.Error(), "exists") {

@@ -14,9 +14,10 @@ func (a *app) imageCommand(args []string) error {
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	offline := fs.Bool("offline", false, "use a fresh signed catalogue and verified cache")
-	refresh := false
+	refresh, asJSON := false, false
 	if args[0] == "images" {
 		fs.BoolVar(&refresh, "refresh", false, "refresh the signed catalogue")
+		fs.BoolVar(&asJSON, "json", false, "print JSON for other programs")
 	}
 	selector := ""
 	rest := args[1:]
@@ -59,41 +60,80 @@ func (a *app) imageCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "Catalogue %d (expires %s)\n", cat.Sequence, cat.Expires.UTC().Format("2006-01-02T15:04:05Z"))
-	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KIND\tSELECTORS\tBUILD\tCACHED")
+	images := []imageListing{}
 	for _, e := range cat.Images {
 		if e.Architecture != "x86-64" {
 			continue
 		}
-		cached := "no"
-		if _, err := os.Lstat(filepath.Join(base, strings.TrimPrefix(e.Manifest, "sha256:"), "receipt.json")); err == nil {
-			cached = "yes"
+		_, err := os.Lstat(filepath.Join(base, strings.TrimPrefix(e.Manifest, "sha256:"), "receipt.json"))
+		l := imageListing{Kind: e.Kind, Selectors: []string{}, Build: e.BuildID, Manifest: e.Manifest, Cached: err == nil}
+		if e.Kind != "vm" {
+			l.Selectors = append(l.Selectors, e.Selectors...)
 		}
-		selectors := strings.Join(e.Selectors, ", ")
-		if e.Kind == "vm" {
-			selectors = "-"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Kind, selectors, e.BuildID, cached)
-	}
-	if err = w.Flush(); err != nil {
-		return err
+		images = append(images, l)
 	}
 	v, err := a.loadVM()
 	if err != nil {
 		return err
 	}
+	var selected *vmImageListing
 	switch {
 	case v == nil || (v.Image == "" && v.PendingImage == ""):
-		fmt.Fprintln(a.out, "VM image: none selected yet")
 	case v.PendingImage != "":
-		fmt.Fprintf(a.out, "VM image: sha256:%s at the next VM start\n", v.PendingImage[:12])
+		selected = &vmImageListing{Image: "sha256:" + v.PendingImage, Pending: true}
 	default:
-		build := v.ImageBuild
-		if build == "" {
-			build = "sha256:" + v.Image[:12]
+		selected = &vmImageListing{Image: imageName(v.ImageBuild, v.Image)}
+	}
+	expires := cat.Expires.UTC().Format("2006-01-02T15:04:05Z")
+	if asJSON {
+		type catalogueListing struct {
+			Sequence int64  `json:"sequence"`
+			Expires  string `json:"expires"`
 		}
-		fmt.Fprintln(a.out, "VM image in effect:", build)
+		return writeJSON(a.out, struct {
+			Catalogue catalogueListing `json:"catalogue"`
+			Images    []imageListing   `json:"images"`
+			VMImage   *vmImageListing  `json:"vm_image"`
+		}{catalogueListing{cat.Sequence, expires}, images, selected})
+	}
+	fmt.Fprintf(a.out, "Catalogue %d (expires %s)\n", cat.Sequence, expires)
+	w := tabwriter.NewWriter(a.out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "KIND\tSELECTORS\tBUILD\tCACHED")
+	for _, l := range images {
+		cached, selectors := "no", strings.Join(l.Selectors, ", ")
+		if l.Cached {
+			cached = "yes"
+		}
+		if l.Kind == "vm" {
+			selectors = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", l.Kind, selectors, l.Build, cached)
+	}
+	if err = w.Flush(); err != nil {
+		return err
+	}
+	switch {
+	case selected == nil:
+		fmt.Fprintln(a.out, "VM image: none selected yet")
+	case selected.Pending:
+		fmt.Fprintf(a.out, "VM image: %s at the next VM start\n", shortImage(selected.Image))
+	default:
+		fmt.Fprintln(a.out, "VM image in effect:", shortImage(selected.Image))
 	}
 	return nil
+}
+
+// imageListing is one catalogue entry in images, as the table and as JSON.
+type imageListing struct {
+	Kind      string   `json:"kind"`
+	Selectors []string `json:"selectors"`
+	Build     string   `json:"build"`
+	Manifest  string   `json:"manifest"`
+	Cached    bool     `json:"cached"`
+}
+
+// vmImageListing is the VM image selected for nsl's VMs.
+type vmImageListing struct {
+	Image   string `json:"image"`
+	Pending bool   `json:"pending"`
 }
