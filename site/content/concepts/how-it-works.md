@@ -22,6 +22,12 @@ flowchart LR
     Waypipe --> Desktop[Host Wayland desktop]
 ```
 
+## Terms
+
+- **Shared VM:** the single virtual machine that runs all ordinary machines. Isolated machines each have their own VM.
+- **Machine image:** a distro root filesystem used to create a machine with its own packages, services and guest home. Updating that image does not change existing machines.
+- **Default machine:** the machine that bare `nsl` and `nsl run` enter when you omit `-m NAME`. The first machine you create or import becomes the default; `nsl default NAME` changes it.
+
 ## The VM
 
 The shared VM boots the signed nsl VM image with systemd-vmspawn and QEMU/KVM, under a user unit named `nsl-UID-vm-ID.service`. It has two disks:
@@ -43,7 +49,7 @@ Once the images are cached, creation needs no network. The VM imports the image 
 
 The CLI reaches the VM over SSH on vsock, where the VM's sshd accepts only nsl's key and only runs the nsl agent. Before doing anything, the CLI checks the VM's identity: its ID, your UID and GID, its role, and the image's protocol and architecture. It checks this even when the VM was already running.
 
-The agent runs each command as a transient systemd unit in the machine, with a PAM login session. It passes arguments literally, keeps streams separate or uses a terminal, and returns the exit status, with 128+N for a command killed by signal N.
+The agent runs each command as a transient systemd unit in the machine, with a PAM login session for the machine account. Commands run with `--root` have no PAM session. It passes arguments literally, keeps streams separate or uses a terminal, and returns the exit status, with 128+N for a command killed by signal N.
 
 ## Host integration
 

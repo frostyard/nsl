@@ -64,11 +64,6 @@ No flag or environment variable turns these checks off. Images are rebuilt at le
 
 ## Local images
 
-Image developers can select files they built:
+Image developers can select local files with `nsl create NAME --image FILE --digest sha256:HEX` or `nsl update --image FILE --digest sha256:HEX`. The [build walkthrough](../contributing/build.md#the-images) shows how to build both images, select the output paths and calculate their digests.
 
-```sh
-nsl create test --image nsl-machine-debian-trixie-x86-64-r4.tar.zst --digest sha256:HEX
-nsl update --image nsl-vm-trixie-x86-64-r9.raw --digest sha256:HEX
-```
-
-The digest checks that the file matches the bytes you selected. It can't tell you who built the image. See [build from source](../contributing/build.md).
+The digest checks that the file matches the bytes you selected. It can't tell you who built the image.

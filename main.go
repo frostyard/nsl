@@ -111,15 +111,15 @@ func usage(w io.Writer) {
 
   [-m NAME]                       login shell in NAME or the default machine
   run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]
-  create NAME --distro DISTRO:RELEASE [--offline] [--default] [--user NAME]
-  create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]
+  create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]
+  create NAME --image FILE --digest sha256:HEX [--isolated] [--default] [--user NAME]
   list [--json]
   default NAME
   start NAME
   stop NAME
   remove NAME [--yes]
   export NAME FILE
-  import NAME FILE
+  import NAME FILE [--isolated]
   ports [NAME]
   ssh-config NAME
   logs [NAME]

@@ -20,7 +20,7 @@ The VM separates the machine's kernel, packages, services and root from your hos
 - Become root on the host. `--root` and `sudo` mean root in the machine. Files it creates through `/mnt/host` belong to you, and it cannot exceed your permissions.
 - See host `/usr`, `/etc`, `/tmp`, the rest of `/run`, devices or pseudo-filesystems.
 - Reach host sockets: D-Bus, the SSH agent, the GPU and the display are not shared, and Unix sockets do not connect across `/mnt/host`.
-- Run arbitrary commands on the host. The only host action is opening a link or a shared file.
+- Run arbitrary commands through the host-action broker, which only opens links and shared files. A machine can still write shell startup files or other code in your shared home that later runs as you on the host.
 - Change host sudoers, device permissions or packages. nsl itself never changes them either.
 
 ## Machines share a VM

@@ -176,7 +176,7 @@ func (a *app) idleTimeout() (*int, error) {
 // create prepares a machine from a verified catalogue selection or a local
 // machine image.
 func (a *app) create(args []string) error {
-	usage := errors.New("usage: create NAME --distro DISTRO:RELEASE [--offline] [--default] [--user NAME] | create NAME --image FILE --digest sha256:HEX [--default] [--user NAME]")
+	usage := errors.New("usage: create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME] | create NAME --image FILE --digest sha256:HEX [--isolated] [--default] [--user NAME]")
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return usage
 	}
