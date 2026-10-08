@@ -10,7 +10,7 @@ Machines, disks and keys live under `NSL_HOME`, which defaults to `$XDG_DATA_HOM
 
 | Path in `NSL_HOME` | Content |
 | --- | --- |
-| `vm/` | The shared VM: its record, root overlay, data disk, keys and boot credential |
+| `vm/` | The shared VM: its record, root, data disk, keys and boot credential |
 | `isolated/NAME/` | The same for isolated machine NAME's VM |
 | `machines/NAME.json` | A machine's record: ID, trust tier, account and image |
 | `machines/NAME.ssh/` | The machine's key for [`ssh-config`](editors.md) |
@@ -21,7 +21,7 @@ nsl checks the owner, type and permissions of these files before changing anythi
 
 ## The data disk
 
-Each VM has two disks. nsl can replace the root overlay from the cached VM image. The data disk needs more care: it holds your machines and the VM's own state.
+Each VM has two disks. The root is a copy of the cached VM image, which nsl can replace. On btrfs and XFS the copy shares the image's blocks; on other filesystems, such as ext4, each VM's root takes about 1 GB. The data disk needs more care: it holds your machines and the VM's own state.
 
 The data disk starts at 128 GiB of virtual capacity and takes host space only as it fills. Machines in a VM share it. `nsl list` shows each VM's capacity.
 

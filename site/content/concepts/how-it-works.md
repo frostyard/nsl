@@ -10,7 +10,7 @@ Your ordinary machines run as systemd-nspawn containers inside one shared VM. Ea
 flowchart LR
     CLI[nsl CLI] --> Unit[VM user unit]
     Unit --> VM[vmspawn + QEMU/KVM]
-    VMImage[Signed VM image] --> Root[Replaceable root overlay]
+    VMImage[Signed VM image] --> Root[Replaceable root]
     Root --> VM
     Data[Data disk: machines + state] --> VM
     Cache[Verified image cache] -->|read-only virtiofs| VM
@@ -32,8 +32,8 @@ flowchart LR
 
 The shared VM boots the signed nsl VM image with systemd-vmspawn and QEMU/KVM, under a user unit named `nsl-UID-vm-ID.service`. It has two disks:
 
-- **The root**, a qcow2 overlay on the cached VM image. It holds no user state, so `nsl update` and `nsl recover` can replace it at the next start.
-- **The data disk**, a qcow2 image with a btrfs filesystem. It holds every machine and the VM's own state: its identity, its SSH host keys and the machine records.
+- **The root**, a copy of the cached VM image. It holds no user state, so `nsl update` and `nsl recover` can replace it at the next start.
+- **The data disk**, a sparse file with a btrfs filesystem. It holds every machine and the VM's own state: its identity, its SSH host keys and the machine records.
 
 The VM starts when you first need it and stops when idle. By default it can use half the host's memory and every host CPU, much like WSL. You can change those limits in [`nsl.conf`](../reference/configuration.md). The machines share the VM's resources, so adding a machine doesn't reserve another VM's worth of memory.
 

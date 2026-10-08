@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,7 +26,7 @@ type call struct {
 	Args []string
 }
 
-// fakeRunner emulates systemd user units, vmspawn's firmware description, qemu-img, ssh-keygen and the agent.
+// fakeRunner emulates systemd user units, vmspawn's version and firmware list, ssh-keygen and the agent.
 type fakeRunner struct {
 	mu                   sync.Mutex // helpers call the runner from several goroutines
 	calls                []call
@@ -40,25 +38,10 @@ type fakeRunner struct {
 	identity             func(*protocol.Identity)
 	agent                func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error
 	requests             []*protocol.Request
-	failResize           bool
-	failCheck            bool
-	onResize             func()
-	firmware             string // vmspawn's firmware description; empty when the host has none
+	vmspawnVersion       string // vmspawn --version's first line
+	firmware             string // vmspawn --firmware=list: descriptor paths, one per line
 	kvmGroup             string // getent's group record
 	accountGroups        string // id -G USER; independent of the session's groups
-}
-
-func qcow2(path string, gibs int64, backing bool) error {
-	h := make([]byte, 104)
-	copy(h, "QFI\xfb")
-	binary.BigEndian.PutUint32(h[4:], 3)
-	if backing {
-		binary.BigEndian.PutUint64(h[8:], 104)
-	}
-	binary.BigEndian.PutUint32(h[20:], 16)
-	binary.BigEndian.PutUint64(h[24:], uint64(gibs*gib))
-	binary.BigEndian.PutUint32(h[100:], 104)
-	return os.WriteFile(path, h, 0644)
 }
 
 func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Writer, env []string, bin string, args ...string) error {
@@ -81,11 +64,12 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 		_, err := io.WriteString(out, f.accountGroups)
 		return err
 	case "systemd-vmspawn":
-		if f.firmware == "" {
-			fmt.Fprintln(stderr, "Failed to find OVMF config: No such file or directory")
-			return errors.New("exit status 1")
+		// Like vmspawn, the list succeeds with no firmware.
+		answer := f.firmware
+		if args[0] == "--version" {
+			answer = f.vmspawnVersion + "\n+PAM +AUDIT\n"
 		}
-		_, err := io.WriteString(out, f.firmware)
+		_, err := io.WriteString(out, answer)
 		return err
 	case "ssh-keygen":
 		path := args[len(args)-1]
@@ -93,25 +77,6 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			return err
 		}
 		return os.WriteFile(path+".pub", []byte("ssh-ed25519 AAAA nsl-vm\n"), 0644)
-	case "qemu-img":
-		switch args[0] {
-		case "create":
-			size, _ := strconv.ParseInt(strings.TrimSuffix(args[len(args)-1], "G"), 10, 64)
-			return qcow2(args[len(args)-2], size, strings.Contains(strings.Join(args, " "), " -b "))
-		case "check":
-			if f.failCheck {
-				return errors.New("injected disk check failure")
-			}
-		case "resize":
-			if f.onResize != nil {
-				f.onResize()
-			}
-			if f.failResize {
-				return errors.New("injected resize failure")
-			}
-			size, _ := strconv.ParseInt(strings.TrimSuffix(args[len(args)-1], "G"), 10, 64)
-			return qcow2(args[len(args)-2], size, false)
-		}
 	case "systemctl":
 		unit := args[2]
 		switch args[1] {
@@ -221,7 +186,8 @@ func (f *fakeRunner) ran(bin string, prefix ...string) int {
 
 func testApp(t *testing.T) (*app, *fakeRunner) {
 	t.Helper()
-	f := &fakeRunner{states: map[string]string{}, descriptions: map[string]string{}, kvmGroup: "kvm:x:993:u\n", accountGroups: "1000 993\n"}
+	f := &fakeRunner{states: map[string]string{}, descriptions: map[string]string{}, kvmGroup: "kvm:x:993:u\n", accountGroups: "1000 993\n",
+		vmspawnVersion: "systemd 262 (262-1)"}
 	host := t.TempDir()
 	t.Setenv("HOME", filepath.Join(host, "home", "u"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(host, "config"))
@@ -331,15 +297,15 @@ func TestUpdateSelectsAnImageForTheNextStart(t *testing.T) {
 	if st, err := os.Stat(cached); err != nil || st.Mode().Perm() != 0444 {
 		t.Fatal(err)
 	}
-	if f.ran("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw", "-b", cached) != 1 {
-		t.Fatal(f.calls)
+	if got := rootStart(t, v, "vm image"); got != "vm image" {
+		t.Fatalf("the root starts with %q, not the image", got)
 	}
 	// A second image waits for the next start and never touches the running VM.
 	image, digest := localImage(t, "newer vm image")
 	if err := a.execute([]string{"update", "--image", image, "--digest", digest}); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ = a.loadVM(); v.PendingImage != strings.TrimPrefix(digest, "sha256:") || f.ran("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw") != 1 {
+	if v, _ = a.loadVM(); v.PendingImage != strings.TrimPrefix(digest, "sha256:") || rootStart(t, v, "vm image") != "vm image" {
 		t.Fatal("update changed a running VM")
 	}
 	var out bytes.Buffer
@@ -354,6 +320,35 @@ func TestUpdateSelectsAnImageForTheNextStart(t *testing.T) {
 	if v, _ = a.runningVM(true); v.Image != strings.TrimPrefix(digest, "sha256:") || v.PendingImage != "" {
 		t.Fatalf("%+v", v)
 	}
+	if got := rootStart(t, v, "newer vm image"); got != "newer vm image" {
+		t.Fatalf("the root starts with %q, not the new image", got)
+	}
+}
+
+// rootStart checks that a VM's root is a private file of the root's capacity
+// and returns as many of its first bytes as want has.
+func rootStart(t *testing.T, v *vmRecord, want string) string {
+	t.Helper()
+	root := filepath.Join(v.dir, "root.raw")
+	if st, err := os.Stat(root); err != nil || st.Size() != rootGiB*gib || st.Mode().Perm() != 0600 {
+		t.Fatal("root:", st, err)
+	}
+	return diskStart(t, root, len(want))
+}
+
+// diskStart reads a disk's first n bytes; disks are too large to read whole.
+func diskStart(t *testing.T, path string, n int) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	b := make([]byte, n)
+	if _, err = io.ReadFull(f, b); err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestUpdateRefusesBadImages(t *testing.T) {
@@ -411,12 +406,17 @@ func TestLaunchArgumentsAndCredential(t *testing.T) {
 	}
 	args := strings.Join(a.launchArgs(v, &cred), " ")
 	for _, want := range []string{
-		"--image=" + v.dir + "/root.qcow2", "--extra-drive=qcow2:virtio-blk:" + v.dir + "/data.qcow2",
+		"--image=" + v.dir + "/root.raw", "--extra-drive=" + v.dir + "/data.raw",
 		"--bind-ro=" + a.home + "/images/machines:/var/cache/nsl/images", "--bind=" + home + ":/mnt/host" + home,
 		"--load-credential=nsl.vm:" + v.dir + "/nsl.vm", "--cpus=8", "--ram=8G", "--register=no", "--secure-boot=no",
 	} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("missing %s in %s", want, args)
+		}
+	}
+	for _, arg := range a.launchArgs(v, &cred) {
+		if arg == "--user" || strings.HasPrefix(arg, "--image-format") || strings.HasPrefix(arg, "--firmware") {
+			t.Fatalf("launch passes %s, which systemd 259's vmspawn rejects", arg)
 		}
 	}
 }
@@ -494,7 +494,11 @@ func TestLockRejectsAReplacedVM(t *testing.T) {
 }
 
 func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
-	a, f, _ := startedVM(t)
+	a, f, v := startedVM(t)
+	disk := filepath.Join(v.dir, "data.raw")
+	if got, err := diskGiB(disk); err != nil || got != defaultDataGiB {
+		t.Fatal(got, err)
+	}
 	if err := a.resize([]string{"--disk", "200"}); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatal(err)
 	}
@@ -502,14 +506,16 @@ func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
 	if err := a.resize([]string{"--disk", "64"}); err == nil || !strings.Contains(err.Error(), "shrinking") {
 		t.Fatal(err)
 	}
-	f.onResize = func() {
-		if r, _ := a.loadVM(); r.ResizeTarget != 200 {
-			t.Fatal("resized before recording the target")
-		}
-	}
-	f.failResize = true
+	// Growth that cannot write the disk fails after recording its target.
+	os.Chmod(disk, 0400)
 	if err := a.resize([]string{"--disk", "200"}); err == nil {
 		t.Fatal("hid a failed resize")
+	}
+	if r, _ := a.loadVM(); r.ResizeTarget != 200 {
+		t.Fatal("did not record the target before growing")
+	}
+	if got, _ := diskGiB(disk); got != defaultDataGiB {
+		t.Fatal("a failed resize changed the disk to", got)
 	}
 	if _, err := a.runningVM(true); err == nil || !strings.Contains(err.Error(), "recover") {
 		t.Fatal("started with pending growth:", err)
@@ -517,37 +523,60 @@ func TestResizeGrowsTheStoppedDataDisk(t *testing.T) {
 	if err := a.resize([]string{"--disk", "300"}); err == nil || !strings.Contains(err.Error(), "pending growth to 200") {
 		t.Fatal(err)
 	}
-	f.failResize = false
+	os.Chmod(disk, 0600)
 	f.vm, _ = a.loadVM()
 	if err := a.recover(nil); err != nil {
 		t.Fatal(err)
 	}
-	v, _ := a.loadVM()
+	v, _ = a.loadVM()
 	if v.DataGiB != 200 || v.ResizeTarget != 0 {
 		t.Fatalf("%+v", v)
 	}
-	if got, err := diskGiB(filepath.Join(v.dir, "data.qcow2")); err != nil || got != 200 {
+	if got, err := diskGiB(disk); err != nil || got != 200 {
 		t.Fatal(got, err)
+	}
+	// Growth interrupted after extending the disk commits without extending it again.
+	a.shutdown()
+	v.ResizeTarget = 256
+	if err := a.saveVM(v); err != nil {
+		t.Fatal(err)
+	}
+	os.Truncate(disk, 256*gib)
+	if err := a.resize([]string{"--disk", "256"}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ = a.loadVM(); v.DataGiB != 256 || v.ResizeTarget != 0 {
+		t.Fatalf("%+v", v)
 	}
 }
 
 func TestRecoverRebuildsTheRootAndKeepsTheDataDisk(t *testing.T) {
-	a, f, v := startedVM(t)
-	data, _ := os.ReadFile(filepath.Join(v.dir, "data.qcow2"))
-	before := f.ran("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw")
+	a, _, v := startedVM(t)
+	root, data := filepath.Join(v.dir, "root.raw"), filepath.Join(v.dir, "data.raw")
+	for _, p := range []string{root, data} {
+		f, err := os.OpenFile(p, os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteAt([]byte("used"), 0)
+		f.Close()
+	}
 	if err := a.recover(nil); err != nil {
 		t.Fatal(err)
 	}
-	if f.ran("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw") != before+1 {
-		t.Fatal("root not rebuilt")
+	if got := rootStart(t, v, "vm image"); got != "vm image" {
+		t.Fatalf("root not rebuilt: it starts with %q", got)
 	}
-	if after, _ := os.ReadFile(filepath.Join(v.dir, "data.qcow2")); !bytes.Equal(data, after) {
+	if got := diskStart(t, data, 4); got != "used" {
 		t.Fatal("data disk changed")
 	}
 	a.shutdown()
-	f.failCheck = true
+	os.Truncate(data, gib+1)
 	if err := a.recover(nil); err == nil || !strings.Contains(err.Error(), "preserved") {
 		t.Fatal(err)
+	}
+	if st, err := os.Stat(data); err != nil || st.Size() != gib+1 {
+		t.Fatal("recover changed a disk that failed its check")
 	}
 }
 

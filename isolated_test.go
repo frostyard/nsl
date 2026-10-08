@@ -48,7 +48,7 @@ func TestIsolatedMachineGetsItsOwnVM(t *testing.T) {
 	}
 	args := strings.Join(a.launchArgs(v, &cred), " ")
 	if strings.Contains(args, "--bind=") || !strings.Contains(args, "--cpus=2") || !strings.Contains(args, "--ram=2G") ||
-		!strings.Contains(args, "--image="+v.dir+"/root.qcow2") {
+		!strings.Contains(args, "--image="+v.dir+"/root.raw") {
 		t.Fatal(args)
 	}
 	launched := 0
@@ -238,7 +238,7 @@ func TestIsolatedRemovalRequiresConfirmedStatus(t *testing.T) {
 			if err := a.remove([]string{m.Name, "--yes"}); err == nil {
 				t.Fatal("removed a machine without confirming its state")
 			}
-			if _, err := os.Stat(filepath.Join(v.dir, "data.qcow2")); err != nil {
+			if _, err := os.Stat(filepath.Join(v.dir, "data.raw")); err != nil {
 				t.Fatal("lost data disk:", err)
 			}
 			for _, req := range f.requests {

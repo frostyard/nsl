@@ -10,8 +10,8 @@ The [agent protocol](agent.md) covers commands and machine operations. [Machine 
 
 | Disk | Content | Lifetime |
 | --- | --- | --- |
-| Root | The image, as a 16 GiB qcow2 overlay the host creates for each VM image build; the root filesystem grows into it. | Replaced when the VM image changes and by `nsl recover`. Holds no user state. |
-| Data | A btrfs filesystem labelled `nsl-data`, with subvolumes `machines` at `/var/lib/machines` and `state` at `/var/lib/nsl`. | Kept for the VM's lifetime; grows offline and never shrinks. |
+| Root | A raw copy of the image, extended to 16 GiB, that the host makes for each VM image build; the root filesystem grows into it. | Replaced when the VM image changes and by `nsl recover`. Holds no user state. |
+| Data | A sparse raw file holding a btrfs filesystem labelled `nsl-data`, with subvolumes `machines` at `/var/lib/machines` and `state` at `/var/lib/nsl`. | Kept for the VM's lifetime; grows offline and never shrinks. |
 
 The `state` subvolume holds everything that must survive a root replacement:
 
@@ -42,7 +42,7 @@ vmspawn passes the credential `nsl.vm`, a JSON object:
 
 The host launches the VM through the rootless device-descriptor path of [the lifecycle design](../design/lifecycle.md#launch-and-readiness):
 
-- the root overlay and the data disk as an extra drive;
+- the root, and the data disk as an extra drive, both raw;
 - each share read-write through virtiofs, at its `/mnt/host` path;
 - the host's verified machine-image cache read-only at `/var/cache/nsl/images`;
 - user-mode networking, vsock with the VM's CID, and the credential;
@@ -95,8 +95,8 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 
 ### Root replacement
 
-- A new root overlay from a different image build MUST keep the VM's binding, SSH host keys, machines and records, so the host's pinned host key still matches.
-- The VM MUST NOT store user or machine state on the root. The host MAY discard the root overlay whenever the VM is stopped.
+- A new root from a different image build MUST keep the VM's binding, SSH host keys, machines and records, so the host's pinned host key still matches.
+- The VM MUST NOT store user or machine state on the root. The host MAY discard the root whenever the VM is stopped.
 
 ### Host files
 
@@ -126,7 +126,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 | Formatting | A blank data disk becomes `nsl-data` with both subvolumes. |
 | Refusal | A data disk with an existing signature (the probe writes a swap header) fails readiness quickly and stays byte-identical. |
 | Binding | A credential with a different `id` or `uid` fails readiness. |
-| Root replacement | After a new root overlay, the pinned host key, `identity.json` and a marker machine survive. |
+| Root replacement | After a new root, the pinned host key, `identity.json` and a marker machine survive. |
 | Growth | After the host grows the data disk, the filesystem reports the new size. |
 | Allowlist | Each share is mounted at its `/mnt/host` path, and nothing else is. |
 | Ownership | Host files show the host UID and GID; writes by the account and by root land as the host user; root cannot write a root-owned host directory. |

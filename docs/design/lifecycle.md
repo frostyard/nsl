@@ -10,7 +10,7 @@ nsl runs one VM per state directory, the shared VM, and one more for each isolat
 flowchart LR
     CLI[nsl CLI] --> Unit[VM user unit]
     Unit --> VM[vmspawn + QEMU/KVM]
-    VMImage[Signed VM image] --> Root[Replaceable root overlay]
+    VMImage[Signed VM image] --> Root[Replaceable root]
     Root --> VM
     Data[Data disk: machines + state] --> VM
     Cache[Verified image cache] -->|read-only virtiofs| VM
@@ -28,14 +28,14 @@ flowchart LR
 
 | Path | Content |
 | --- | --- |
-| `vm/` | The shared VM: its record, root overlay, data disk, SSH keypair, pinned host key, SSH configuration and boot credential. |
+| `vm/` | The shared VM: its record, root, data disk, SSH keypair, pinned host key, SSH configuration and boot credential. |
 | `isolated/NAME/` | The same for isolated machine NAME's VM. |
 | `machines/NAME.json` | A machine record: ID, trust tier, account, image build and digest. |
 | `default` | The default machine's name, when there is one. |
 | `removing/NAME` | A machine whose removal is in progress; the name stays reserved. |
 | `images/`, `delivery/` | The verified image cache and authenticated catalogue history. |
 
-A VM record holds the VM's ID, owner, UID and GID, the image build its root overlay came from and any pending image, the memory and CPUs in effect, and the data disk's committed and pending capacity. Runtime sockets live under `/run/user/UID/nsl/ID`, so long state paths do not lengthen socket names.
+A VM record holds the VM's ID, owner, UID and GID, the image build its root came from and any pending image, the memory and CPUs in effect, and the data disk's committed and pending capacity. Runtime sockets live under `/run/user/UID/nsl/ID`, so long state paths do not lengthen socket names.
 
 Ownership, file type and permissions are checked before any change. The VM ID yields its unit names and a stable vsock CID, and creation avoids CIDs used by other VMs in the same state directory. Launch refuses a CID that already answers. Unit descriptions must name the ID before nsl controls a unit.
 
@@ -43,7 +43,7 @@ A manager lock serializes image import, name allocation and the default. Per-VM 
 
 ## The VM
 
-The root is a qcow2 overlay on a cached, verified VM image. It holds no user state. `nsl update` records a pending image, and the next start discards the overlay and creates a new one from that image. The data disk is a separate qcow2 whose btrfs filesystem holds the machines and a state subvolume. That subvolume keeps the VM's binding, SSH host keys and machine records, so a new root keeps the pinned host key and every machine.
+The root is a raw copy of a cached, verified VM image, extended to 16 GiB. The copy shares the image's extents where the filesystem can (btrfs, XFS); elsewhere it writes only the image's data, leaving its holes and zero blocks as holes. It holds no user state. `nsl update` records a pending image, and the next start discards the root and copies a new one from that image. The data disk is a separate sparse raw file whose btrfs filesystem holds the machines and a state subvolume. Both disks are raw because systemd 259's vmspawn attaches no other format ([ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)). That subvolume keeps the VM's binding, SSH host keys and machine records, so a new root keeps the pinned host key and every machine.
 
 vmspawn passes the `nsl.vm` credential: the VM ID, role, host UID and GID, public key, autostart setting, shares and aliases. On first boot the VM formats a blank data disk and records the binding. On later boots it rejects a credential that differs, and it grows the data filesystem to the disk before readiness.
 
@@ -51,15 +51,15 @@ Resources come from the configuration when the VM starts, and the record keeps w
 
 ## Launch and readiness
 
-The user needs KVM and vhost-vsock access through the `kvm` group. Doctor and launch share a membership check: `getent group kvm` resolves the group's GID through NSS, and `id -G -- USER` returns the account's current group IDs, including its primary group. This works in static release builds and recognizes membership added since login ([ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)). Missing membership produces a command for an administrator to run; lookup failures report their cause. Neither invokes the group switch when the check fails. A fixed internal command opens the devices under that group, restores the account's primary group, and enters an unprivileged user namespace that maps the user's UID and GID to themselves. It verifies the devices and passes them to vmspawn as named file descriptors. Capabilities stay scoped to that namespace. nsl changes no host permissions, groups, packages or sudoers.
+The user needs KVM and vhost-vsock access through the `kvm` group. Doctor and launch share a membership check: `getent group kvm` resolves the group's GID through NSS, and `id -G -- USER` returns the account's current group IDs, including its primary group. This works in static release builds and recognizes membership added since login ([ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)). Missing membership produces a command for an administrator to run; lookup failures report their cause. Neither invokes the group switch when the check fails. A fixed internal command opens the devices under that group, restores the account's primary group, and enters an unprivileged user namespace that maps the user's UID and GID to themselves. It verifies the devices and passes them to vmspawn as named file descriptors. Capabilities stay scoped to that namespace. Because the namespace keeps the user's UID, vmspawn runs in the user's service manager without `--user`, which systemd 259 lacks. nsl changes no host permissions, groups, packages or sudoers.
 
-The unit `nsl-UID-vm-ID.service` runs vmspawn with the root overlay, the data disk as an extra drive, the virtiofs shares, the read-only image cache and the credential. A newly launched VM gets up to 90 seconds to become ready. Readiness is the agent's `identity` answer over authenticated vsock SSH. The host checks it for the VM's ID, UID, GID and role, and for the image descriptor's protocols and architecture, even when the unit was already running. Failures keep the disks and point to `logs` and `recover`. Forwarding starts only after readiness.
+The unit `nsl-UID-vm-ID.service` runs vmspawn with the root, the data disk as an extra drive, the virtiofs shares, the read-only image cache and the credential. A newly launched VM gets up to 90 seconds to become ready. Readiness is the agent's `identity` answer over authenticated vsock SSH. The host checks it for the VM's ID, UID, GID and role, and for the image descriptor's protocols and architecture, even when the unit was already running. Failures keep the disks and point to `logs` and `recover`. Forwarding starts only after readiness.
 
 The shared VM starts on first use. At boot it starts every machine unless `autostart` is false, or unless it was started only to create, import, export or remove a machine. It stops itself when no machine is running, and `shutdown` stops it at once. A stop asks the VM to power off, waits up to 30 seconds, then stops the owned unit.
 
 The VM's idle monitor makes both idle decisions, so the host runs no background process. It stops a running machine after `idle_timeout` without `nsl-run-*` sessions, Waypipe clients or a `start` or `run` request. It powers the VM off 60 seconds after the last machine stopped and the last agent request ended. Every agent request holds a shared lock that the monitor takes exclusively, and keeps, before powering off. A command that arrives then sees the VM stop, and its readiness loop starts it again.
 
-`recover` stops the owned runtime, completes pending growth, checks the data disk without repairing it, and starts the VM again from a fresh root overlay, since the root holds nothing that must survive. It keeps keys, pinned host keys and machines. It cannot rebuild deleted keys or repair a corrupt filesystem, and it is not a backup.
+`recover` stops the owned runtime, completes pending growth, checks the data disk's ownership, type and capacity without repairing it, and starts the VM again from a fresh root, since the root holds nothing that must survive. It keeps keys, pinned host keys and machines. It cannot rebuild deleted keys or repair a corrupt filesystem, and it is not a backup.
 
 ## Machines
 
@@ -87,7 +87,7 @@ Machines that are not isolated see the user's home, `/run/media/USER` and `/mnt`
 
 `remove --yes` requires a stopped machine and the manager and machine locks. It renames the record into `removing/NAME`, and the agent deletes the subvolume and VM-side record. The host record goes last, so a repeated command resumes.
 
-`resize --disk` grows a stopped VM's data disk. It records the target before invoking `qemu-img`, then syncs and verifies the disk and commits the new capacity. `recover` or a repeated resize completes interrupted growth. The VM grows the filesystem at its next boot, and shrinking is unsupported. See [ADR-0008](../adr/0008-offline-storage-management.md).
+`resize --disk` grows a stopped VM's data disk. It records the target before extending the disk file, then syncs and verifies the disk and commits the new capacity. `recover` or a repeated resize completes interrupted growth. The VM grows the filesystem at its next boot, and shrinking is unsupported. See [ADR-0008](../adr/0008-offline-storage-management.md).
 
 ## Export and import
 

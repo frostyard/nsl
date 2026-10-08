@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/frostyard/nsl/internal/protocol"
+	"golang.org/x/sys/unix"
 )
 
 func vmUnit(v *vmRecord) string        { return fmt.Sprintf("nsl-%d-vm-%s.service", v.Owner, v.ID) }
@@ -275,7 +276,7 @@ func (a *app) writeCredential(v *vmRecord, c *config, autostart bool) error {
 }
 
 func (a *app) runtimeFiles(v *vmRecord) error {
-	for _, p := range []string{"data.qcow2", "ssh.config", "keys/identity"} {
+	for _, p := range []string{"data.raw", "ssh.config", "keys/identity"} {
 		if err := privateFile(filepath.Join(v.dir, p), a.uid, 0077); err != nil {
 			return err
 		}
@@ -290,10 +291,13 @@ func (a *app) vmImagePath(digest string) string {
 	return filepath.Join(a.home, "images", "vm", digest+".raw")
 }
 
-// rootOverlay gives the VM a fresh root from the selected image when the
+// rootGiB is the root's capacity; the root filesystem grows into it.
+const rootGiB = 16
+
+// ensureRoot gives the VM a fresh root from the selected image when the
 // image changed or no root exists. The root holds no user state.
-func (a *app) rootOverlay(v *vmRecord) error {
-	root := filepath.Join(v.dir, "root.qcow2")
+func (a *app) ensureRoot(v *vmRecord) error {
+	root := filepath.Join(v.dir, "root.raw")
 	selected := v.PendingImage
 	if selected == "" {
 		selected = v.Image
@@ -312,12 +316,10 @@ func (a *app) rootOverlay(v *vmRecord) error {
 	if err = privateFile(image, a.uid, 0222); err != nil {
 		return fmt.Errorf("selected VM image: %w", err)
 	}
-	temporary := filepath.Join(v.dir, ".root.qcow2")
+	temporary := filepath.Join(v.dir, ".root.raw")
 	os.Remove(temporary)
-	if err = a.call(nil, a.err, "qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw", "-b", image, temporary, "16G"); err != nil {
-		return err
-	}
-	if err = os.Chmod(temporary, 0600); err != nil {
+	if err = copyRoot(image, temporary); err != nil {
+		os.Remove(temporary)
 		return err
 	}
 	if err = os.Rename(temporary, root); err != nil {
@@ -325,6 +327,85 @@ func (a *app) rootOverlay(v *vmRecord) error {
 	}
 	v.Image, v.PendingImage, v.ImageBuild = selected, "", ""
 	return a.saveVM(v)
+}
+
+// copyRoot writes a VM image to a new root file, sharing the image's extents
+// where the filesystem can (btrfs, XFS) and copying its data elsewhere, then
+// extends it to the root's capacity.
+func copyRoot(image, path string) error {
+	in, err := os.Open(image)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	st, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if st.Size() > rootGiB*gib {
+		return fmt.Errorf("the VM image is larger than the %d GiB root", rootGiB)
+	}
+	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	if err = unix.IoctlFileClone(int(out.Fd()), int(in.Fd())); err != nil {
+		err = copyData(out, in, st.Size())
+	}
+	if err == nil {
+		err = out.Truncate(rootGiB * gib)
+	}
+	if err == nil {
+		err = out.Sync()
+	}
+	if closeErr := out.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
+// copyData copies in's first size bytes to the same offsets in out, a new
+// file. It skips in's holes and zero blocks, which stay holes in out: most of
+// a VM image's allocated blocks are zeros.
+func copyData(out, in *os.File, size int64) error {
+	const block = 4096
+	buf, zero := make([]byte, 1<<20), make([]byte, block)
+	isZero := func(b []byte) bool { return bytes.Equal(b, zero[:len(b)]) }
+	for offset := int64(0); offset < size; {
+		start, err := unix.Seek(int(in.Fd()), offset, unix.SEEK_DATA)
+		if errors.Is(err, unix.ENXIO) {
+			return nil // only a hole remains
+		}
+		if err != nil {
+			return err
+		}
+		if offset, err = unix.Seek(int(in.Fd()), start, unix.SEEK_HOLE); err != nil {
+			return err
+		}
+		for at := start; at < offset; {
+			n, err := in.ReadAt(buf[:min(int64(len(buf)), offset-at)], at)
+			if err != nil {
+				return err
+			}
+			// Write each run of blocks that are not all zeros.
+			for b := 0; b < n; {
+				for b < n && isZero(buf[b:min(b+block, n)]) {
+					b += block
+				}
+				run := b
+				for b < n && !isZero(buf[b:min(b+block, n)]) {
+					b += block
+				}
+				if b = min(b, n); b > run {
+					if _, err = out.WriteAt(buf[run:b], at+int64(run)); err != nil {
+						return err
+					}
+				}
+			}
+			at += int64(n)
+		}
+	}
+	return nil
 }
 
 // startVM launches the VM if needed and waits for authenticated readiness. A
@@ -392,6 +473,9 @@ func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
 	if err := a.requireKVMGroup(); err != nil {
 		return fmt.Errorf("missing VM prerequisite: %w", err)
 	}
+	if _, err := a.requireSystemd(); err != nil {
+		return fmt.Errorf("missing VM prerequisite: %w", err)
+	}
 	c, err := a.loadConfig()
 	if err != nil {
 		return err
@@ -401,7 +485,7 @@ func (a *app) launchVM(v *vmRecord, state string, autostart bool) error {
 			return err
 		}
 	}
-	if err = a.rootOverlay(v); err != nil {
+	if err = a.ensureRoot(v); err != nil {
 		return err
 	}
 	if err = a.writeCredential(v, c, autostart); err != nil {
@@ -599,7 +683,7 @@ func (a *app) recover(args []string) error {
 		return err
 	}
 	// The root holds no user state, so a fresh one repairs it.
-	if err = os.Remove(filepath.Join(v.dir, "root.qcow2")); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err = os.Remove(filepath.Join(v.dir, "root.raw")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if v.PendingImage == "" {
@@ -645,20 +729,18 @@ func (a *app) devices(args []string) error {
 	return c.Run()
 }
 
-// vmFirmware selects the VM's firmware. doctor asks vmspawn to describe the
-// firmware these flags select, so the check matches what launch requests.
-func vmFirmware() []string { return []string{"--secure-boot=no"} }
-
 func (a *app) launchArgs(v *vmRecord, cred *protocol.Credential) []string {
-	args := []string{"--user", "--no-ask-password", "--keep-unit", "--register=no",
-		"--image=" + filepath.Join(v.dir, "root.qcow2"), "--image-format=qcow2", "--machine=nsl-" + v.ID,
+	// Every flag here is one systemd 259's vmspawn accepts (ADR-0005). Without
+	// --user, vmspawn still runs in the user's scope: the launch namespace
+	// keeps the user's UID.
+	args := []string{"--no-ask-password", "--keep-unit", "--register=no",
+		"--image=" + filepath.Join(v.dir, "root.raw"), "--machine=nsl-" + v.ID,
 		"--cpus=" + strconv.Itoa(v.CPUs), "--ram=" + strconv.Itoa(v.Memory) + "G",
 		"--kvm=yes", "--vsock=yes", "--vsock-cid=" + strconv.FormatUint(uint64(cid(v)), 10), "--tpm=no",
 		"--network-user-mode", "--notify-ready=no", "--pass-ssh-key=no", "--console=read-only",
 		"--load-credential=nsl.vm:" + filepath.Join(v.dir, "nsl.vm"),
-		"--extra-drive=qcow2:virtio-blk:" + filepath.Join(v.dir, "data.qcow2"),
+		"--extra-drive=" + filepath.Join(v.dir, "data.raw"), "--secure-boot=no",
 		"--bind-ro=" + a.machineImages() + ":" + protocol.ImageShare}
-	args = append(args, vmFirmware()...)
 	// The credential names no shares for an isolated VM.
 	for _, s := range cred.Shares {
 		args = append(args, "--bind="+s.Source+":/mnt/host"+s.Source)
@@ -720,32 +802,112 @@ func (a *app) launch(args []string) error {
 	return syscall.Exec(bin, append([]string{bin}, a.launchArgs(v, &cred)...), env)
 }
 
-// firmware returns the UEFI image vmspawn selects for launch. The check asks vmspawn
-// to describe its choice, because --firmware=list succeeds even without firmware.
+// minSystemd is the oldest systemd whose vmspawn accepts every launch flag
+// (ADR-0005).
+const minSystemd = 259
+
+// vmspawnVersion returns the systemd release of the host's vmspawn, from a
+// first line such as "systemd 259 (259.9-1.fc44)" or "systemd 262~rc3 (...)".
+func (a *app) vmspawnVersion() (int, error) {
+	b, err := a.capture(5*time.Second, "systemd-vmspawn", "--version")
+	if err != nil {
+		return 0, err
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	fields := strings.Fields(line)
+	if len(fields) < 2 || fields[0] != "systemd" {
+		return 0, fmt.Errorf("unexpected systemd-vmspawn version %q", line)
+	}
+	release := fields[1]
+	if i := strings.IndexFunc(release, func(r rune) bool { return r < '0' || r > '9' }); i >= 0 {
+		release = release[:i]
+	}
+	version, err := strconv.Atoi(release)
+	if err != nil {
+		return 0, fmt.Errorf("unexpected systemd-vmspawn version %q", line)
+	}
+	return version, nil
+}
+
+// requireSystemd returns vmspawn's systemd release, refusing one older than
+// minSystemd, whose vmspawn rejects launch's flags.
+func (a *app) requireSystemd() (int, error) {
+	version, err := a.vmspawnVersion()
+	if err == nil && version < minSystemd {
+		err = fmt.Errorf("systemd-vmspawn is from systemd %d", version)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("systemd %d or newer (%w)", minSystemd, err)
+	}
+	return version, nil
+}
+
+// firmwareDescriptor holds the fields of a QEMU firmware descriptor that
+// vmspawn selects firmware by.
+type firmwareDescriptor struct {
+	InterfaceTypes []string `json:"interface-types"`
+	Mapping        struct {
+		Executable struct {
+			Filename string `json:"filename"`
+		} `json:"executable"`
+		NVRAMTemplate struct {
+			Filename string `json:"filename"`
+		} `json:"nvram-template"`
+	} `json:"mapping"`
+	Targets []struct {
+		Architecture string   `json:"architecture"`
+		Machines     []string `json:"machines"`
+	} `json:"targets"`
+	Features []string `json:"features"`
+}
+
+// launchable reports whether systemd 259 to 262 would all select the firmware
+// for launch's --secure-boot=no: UEFI with an NVRAM template, an x86-64 q35
+// target, and neither Secure Boot nor enrolled keys.
+func (d *firmwareDescriptor) launchable() bool {
+	if !slices.Contains(d.InterfaceTypes, "uefi") || d.Mapping.Executable.Filename == "" || d.Mapping.NVRAMTemplate.Filename == "" ||
+		slices.Contains(d.Features, "secure-boot") || slices.Contains(d.Features, "enrolled-keys") {
+		return false
+	}
+	for _, t := range d.Targets {
+		// Targets name machine globs such as "pc-q35-*"; vmspawn runs q35.
+		if t.Architecture == "x86_64" && slices.ContainsFunc(t.Machines, func(m string) bool { return strings.Contains(m, "q35") }) {
+			return true
+		}
+	}
+	return false
+}
+
+// firmware returns the UEFI image vmspawn selects for launch. vmspawn 259
+// cannot describe its choice, and --firmware=list succeeds even without
+// firmware, so doctor reads the descriptors vmspawn lists, in its order, and
+// returns the first launchable one.
 func (a *app) firmware() (string, error) {
-	b, err := a.capture(5*time.Second, "systemd-vmspawn", append([]string{"--firmware=describe"}, vmFirmware()...)...)
+	b, err := a.capture(5*time.Second, "systemd-vmspawn", "--firmware=list")
 	if err != nil {
 		return "", err
 	}
-	var d struct {
-		Mapping struct {
-			Executable struct {
-				Filename string `json:"filename"`
-			} `json:"executable"`
-		} `json:"mapping"`
+	for _, path := range strings.Split(string(b), "\n") {
+		if path == "" {
+			continue
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			continue // vmspawn skips descriptors it cannot load, too
+		}
+		var d firmwareDescriptor
+		err = json.NewDecoder(io.LimitReader(f, 1<<20)).Decode(&d)
+		f.Close()
+		if err == nil && d.launchable() {
+			return d.Mapping.Executable.Filename, nil
+		}
 	}
-	if err = json.Unmarshal(b, &d); err != nil {
-		return "", err
-	}
-	if d.Mapping.Executable.Filename == "" {
-		return "", errors.New("the firmware description names no executable")
-	}
-	return d.Mapping.Executable.Filename, nil
+	return "", errors.New("vmspawn lists no x86-64 UEFI firmware without Secure Boot")
 }
 
 func (a *app) doctor() error {
 	failed, vmspawn := false, false
-	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "qemu-img", "ssh", "ssh-keygen", "getent", "id", a.groupSwitch, "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
+	for _, tool := range []string{"systemd-vmspawn", "systemd-run", "systemctl", "qemu-system-x86_64", "ssh", "ssh-keygen", "getent", "id", a.groupSwitch, "unshare", "/usr/libexec/virtiofsd", "/usr/lib/systemd/systemd-ssh-proxy"} {
 		p, err := exec.LookPath(tool)
 		if err != nil {
 			failed = true
@@ -759,10 +921,17 @@ func (a *app) doctor() error {
 		}
 	}
 	// Without vmspawn there is nothing to ask; its MISSING line already fails doctor.
+	// Its version comes first, so an old vmspawn is not mistaken for missing firmware.
 	if vmspawn {
+		if version, err := a.requireSystemd(); err != nil {
+			failed = true
+			fmt.Fprintln(a.out, "MISSING", err)
+		} else {
+			fmt.Fprintf(a.out, "OK systemd %d\n", version)
+		}
 		if p, err := a.firmware(); err != nil {
 			failed = true
-			fmt.Fprintln(a.out, "MISSING UEFI firmware (vmspawn found no x86_64 firmware without Secure Boot; install ovmf)")
+			fmt.Fprintf(a.out, "MISSING UEFI firmware (%v; install ovmf)\n", err)
 		} else {
 			fmt.Fprintln(a.out, "OK", p)
 		}
