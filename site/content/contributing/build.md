@@ -63,7 +63,7 @@ build/nsl create debian --image "$machine" --digest "sha256:$(sha256sum "$machin
 
 Each build prints a `Built PATH` line. Use that path for `image` or `machine` if the profile revision differs from these examples.
 
-`--distribution` also takes `ubuntu`, `fedora`, `centos`, `arch` and `opensuse`; `--distribution opensuse --release 16.0` builds Leap. The [image build notes ↗](https://github.com/frostyard/nsl/blob/main/image/README.md) describe the layers and the builder.
+`--distribution` also takes `ubuntu`, `fedora`, `centos`, `arch`, `opensuse` and `azure`; `--distribution opensuse --release 16.0` builds Leap. The [image build notes ↗](https://github.com/frostyard/nsl/blob/main/image/README.md) describe the layers and the builder.
 
 ## Accept images in disposable VMs
 

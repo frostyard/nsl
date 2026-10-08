@@ -46,6 +46,7 @@ Add the three machine images that [ADR-0009](../adr/0009-distribution-neutral-gu
 
 - Further releases of the same families, such as Debian 12, Ubuntu 24.04 LTS, Fedora 43 or CentOS Stream 9, each as a profile that passes acceptance.
 - AlmaLinux and Rocky Linux, which the recipes also carry, in the `rpm` family.
+- Azure Linux 4.0, which the recipes do not carry: [its own plan](azure-linux.md).
 - Track SUSE Linux Enterprise separately, including access and redistribution terms ([ADR-0009](../adr/0009-distribution-neutral-guest-contract.md)).
 
 ## Open questions

@@ -1,0 +1,7 @@
+{
+  "distribution": "azure",
+  "release": "4.0",
+  "architecture": "x86-64",
+  "family": "rpm",
+  "revision": 1
+}

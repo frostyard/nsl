@@ -15,6 +15,7 @@ Choose from the machine images below, rebuilt by Frostyard at least weekly. Run 
 | Arch Linux | `arch:rolling`, `arch:btw` | arch |
 | openSUSE Tumbleweed | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | suse |
 | openSUSE Leap 16.0 | `opensuse:16.0`, `opensuse-leap:16.0` | suse |
+| Azure Linux 4.0 (beta) | `azurelinux:4.0`, `azure-linux:4.0` | rpm |
 
 All images are x86-64. A new distro or release has to pass the same acceptance tests before it's added.
 
@@ -36,5 +37,6 @@ All images are x86-64. A new distro or release has to pass the same acceptance t
 - **CentOS Stream 10** enables EPEL, and adds GLES libraries so GTK 4 applications render.
 - **Arch Linux** initializes and populates its pacman keyring on the machine's first boot.
 - **openSUSE** images add `glibc-locale-base` for `C.UTF-8`.
+- **Azure Linux 4.0** is a beta, and its machines install packages from Microsoft's beta repositories. Those repositories offer few desktop applications; GTK 3 applications such as `gtk-lshw` open windows.
 
 The full [machine-image contract ↗](https://github.com/frostyard/nsl/blob/main/docs/specs/machine-images.md) is in the repository.

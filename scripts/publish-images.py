@@ -35,7 +35,8 @@ SELECTORS = {('debian', 'trixie'): ['debian:trixie', 'debian:13'],
              ('opensuse', 'tumbleweed'): ['opensuse:tumbleweed', 'opensuse-tumbleweed:rolling'],
              ('ubuntu', 'resolute'): ['ubuntu:resolute', 'ubuntu:26.04'],
              ('centos', '10'): ['centos:10', 'centos-stream:10'],
-             ('opensuse', '16.0'): ['opensuse:16.0', 'opensuse-leap:16.0']}
+             ('opensuse', '16.0'): ['opensuse:16.0', 'opensuse-leap:16.0'],
+             ('azure', '4.0'): ['azurelinux:4.0', 'azure-linux:4.0']}
 # The memory budget was set with these four idle machines; measure the same four.
 MEASURED = [('debian', 'trixie'), ('fedora', '44'), ('arch', 'rolling'), ('opensuse', 'tumbleweed')]
 # Payload files and the client's bounds (docs/specs/image-delivery.md#bounds).

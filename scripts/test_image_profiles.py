@@ -101,7 +101,7 @@ class VMImage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for distribution, release, family in [('debian', 'trixie', 'debian'), ('ubuntu', 'resolute', 'debian'), ('fedora', '44', 'rpm'),
                                                   ('centos', '10', 'rpm'), ('arch', 'rolling', 'arch'), ('opensuse', 'tumbleweed', 'suse'),
-                                                  ('opensuse', '16.0', 'suse')]:
+                                                  ('opensuse', '16.0', 'suse'), ('azure', '4.0', 'rpm')]:
                 destination = Path(tmp)/f'{distribution}-{release}'
                 profile = compose.select(ROOT, 'machine', distribution, release)
                 name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin')
@@ -123,6 +123,11 @@ class VMImage(unittest.TestCase):
                 self.assertEqual((destination/'mkosi.tools.conf').is_file(), distribution != 'debian')
                 self.assertEqual(config.rsplit('ToolsTree=', 1)[1].split()[0], 'no' if distribution == 'debian' else 'default')
             self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch-rolling/mkosi.local.conf').read_text())
+            # Azure Linux 4.0 builds from its beta repository and keeps the signed repository package, not the dev feed.
+            azure = (Path(tmp)/'azure-4.0/mkosi.local.conf').read_text()
+            self.assertIn('LocalMirror=https://packages.microsoft.com/azurelinux/4.0/beta/base/x86_64/', azure)
+            self.assertIn('Packages=azurelinux-repos\n', azure)
+            self.assertEqual((Path(tmp)/'azure-4.0/nsl-azure-postinst.chroot').stat().st_mode & 0o777, 0o755)
 
     def test_osc7_reports_the_directory_in_vte_terminals(self):
         script = str(ROOT/'image/machines/common/overlay/etc/profile.d/nsl-osc7.sh')

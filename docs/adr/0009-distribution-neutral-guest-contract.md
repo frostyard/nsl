@@ -20,7 +20,7 @@ Keep the host CLI and the VM agent distribution-neutral. Define one [machine-ima
 Creation applies only per-machine data: account, hostname, time zone, `sudo` rule and nspawn settings.
 
 - Fail clearly when a required capability is missing. Do not infer support from a distro name, `ID_LIKE`, a successful boot or a package install.
-- Support a distro release only after its image passes acceptance. Debian 13, Fedora 44, Arch and openSUSE Tumbleweed came first; Ubuntu 26.04 LTS, CentOS Stream 10 and openSUSE Leap 16.0 followed. Track SUSE Linux Enterprise separately, including access and redistribution terms.
+- Support a distro release only after its image passes acceptance. Debian 13, Fedora 44, Arch and openSUSE Tumbleweed came first; Ubuntu 26.04 LTS, CentOS Stream 10 and openSUSE Leap 16.0 followed, then Azure Linux 4.0. A release its distro still calls beta may join on the same terms, and the user documentation marks it as a beta. Track SUSE Linux Enterprise separately, including access and redistribution terms.
 - Keep guest distro, host distro and CPU architecture independent. Start with x86-64.
 - Every published image pins its recipe and integration revisions and records package inputs, provenance and acceptance results.
 - Distro MAC policy does not apply inside machines. Document that plainly; do not claim a distro's SELinux or AppArmor behavior.

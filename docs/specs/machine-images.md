@@ -21,10 +21,11 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 | `arch:rolling`, `arch:btw` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
 | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`, and `glibc-locale-base` for `C.UTF-8`; openSUSE Tumbleweed tools tree. |
 | `opensuse:16.0`, `opensuse-leap:16.0` | `suse` | The suse family's packages; openSUSE Tumbleweed tools tree. |
+| `azurelinux:4.0`, `azure-linux:4.0` | `rpm` | A beta: Microsoft publishes Azure Linux 4.0 only under `packages.microsoft.com/azurelinux/4.0/beta`, which the build reads directly, since mkosi expects `prod`. The recipes have no Azure Linux recipe, so the profile adds what Fedora's adds: `dnf5`, `dbus-broker`, `glibc-langpack-en` and base tools, and links `/etc/resolv.conf` to the VM's resolver. It names `azurelinux-repos`: `azurelinux-repos-dev` also satisfies the release package and points dnf at an unsigned development feed. Fedora 44 tools tree. |
 
 Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
-Other distros and releases join after they pass acceptance ([plan](../plans/more-machine-images.md)).
+Other distros and releases join after they pass acceptance ([plan](../plans/more-machine-images.md), [Azure Linux](../plans/azure-linux.md)).
 
 ### Machine layer
 
@@ -107,6 +108,8 @@ Workload checks:
 | GUI | `wayland-info` lists `wl_compositor` and `xdg_wm_base`; the command's logind session has type `wayland` and class `background`; a GUI application starts. |
 | Translation | The working directory maps by device and inode, including a bind-mount alias; `/usr/share` is refused. |
 | Persistence | Packages, home, an enabled system service and a Podman image survive a VM restart. |
+
+Azure Linux 4.0 packages no `wayland-info`. On it, the probe lists the compositor's globals with a Python client of the Wayland protocol instead.
 
 Checks that an image does not repeat the [hub image tally](../plans/shared-vm-experiment.md#image-source-tally-hubnspawnorg-or-our-own):
 
