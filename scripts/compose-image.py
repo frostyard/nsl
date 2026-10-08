@@ -21,6 +21,7 @@ MACHINES = {
     ('ubuntu', 'resolute'): 'ubuntu',
     ('centos', '10'): 'centos',
     ('opensuse', '16.0'): 'opensuse-leap',
+    ('azure', '4.0'): 'azurelinux',
 }
 
 

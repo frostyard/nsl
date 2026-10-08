@@ -45,11 +45,11 @@ hide:
 
     Run a development server in the machine and reach its forwarded port on host `127.0.0.1`. Wayland applications can open windows on your desktop through Waypipe.
 
--   **Seven signed distros**
+-   **Eight signed distros**
 
     ---
 
-    Choose Debian, Ubuntu, Fedora, CentOS Stream, Arch, openSUSE Tumbleweed or Leap. The images are rebuilt weekly. nsl verifies that they came from the signed Frostyard publishing workflow before using them.
+    Choose Debian, Ubuntu, Fedora, CentOS Stream, Arch, openSUSE Tumbleweed or Leap, or try the Azure Linux 4.0 beta. The images are rebuilt weekly. nsl verifies that they came from the signed Frostyard publishing workflow before using them.
 
 -   **Isolation when you need it**
 

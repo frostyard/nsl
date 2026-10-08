@@ -40,7 +40,7 @@ import time
 import urllib.request
 import uuid
 
-WORKLOAD = ['python3', 'jq', 'podman', 'wayland-utils']
+WORKLOAD = ['python3', 'jq', 'podman']
 # Package commands by the descriptor's family.
 INSTALL = {
     'debian': lambda pkgs: ['env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y', '-qq', *pkgs],
@@ -65,10 +65,43 @@ ZONE_DATA = {
 # Podman 5 defaults to pasta networking; Arch packages it separately.
 EXTRA = {'arch': ['passt']}
 # A Wayland application's package and command, by distribution. galculator is not
-# packaged for openSUSE or CentOS Stream 10: foot is a Wayland-native terminal and
-# zenity a GTK 4 dialog.
-GUI_APP = {'opensuse': ('foot', ['foot']), 'centos': ('zenity', ['zenity', '--info', '--text=nsl'])}
+# packaged for openSUSE, CentOS Stream 10 or Azure Linux 4.0: foot is a Wayland-native
+# terminal, zenity a GTK 4 dialog, and gtk-lshw, run without lshw-gui's pkexec, a
+# GTK 3 window that waits for an answer.
+GUI_APP = {'opensuse': ('foot', ['foot']), 'centos': ('zenity', ['zenity', '--info', '--text=nsl']),
+           'azure': ('lshw-gui', ['gtk-lshw'])}
 DEFAULT_GUI_APP = ('galculator', ['galculator'])
+# The compositor's globals as wayland-info prints them: wl_display.get_registry and
+# a sync, then each wl_registry.global until the callback is done.
+WAYLAND_GLOBALS = r'''
+import os, socket, struct, sys
+display = os.environ['WAYLAND_DISPLAY']
+s = socket.socket(socket.AF_UNIX)
+s.connect(os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/'), display))
+s.sendall(struct.pack('<IHHI', 1, 1, 12, 2) + struct.pack('<IHHI', 1, 0, 12, 3))
+data = b''
+while True:
+    while len(data) < 8 or len(data) < struct.unpack_from('<IHH', data)[2]:
+        chunk = s.recv(65536)
+        if not chunk:
+            sys.exit('compositor closed the connection')
+        data += chunk
+    sender, opcode, size = struct.unpack_from('<IHH', data)
+    body, data = data[8:size], data[size:]
+    if sender == 1 and opcode == 0:
+        sys.exit('wl_display.error')
+    if sender == 2 and opcode == 0:
+        name, length = struct.unpack_from('<II', body)
+        interface = body[8:8 + length - 1].decode()
+        version = struct.unpack_from('<I', body, 8 + (length + 3) // 4 * 4)[0]
+        print(f"interface: '{interface}', version: {version}, name: {name}")
+    if sender == 3 and opcode == 0:
+        break
+'''
+# The command that lists the globals and its package, by distribution. Azure Linux 4.0
+# packages no wayland-utils, so the probe lists them with the machine's Python.
+WAYLAND_INFO = {'azure': (None, ['python3', '-c', WAYLAND_GLOBALS])}
+DEFAULT_WAYLAND_INFO = ('wayland-utils', ['wayland-info'])
 ARGV = ['plain', 'with space', "single'quote", 'double"quote', '$HOME', '${HOME}', '$$', '%h', '%%', '*', '',
         'new\nline', 'tab\there', 'ünïcødé', '--flag', ';', '|', '&&', '\\backslash']
 SIGNALS = {'TERM': 143, 'INT': 130, 'HUP': 129, 'PIPE': 141, 'KILL': 137, 'SEGV': 139}
@@ -250,14 +283,16 @@ def check_system(p, name, machine):
 def check_packages(p, name, machine):
     family = machine['family']
     package, command = GUI_APP.get(machine['distribution'], DEFAULT_GUI_APP)
+    info_package, info = WAYLAND_INFO.get(machine['distribution'], DEFAULT_WAYLAND_INFO)
     began = time.monotonic()
-    r = p.m(name, 'sudo', '-n', *INSTALL[family](WORKLOAD + [package] + EXTRA.get(family, [])), timeout=1200)
+    packages = WORKLOAD + ([info_package] if info_package else []) + [package] + EXTRA.get(family, [])
+    r = p.m(name, 'sudo', '-n', *INSTALL[family](packages), timeout=1200)
     install = round(time.monotonic() - began, 1)
-    present = p.m(name, 'sh', '-c', f'for c in python3 jq podman wayland-info {command[0]}; do command -v $c >/dev/null && echo $c; done').text.split()
+    present = p.m(name, 'sh', '-c', f'for c in python3 jq podman {info[0]} {command[0]}; do command -v $c >/dev/null && echo $c; done').text.split()
     removed = p.m(name, 'sudo', '-n', *REMOVE[family], timeout=600)
     gone = p.m(name, 'sh', '-c', 'command -v jq').returncode != 0
     sudo = p.m(name, 'sudo', '-n', 'id', '-u')
-    return {'pass': r.returncode == 0 and set(present) >= {'python3', 'jq', 'podman', 'wayland-info'} and removed.returncode == 0 and gone and sudo.text == '0',
+    return {'pass': r.returncode == 0 and set(present) >= {'python3', 'jq', 'podman', info[0]} and removed.returncode == 0 and gone and sudo.text == '0',
             'install_seconds': install, 'present': present, 'install_error': tail(r.err) if r.returncode else '', 'sudo': sudo.text}
 
 
@@ -508,7 +543,7 @@ def desktop_env(p, name, variable):
 def check_gui(p, name, machine):
     """A window through the machine's persistent desktop session."""
     display = desktop_env(p, name, 'WAYLAND_DISPLAY')
-    info = p.m(name, 'wayland-info', timeout=60)
+    info = p.m(name, *WAYLAND_INFO.get(machine['distribution'], DEFAULT_WAYLAND_INFO)[1], timeout=60)
     interfaces = sorted({line.split("'")[1] for line in info.text.splitlines() if "interface: '" in line})
     # Chromium, Electron and Qt pick Wayland by the session type; logind keeps the background class.
     session = p.m(name, 'sh', '-c', 'printf "%s/%s " "$XDG_SESSION_TYPE" "$XDG_SESSION_CLASS"; '

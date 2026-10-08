@@ -1,0 +1,5 @@
+#!/bin/sh
+# What the recipes do for every other distribution: machines bind the VM's
+# resolver at /run/systemd/resolve.
+set -eu
+ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
