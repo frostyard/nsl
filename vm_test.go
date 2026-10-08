@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -85,55 +87,151 @@ func TestInGroupRestoresThePrimaryGroupWithEitherTool(t *testing.T) {
 	}
 }
 
-func TestDoctorChecksTheFirmwareLaunchSelects(t *testing.T) {
-	const describe = `{"description":"UEFI firmware for x86_64, without Secure Boot","mapping":{"device":"flash","executable":{"filename":"/usr/share/OVMF/OVMF_CODE_4M.fd","format":"raw"}}}`
-	const missing = "MISSING UEFI firmware (vmspawn found no x86_64 firmware without Secure Boot; install ovmf)\n"
+func TestDoctorChecksSystemdAndTheFirmwareLaunchSelects(t *testing.T) {
+	dir := t.TempDir()
+	base := `{"description":"UEFI firmware","interface-types":["uefi"],"mapping":{"device":"flash","executable":{"filename":"/fw/NAME.fd","format":"raw"},"nvram-template":{"filename":"/fw/VARS.fd","format":"raw"}},"targets":[{"architecture":"x86_64","machines":["pc-i440fx-*","pc-q35-*"]}],"features":["acpi-s3"],"tags":[]}`
+	// descriptor writes a firmware descriptor, replacing pairs of strings in base.
+	descriptor := func(name string, replace ...string) string {
+		body := strings.ReplaceAll(base, "NAME", name)
+		for i := 0; i+1 < len(replace); i += 2 {
+			body = strings.Replace(body, replace[i], replace[i+1], 1)
+		}
+		path := filepath.Join(dir, name+".json")
+		if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	list := func(paths ...string) string { return strings.Join(paths, "\n") + "\n" }
+	enrolled := descriptor("enrolled", `"acpi-s3"`, `"acpi-s3","enrolled-keys","secure-boot"`)
+	secure := descriptor("secure", `"acpi-s3"`, `"acpi-s3","secure-boot"`)
+	unusable := list(enrolled, secure,
+		descriptor("bios", `"uefi"`, `"bios"`),
+		descriptor("arm", `"x86_64"`, `"aarch64"`),
+		descriptor("i440fx", `,"pc-q35-*"`, ``),
+		descriptor("stateless", `,"nvram-template":{"filename":"/fw/VARS.fd","format":"raw"}`, ``),
+		descriptor("truncated", `"tags":[]}`, ``),
+		filepath.Join(dir, "absent.json"))
+	plain := descriptor("plain")
+	const current = "systemd 262 (262-1)"
+	const missing = "MISSING UEFI firmware (vmspawn lists no x86-64 UEFI firmware without Secure Boot; install ovmf)\n"
 	for _, c := range []struct {
-		name      string
-		vmspawn   bool
-		firmware  string
-		want, not string
+		name              string
+		vmspawn           bool
+		version, firmware string
+		want, not         []string
 	}{
-		{"present", true, describe, "OK /usr/share/OVMF/OVMF_CODE_4M.fd\n", missing},
-		{"missing", true, "", missing, "OK /usr/share/OVMF"},
-		{"no vmspawn", false, describe, "MISSING systemd-vmspawn\n", "UEFI"}, // nothing to ask
+		{"first launchable", true, current, unusable + list(plain, descriptor("later")), []string{"OK systemd 262\n", "OK /fw/plain.fd\n"}, []string{"UEFI", "later"}},
+		{"secure boot only", true, current, list(enrolled, secure), []string{missing}, []string{"OK /fw"}},
+		{"no firmware", true, current, "", []string{missing}, []string{"OK /fw"}},
+		{"systemd 259", true, "systemd 259 (259.9-1.fc44)", list(plain), []string{"OK systemd 259\n", "OK /fw/plain.fd\n"}, nil},
+		{"systemd 258", true, "systemd 258 (258.1-1.fc43)", list(plain), []string{"MISSING systemd 259 or newer (systemd-vmspawn is from systemd 258)\n", "OK /fw/plain.fd\n"}, []string{"OK systemd"}},
+		{"release candidate", true, "systemd 262~rc3 (262~rc3-1.fc45)", list(plain), []string{"OK systemd 262\n"}, nil},
+		{"unknown version", true, "vmspawn 1.0", list(plain), []string{`MISSING systemd 259 or newer (unexpected systemd-vmspawn version "vmspawn 1.0")`}, []string{"OK systemd"}},
+		{"no vmspawn", false, current, list(plain), []string{"MISSING systemd-vmspawn\n"}, []string{"UEFI", "OK systemd", "OK /fw"}}, // nothing to ask
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			a, f := testApp(t)
 			var out bytes.Buffer
-			a.out, f.firmware = &out, c.firmware
-			dir := t.TempDir()
+			a.out, f.vmspawnVersion, f.firmware = &out, c.version, c.firmware
+			bin := t.TempDir()
 			if c.vmspawn {
-				if err := os.WriteFile(filepath.Join(dir, "systemd-vmspawn"), nil, 0755); err != nil {
+				if err := os.WriteFile(filepath.Join(bin, "systemd-vmspawn"), nil, 0755); err != nil {
 					t.Fatal(err)
 				}
 			}
-			t.Setenv("PATH", dir)
+			t.Setenv("PATH", bin)
 			// The other host checks pass; only vmspawn answers from the fake.
 			f.blocking = func(ctx context.Context, bin string, args []string) (bool, error) {
 				return bin != "systemd-vmspawn" && bin != "getent" && bin != "id", nil
 			}
 			// The test PATH lacks the other tools, so doctor fails in every case;
-			// the firmware line is what differs.
+			// the systemd and firmware lines are what differ.
 			if err := a.doctor(); err == nil {
 				t.Fatal("doctor passed without its tools")
 			}
-			if !strings.Contains(out.String(), c.want) || strings.Contains(out.String(), c.not) {
-				t.Fatalf("doctor printed:\n%s", out.String())
-			}
-			describes := 0
-			for _, call := range f.calls {
-				if call.Bin == "systemd-vmspawn" {
-					describes++
-					if !slices.Equal(call.Args, []string{"--firmware=describe", "--secure-boot=no"}) {
-						t.Fatalf("vmspawn ran with %q", call.Args)
-					}
+			for _, want := range c.want {
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("want %q in:\n%s", want, out.String())
 				}
 			}
-			if (describes == 1) != c.vmspawn {
-				t.Fatalf("vmspawn described firmware %d times", describes)
+			for _, not := range c.not {
+				if strings.Contains(out.String(), not) {
+					t.Fatalf("unexpected %q in:\n%s", not, out.String())
+				}
+			}
+			var asked [][]string
+			for _, call := range f.calls {
+				if call.Bin == "systemd-vmspawn" {
+					asked = append(asked, call.Args)
+				}
+			}
+			if want := [][]string{{"--version"}, {"--firmware=list"}}; c.vmspawn != slices.EqualFunc(asked, want, slices.Equal) || (!c.vmspawn && len(asked) != 0) {
+				t.Fatalf("vmspawn ran with %q", asked)
 			}
 		})
+	}
+}
+
+func TestLaunchRefusesAnOldSystemdBeforeChangingState(t *testing.T) {
+	a, f := testApp(t)
+	image, digest := localImage(t, "vm image")
+	if err := a.execute([]string{"update", "--image", image, "--digest", digest}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := a.loadVM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.vmspawnVersion = "systemd 258 (258.1-1.fc43)"
+	err = a.launchVM(v, "inactive", true)
+	if err == nil || err.Error() != "missing VM prerequisite: systemd 259 or newer (systemd-vmspawn is from systemd 258)" {
+		t.Fatal(err)
+	}
+	if f.ran("systemd-run") != 0 {
+		t.Fatal("launched the VM")
+	}
+	if _, err := os.Lstat(filepath.Join(v.dir, "root.raw")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("made a root:", err)
+	}
+}
+
+func TestRootCopySkipsTheImagesHolesAndZeros(t *testing.T) {
+	dir := t.TempDir()
+	image := filepath.Join(dir, "image.raw")
+	f, err := os.Create(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Data, 32 MiB of written zeros, a hole, data, and a trailing hole.
+	f.WriteAt([]byte("first"), 0)
+	f.WriteAt(make([]byte, 32<<20), 4096)
+	f.WriteAt([]byte("second"), 64<<20+100)
+	f.Truncate(128 << 20)
+	f.Close()
+	root := filepath.Join(dir, "root.raw")
+	if err = copyRoot(image, root); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(image)
+	got, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer got.Close()
+	copied := make([]byte, len(b))
+	if _, err = io.ReadFull(got, copied); err != nil || !bytes.Equal(copied, b) {
+		t.Fatal("the root differs from the image", err)
+	}
+	st, _ := got.Stat()
+	if st.Size() != rootGiB*gib || st.Mode().Perm() != 0600 {
+		t.Fatal(st.Size(), st.Mode())
+	}
+	if allocated := st.Sys().(*syscall.Stat_t).Blocks * 512; allocated > 16<<20 {
+		t.Fatalf("the root allocates %d bytes; it copied the image's holes or zeros", allocated)
+	}
+	if err = copyRoot(image, root); !errors.Is(err, os.ErrExist) {
+		t.Fatal("replaced an existing file:", err)
 	}
 }
 

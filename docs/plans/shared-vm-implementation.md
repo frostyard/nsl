@@ -458,6 +458,37 @@ and `nsl_linux_arm64.tar.gz` with `checksums.txt`, and a cask whose URLs keep
 the tag and pin each archive's SHA256. The guide's URLs resolve from the first
 release after this change.
 
+**systemd 259 floor, 2026-10-08 ([#54](https://github.com/frostyard/nsl/issues/54)):**
+launch now passes only flags vmspawn 259 accepts, and both VM disks are raw
+([ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md)). Doctor and launch
+refuse an older vmspawn; doctor then checks the firmware through
+`--firmware=list`. `probe-vm.py` passed all nine checks on VM image r10
+(`sha256:9c3d68d7a1b963a6a482adee846b71282da1f721458f11de1db9ca295f42ea7a`,
+`build/image/evidence/r10-raw-disks-probe.json`) with raw disks and without
+`--user`: a 9.5 s first boot, and refusal and binding failing readiness in 9.1
+and 10.6 s. Host: kernel 7.2.8+deb14-amd64, systemd 262 (262-1), QEMU 10.0.13,
+virtiofsd 1.13.2. `probe-machines.py --isolated`, with Debian r5 and Fedora 44
+r4 machines and an isolated Debian r5 machine
+(`build/image/evidence/r10-raw-disks-machines.json`), passed every check but
+one item: Fedora's tally could not reinstall `tzdata`, because the cached r4
+image's version has left Fedora's repositories; its time zone link was correct.
+Doctor chose `/usr/share/OVMF/OVMF_CODE_4M.fd`, as vmspawn 262's
+`--firmware=describe --secure-boot=no` does. `make ci` and `make site` passed.
+
+Root cost on the same host's NVMe btrfs, with the image in page cache: cloning
+the 2.9 GB image took 130 µs. The copy used without shared extents, which
+skips holes and zero blocks, took 0.34–0.39 s and allocated 965 MB; writing
+every block took 0.7 s and 2.7 GB. No ext4 filesystem was available; the
+Ubuntu 26.04 run below measures it.
+
+Still required before a release documents 259 as supported: on Fedora 44
+(systemd 259.9), `probe-vm.py` and `probe-machines.py --isolated` must pass,
+covering virtiofs shares, the read-only image cache, `update`, `recover`,
+`resize` and an isolated machine. vmspawn 259 starts virtiofsd through
+`systemd-socket-activate` instead of in a namespace, which no run has covered
+yet. An Ubuntu 26.04 run on ext4 should record `recover`'s time for the shared
+VM and for an isolated machine.
+
 ## Requirements carried from the experiment
 
 Each item was found by a failing check and must not regress.

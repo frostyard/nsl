@@ -10,9 +10,9 @@ nsl is a single binary that runs as your user. You'll need an x86-64 Linux host 
 
 | Requirement                                                                                        | Used for                                              |
 | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `systemd-vmspawn`, `systemd-run`, `systemctl` and a user systemd manager                           | Running each VM as a user unit                        |
-| QEMU (`qemu-system-x86_64`, `qemu-img`) with KVM                                                   | The VM and its disks                                  |
-| UEFI firmware without Secure Boot, with a QEMU firmware descriptor (Debian's `ovmf`)               | Booting the VM                                        |
+| systemd 259 or newer: `systemd-vmspawn`, `systemd-run`, `systemctl` and a user systemd manager     | Running each VM as a user unit                        |
+| QEMU (`qemu-system-x86_64`) with KVM                                                               | The VM                                                |
+| UEFI firmware without Secure Boot, with a QEMU firmware descriptor (`ovmf`, or Fedora's `edk2-ovmf`) | Booting the VM                                        |
 | virtiofsd at `/usr/libexec/virtiofsd`                                                              | Sharing your files and the image cache with the VM    |
 | OpenSSH (`ssh`, `ssh-keygen`) and `/usr/lib/systemd/systemd-ssh-proxy`                             | Reaching the VM's agent over vsock                    |
 | `sg` or util-linux `newgrp` (on Debian 14, both from `util-linux-extra`), and util-linux `unshare` | Opening the KVM devices through your `kvm` membership |
@@ -102,7 +102,7 @@ OK kvm group membership
 
 For a `MISSING` result, follow [troubleshooting](../reference/limits.md#troubleshooting).
 
-`doctor` prints `OK` or `MISSING` for each tool and for the UEFI firmware systemd-vmspawn would use. It checks device access in your current session, looks up your `kvm` membership in the host account database, then tries KVM and vsock access through that group. It also checks user namespaces and the user systemd manager. A missing VM prerequisite makes it exit with an error.
+`doctor` prints `OK` or `MISSING` for each tool, for the systemd version and for the UEFI firmware systemd-vmspawn would use. Fedora 44 and Ubuntu 26.04 LTS ship systemd 259; Debian 13 ships 257, which is too old. It checks device access in your current session, looks up your `kvm` membership in the host account database, then tries KVM and vsock access through that group. It also checks user namespaces and the user systemd manager. A missing VM prerequisite makes it exit with an error.
 
 Having firmware installed isn't enough on its own. systemd-vmspawn needs a QEMU firmware descriptor in `/usr/share/qemu/firmware` or `/etc/qemu/firmware`; without one, `doctor` reports the firmware as missing. Waypipe is optional, but you'll need it to display machine windows on the host.
 

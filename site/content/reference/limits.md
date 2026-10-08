@@ -19,7 +19,7 @@ description: Known limits of nsl, and what to check when something goes wrong.
 ## Troubleshooting
 
 `nsl doctor` fails
-:   A tool, the UEFI firmware, a device or a permission is missing. Install the tool or firmware with your host's own tools. If doctor reports `MISSING kvm group membership`, ask an administrator to run the displayed command to add you to `kvm`, then retry nsl; no new login is needed. nsl changes none of these itself.
+:   A tool, the UEFI firmware, a device or a permission is missing, or systemd is older than 259. Install the tool or firmware with your host's own tools; `MISSING systemd 259 or newer` needs a newer host release. If doctor reports `MISSING kvm group membership`, ask an administrator to run the displayed command to add you to `kvm`, then retry nsl; no new login is needed. nsl changes none of these itself.
 
 Bare `nsl` fails and lists machines
 :   There is no default machine, for example after removing it. Run `nsl default NAME`, or `nsl -m NAME`.

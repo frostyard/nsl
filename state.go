@@ -413,21 +413,26 @@ func (a *app) prepareVM(v *vmRecord) error {
 	if err := atomicWrite(filepath.Join(v.dir, "ssh.config"), []byte(config), 0600); err != nil {
 		return err
 	}
-	data := filepath.Join(v.dir, "data.qcow2")
+	data := filepath.Join(v.dir, "data.raw")
 	if _, err := os.Lstat(data); errors.Is(err, os.ErrNotExist) {
+		// A sparse raw file, which the VM formats at its first boot.
 		f, err := os.CreateTemp(v.dir, ".data-*")
 		if err != nil {
 			return err
 		}
-		f.Close()
 		defer os.Remove(f.Name())
-		if err = a.call(nil, a.err, "qemu-img", "create", "-q", "-f", "qcow2", f.Name(), fmt.Sprintf("%dG", v.DataGiB)); err != nil {
+		err = f.Truncate(int64(v.DataGiB) * gib)
+		if err == nil {
+			err = f.Sync()
+		}
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
 			return err
 		}
-		if err = os.Chmod(f.Name(), 0600); err != nil {
-			return err
-		}
-		if err = os.Rename(f.Name(), data); err != nil {
+		// Link rather than rename, so an existing disk is never replaced.
+		if err = os.Link(f.Name(), data); err != nil {
 			return err
 		}
 	} else if err != nil {

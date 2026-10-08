@@ -154,33 +154,27 @@ class Probe:
 
     def refusal(self):
         home = self.fresh('refusal')
-        data = home/'vm/data.qcow2'
-        raw = home/'vm/signed.raw'
+        data = home/'vm/data.raw'
         # A Linux swap signature: any existing signature must be refused, and this
         # one needs no formatting tool on an atomic host.
-        with raw.open('wb') as f:
-            f.truncate(128 << 30)
+        with data.open('r+b') as f:
             f.seek(1024)
             f.write((1).to_bytes(4, 'little') + ((128 << 30) // 4096 - 1).to_bytes(4, 'little') + bytes(4) + uuid.uuid4().bytes)
             f.seek(4096 - 10)
             f.write(b'SWAPSPACE2')
-        data.unlink()
-        subprocess.run(['qemu-img', 'convert', '-q', '-f', 'raw', '-O', 'qcow2', str(raw), str(data)], check=True)
-        raw.unlink()
-        data.chmod(0o600)
-        before = hashlib.sha256(data.read_bytes()).hexdigest()
+        before = signature(data)
         began = time.monotonic()
         r = self.cli(home, 'recover', check=False)
         seconds = round(time.monotonic() - began, 2)
         journal = self.unit_journal(home)
         self.cli(home, 'shutdown', check=False)
-        after = hashlib.sha256(data.read_bytes()).hexdigest()
+        after = signature(data)
         self.record('refusal', r.returncode != 0 and before == after and 'refusing to format' in journal,
                     seconds=seconds, error=r.stderr.strip()[-200:], unchanged=before == after)
 
     def binding(self, bound):
         home = self.fresh('binding')
-        shutil.copyfile(bound/'vm/data.qcow2', home/'vm/data.qcow2')
+        sparse_copy(bound/'vm/data.raw', home/'vm/data.raw')
         vm = json.loads((home/'vm/vm.json').read_text())
         vm['data_gib'] = json.loads((bound/'vm/vm.json').read_text())['data_gib']
         (home/'vm/vm.json').write_text(json.dumps(vm))
@@ -190,6 +184,32 @@ class Probe:
         journal = self.unit_journal(home)
         self.cli(home, 'shutdown', check=False)
         self.record('binding', r.returncode != 0 and 'does not match' in journal, seconds=seconds, error=r.stderr.strip()[-200:])
+
+
+def signature(path):
+    """Hash a sparse disk's size and allocated data without reading its holes."""
+    h = hashlib.sha256()
+    with path.open('rb') as f:
+        fd = f.fileno()
+        size = os.fstat(fd).st_size
+        h.update(size.to_bytes(8, 'little'))
+        offset = 0
+        while offset < size:
+            try:
+                start = os.lseek(fd, offset, os.SEEK_DATA)
+            except OSError:  # no data after offset
+                break
+            offset = os.lseek(fd, start, os.SEEK_HOLE)
+            h.update(start.to_bytes(8, 'little'))
+            f.seek(start)
+            for chunk in iter(lambda: f.read(min(1 << 20, offset - f.tell())), b''):
+                h.update(chunk)
+    return h.hexdigest()
+
+
+def sparse_copy(source, target):
+    """Replace target with a copy of a sparse disk, keeping its holes."""
+    subprocess.run(['cp', '--reflink=auto', '--sparse=always', str(source), str(target)], check=True)
 
 
 def version(*argv):

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -12,92 +10,35 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 )
 
-// standaloneDisk checks a qcow2 disk before QEMU opens it: no backing file,
-// encryption, external data or snapshots, and the expected capacity.
-// See https://www.qemu.org/docs/master/interop/qcow2.html.
-func standaloneDisk(path string, diskGiB int) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := make([]byte, 104)
-	if _, err = io.ReadFull(f, h); err != nil {
-		return err
-	}
-	u32 := func(i int) uint32 { return binary.BigEndian.Uint32(h[i : i+4]) }
-	u64 := func(i int) uint64 { return binary.BigEndian.Uint64(h[i : i+8]) }
-	if !bytes.Equal(h[:4], []byte{'Q', 'F', 'I', 0xfb}) || (u32(4) != 2 && u32(4) != 3) {
-		return errors.New("data disk must be qcow2 version 2 or 3")
-	}
-	if u64(8) != 0 || u32(16) != 0 || u32(32) != 0 || u32(60) != 0 {
-		return errors.New("data disk must have no backing file, encryption or internal snapshots")
-	}
-	if u32(20) < 9 || u32(20) > 21 || u64(24) != uint64(int64(diskGiB)*gib) {
-		return errors.New("data disk size or cluster geometry mismatch")
-	}
-	header := uint32(72)
-	if u32(4) == 3 {
-		// Only the compression and extended-L2 feature bits are allowed.
-		if u64(72) & ^uint64(24) != 0 || u64(88)&2 != 0 {
-			return errors.New("data disk is dirty, corrupt or uses unsupported/external data features")
-		}
-		header = u32(100)
-	}
-	cluster := uint32(1) << u32(20)
-	if header < 72 || (u32(4) == 3 && header < 104) || header%8 != 0 || header > cluster-8 {
-		return errors.New("invalid qcow2 header length")
-	}
-	data := make([]byte, cluster)
-	if _, err = f.ReadAt(data, 0); err != nil && err != io.EOF {
-		return err
-	}
-	for off := uint64(header); off+8 <= uint64(cluster); {
-		kind := binary.BigEndian.Uint32(data[off : off+4])
-		size := uint64(binary.BigEndian.Uint32(data[off+4 : off+8]))
-		if kind == 0 {
-			return nil
-		}
-		if kind == 0x44415441 || kind == 0xe2792aca || kind == 0x0537be77 {
-			return errors.New("external disk reference or encryption extension in the data disk")
-		}
-		off += 8 + ((size + 7) &^ uint64(7))
-		if off > uint64(cluster) {
-			return errors.New("invalid qcow2 extension length")
-		}
-	}
-	return errors.New("unterminated qcow2 extensions")
-}
-
+// diskGiB returns a raw disk's capacity in whole GiB.
 func diskGiB(path string) (int, error) {
-	f, err := os.Open(path)
+	st, err := os.Lstat(path)
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
-	var header [32]byte
-	if _, err = io.ReadFull(f, header[:]); err != nil {
-		return 0, err
+	if size := st.Size(); st.Mode().IsRegular() && size >= gib && size <= 4096*gib && size%gib == 0 {
+		return int(size / gib), nil
 	}
-	size := binary.BigEndian.Uint64(header[24:])
-	if string(header[:4]) != "QFI\xfb" || size < uint64(gib) || size > uint64(4096*gib) || size%uint64(gib) != 0 {
-		return 0, errors.New("invalid qcow2 capacity")
-	}
-	return int(size / uint64(gib)), nil
+	return 0, errors.New("invalid data disk capacity")
 }
 
+// checkDataDisk checks the data disk before QEMU opens it: a private regular
+// file with the committed capacity. vmspawn attaches it as raw, so nothing on
+// the disk can make QEMU open another file.
 func (a *app) checkDataDisk(v *vmRecord) error {
-	disk := filepath.Join(v.dir, "data.qcow2")
+	disk := filepath.Join(v.dir, "data.raw")
 	if err := privateFile(disk, a.uid, 0077); err != nil {
 		return err
 	}
-	if err := standaloneDisk(disk, v.DataGiB); err != nil {
-		return err
+	size, err := diskGiB(disk)
+	if err == nil && size != v.DataGiB {
+		err = fmt.Errorf("it has %d GiB, not %d", size, v.DataGiB)
 	}
-	if err := a.call(nil, a.err, "qemu-img", "check", "-q", "-f", "qcow2", disk); err != nil {
+	if err != nil {
 		return fmt.Errorf("data disk check failed; the disk is preserved for inspection: %w", err)
 	}
 	return nil
@@ -169,7 +110,7 @@ func (a *app) finishGrowth(v *vmRecord) error {
 	if err := a.requireStopped(v); err != nil {
 		return err
 	}
-	disk := filepath.Join(v.dir, "data.qcow2")
+	disk := filepath.Join(v.dir, "data.raw")
 	if err := privateFile(disk, a.uid, 0077); err != nil {
 		return err
 	}
@@ -180,29 +121,27 @@ func (a *app) finishGrowth(v *vmRecord) error {
 	if current != v.DataGiB && current != v.ResizeTarget {
 		return errors.New("data disk size differs from both committed and pending capacity; inspect before continuing")
 	}
-	if err = standaloneDisk(disk, current); err != nil {
-		return err
-	}
-	if err = a.call(nil, a.err, "qemu-img", "check", "-q", "-f", "qcow2", disk); err != nil {
-		return err
-	}
-	if current != v.ResizeTarget {
-		if err = a.call(nil, a.err, "qemu-img", "resize", "-q", "-f", "qcow2", disk, fmt.Sprintf("%dG", v.ResizeTarget)); err != nil {
-			return err
-		}
-	}
-	f, err := os.OpenFile(disk, os.O_RDWR, 0)
+	f, err := os.OpenFile(disk, os.O_RDWR|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
-	err = f.Sync()
+	// Extending a raw disk only appends a hole; the VM grows its filesystem.
+	if current != v.ResizeTarget {
+		err = f.Truncate(int64(v.ResizeTarget) * gib)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
 		return err
 	}
-	if err = standaloneDisk(disk, v.ResizeTarget); err != nil {
+	if current, err = diskGiB(disk); err == nil && current != v.ResizeTarget {
+		err = errors.New("the data disk did not reach its pending capacity")
+	}
+	if err != nil {
 		return err
 	}
 	v.DataGiB, v.ResizeTarget = v.ResizeTarget, 0

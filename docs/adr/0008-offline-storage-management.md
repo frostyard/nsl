@@ -22,7 +22,7 @@ Lifecycle commands that waited on a lock reject a replacement ID.
 `resize [NAME] --disk GiB`:
 
 - grows the stopped VM's data disk; shrinking is forbidden;
-- records the pending target before invoking `qemu-img`, then syncs and verifies the disk before committing the new size;
+- records the pending target before extending the disk file, then syncs and verifies the disk before committing the new size;
 - is completed by a repeated `resize` or by `recover`, and VM start refuses pending growth.
 
 The VM grows its filesystem at the next boot ([ADR-0010](0010-explicit-guest-root-growth.md)). The CLI reports virtual capacity separately from filesystem growth.
