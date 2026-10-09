@@ -481,13 +481,24 @@ skips holes and zero blocks, took 0.34–0.39 s and allocated 965 MB; writing
 every block took 0.7 s and 2.7 GB. No ext4 filesystem was available; the
 Ubuntu 26.04 run below measures it.
 
-Still required before a release documents 259 as supported: on Fedora 44
-(systemd 259.9), `probe-vm.py` and `probe-machines.py --isolated` must pass,
-covering virtiofs shares, the read-only image cache, `update`, `recover`,
-`resize` and an isolated machine. vmspawn 259 starts virtiofsd through
-`systemd-socket-activate` instead of in a namespace, which no run has covered
-yet. An Ubuntu 26.04 run on ext4 should record `recover`'s time for the shared
-VM and for an isolated machine.
+Fedora 44 acceptance of `d0cd063`, before the merge
+([review on #55](https://github.com/frostyard/nsl/pull/55)): systemd
+259.9-1.fc44, kernel 7.2.8, btrfs, and Fedora's QEMU and virtiofsd, with VM
+image r10 and Debian trixie machine r5. `make build` and `go test ./...`
+passed; `make ci` was not run. Doctor reported `OK systemd 259` and picked
+`/usr/share/edk2/ovmf/OVMF_CODE_4M.qcow2`. `probe-vm.py` passed all nine
+checks with an 8 s boot, so on 259 virtiofsd starts through
+`systemd-socket-activate` and the named device descriptors reach vmspawn.
+`probe-machines.py --isolated`, with a Debian machine and an isolated one,
+passed every check but `broker` on the shared machine: the host had no
+Waypipe, so `nsl-open` found no desktop session. Both machines kept their state
+across a VM restart. By hand, with a running machine: growing the data disk
+from 128 to 160 GiB kept `data.raw` sparse, and the guest filesystem grew at the
+next start; `recover` made a fresh `root.raw` and kept the data disk, the
+machine, the keys and a marker file; shrinking to 40 GiB was refused.
+
+Still open: an Ubuntu 26.04 run on ext4, which should record `recover`'s time
+for the shared VM and for an isolated machine.
 
 ## Requirements carried from the experiment
 
