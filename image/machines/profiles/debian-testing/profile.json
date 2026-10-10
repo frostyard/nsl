@@ -1,7 +1,7 @@
 {
   "distribution": "debian",
-  "release": "trixie",
+  "release": "testing",
   "architecture": "x86-64",
   "family": "debian",
-  "revision": 6
+  "revision": 2
 }

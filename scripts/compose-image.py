@@ -12,7 +12,7 @@ MACHINE_PROTOCOL = 1
 
 
 # Machine profiles by distribution and release. CLI strings are lookup keys,
-# never path components.
+# never path components. A distribution's first entry is its default release.
 MACHINES = {
     ('debian', 'trixie'): 'debian',
     ('fedora', '44'): 'fedora',
@@ -22,6 +22,9 @@ MACHINES = {
     ('centos', '10'): 'centos',
     ('opensuse', '16.0'): 'opensuse-leap',
     ('azure', '4.0'): 'azurelinux',
+    ('debian', 'testing'): 'debian-testing',
+    ('fedora', 'rawhide'): 'fedora-rawhide',
+    ('ubuntu', 'noble'): 'ubuntu-noble',
 }
 
 

@@ -57,13 +57,13 @@ build/nsl recover
 
 # A machine image, and a machine from it.
 scripts/build-image.sh --role machine --distribution debian
-machine=build/image/share/nsl-machine-debian-trixie-x86-64-r5.tar.zst
+machine=build/image/share/nsl-machine-debian-trixie-x86-64-r6.tar.zst
 build/nsl create debian --image "$machine" --digest "sha256:$(sha256sum "$machine" | cut -d' ' -f1)"
 ```
 
 Each build prints a `Built PATH` line. Use that path for `image` or `machine` if the profile revision differs from these examples.
 
-`--distribution` also takes `ubuntu`, `fedora`, `centos`, `arch`, `opensuse` and `azure`; `--distribution opensuse --release 16.0` builds Leap. The [image build notes ↗](https://github.com/frostyard/nsl/blob/main/image/README.md) describe the layers and the builder.
+`--distribution` also takes `ubuntu`, `fedora`, `centos`, `arch`, `opensuse` and `azure`; `--distribution opensuse --release 16.0` builds Leap, and `--release` also picks Debian `testing`, Fedora `rawhide` and Ubuntu `noble`. The [image build notes ↗](https://github.com/frostyard/nsl/blob/main/image/README.md) describe the layers and the builder.
 
 ## Accept images in disposable VMs
 
