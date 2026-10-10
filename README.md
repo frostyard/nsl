@@ -1,10 +1,10 @@
 <img src="assets/nsl.svg" alt="nsl icon" width="112" align="right">
 
-# nsl — WSL-style Linux machines for atomic Linux
+# nsl — WSL-style Linux machines on a Linux host
 
-**Keep the host atomic. Work in any distro.**
+**Leave the host alone. Work in another distro.**
 
-An atomic Linux host keeps its base system read-only and replaceable. You still need somewhere to `apt install` a project's dependencies, try a toolchain packaged for another distro, or run a service. nsl gives you persistent Linux machines for that work, as WSL does on Windows. Each machine is a whole distro with its own packages and services. It opens in the directory you were in, works on your files, and stops when you stop using it.
+Keep your development tools separate from your Linux host. You may need somewhere to `apt install` a project's dependencies, try a toolchain packaged for another distro, or run a service. nsl gives you persistent Linux machines for that work, as WSL does on Windows. Each machine is a whole distro with its own packages and services. It opens in the directory you were in, works on your files, and stops when you stop using it.
 
 [Create your first machine](https://frostyard.github.io/nsl/getting-started/first-machine/) walks through creation, a login shell, running a command and stopping the VM.
 
