@@ -10,7 +10,7 @@ hide:
 <div class="fy-hero__text" markdown>
 <p class="fy-eyebrow">NSpawn Subsystem for Linux</p>
 
-# Linux development on an atomic host {#keep-the-host-atomic-work-in-any-distro}
+# WSL-like development on a Linux host {#keep-the-host-atomic-work-in-any-distro}
 
 <p class="fy-hero__lede">Install your development tools in a Debian, Fedora or other Linux machine and leave the host alone. nsl works much like WSL: each machine keeps its packages, services and files between sessions. The machines run as systemd-nspawn containers inside a shared VM, start when you need them, and can work in your host files.</p>
 
