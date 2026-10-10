@@ -8,7 +8,7 @@ In an ordinary machine, you can read and write files from three places on the ho
 
 | Host                               | In a machine              |
 | ---------------------------------- | ------------------------- |
-| Your home, such as `/var/home/you` | `/mnt/host/var/home/you`  |
+| Your home, such as `/home/you`     | `/mnt/host/home/you`  |
 | `/run/media/you`                   | `/mnt/host/run/media/you` |
 | `/mnt`                             | `/mnt/host/mnt`           |
 
@@ -16,7 +16,7 @@ Every ordinary machine sees the trees that exist as directories when the shared 
 
 ## Paths and aliases
 
-Translation is a prefix: host path `P` is `/mnt/host/P` in a machine. nsl matches your working directory by device and inode, so symlinked and bind-mounted aliases translate too. On atomic hosts, `/home` is often a link to `/var/home`; the machine gets a matching relative link, `/mnt/host/home → var/home`, so both spellings work.
+Translation is a prefix: host path `P` is `/mnt/host/P` in a machine. nsl matches your working directory by device and inode, so symlinked and bind-mounted aliases translate too. For example, on some atomic hosts, `/home` links to `/var/home`; the machine gets a matching relative link, `/mnt/host/home → var/home`, so both spellings work.
 
 Every machine image includes `nsl-path` for scripts that pass paths between the two sides:
 
