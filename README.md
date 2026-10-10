@@ -12,7 +12,7 @@ An atomic Linux host keeps its base system read-only and replaceable. You still 
 
 ## What you get
 
-- **Eight signed distros.** Debian 13, Ubuntu 26.04 LTS, Fedora 44, CentOS Stream 10, Arch, openSUSE Tumbleweed and Leap 16.0, and the Azure Linux 4.0 beta, rebuilt weekly and verified against the Frostyard publishing workflow before use. [Machine images →](https://frostyard.github.io/nsl/reference/machine-images/)
+- **Eleven signed machine images.** Debian 13, Ubuntu 26.04 LTS and 24.04 LTS, Fedora 44, CentOS Stream 10, Arch, openSUSE Tumbleweed and Leap 16.0, the Debian testing and Fedora Rawhide development branches, and the Azure Linux 4.0 beta, rebuilt weekly and verified against the Frostyard publishing workflow before use. [Machine images →](https://frostyard.github.io/nsl/reference/machine-images/)
 - **Your files and your account.** Your home, removable media and `/mnt` appear at `/mnt/host`, and you have your own username, UID and GID with passwordless `sudo`. [Host files →](https://frostyard.github.io/nsl/guides/host-files/)
 - **Ports and windows on the host.** A server in a machine is reachable at the same port on host `127.0.0.1`, and Wayland applications open windows on your desktop. [Ports →](https://frostyard.github.io/nsl/guides/ports/) · [Desktop applications →](https://frostyard.github.io/nsl/guides/desktop/)
 - **Your editor.** `nsl ssh-config` gives VS Code or any SSH client a host alias for a machine. [Editors over SSH →](https://frostyard.github.io/nsl/guides/editors/)

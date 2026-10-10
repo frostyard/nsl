@@ -41,4 +41,4 @@ Azure Linux 4.0 is a beta. Microsoft publishes it only under `packages.microsoft
 ## References
 
 - Implements: [machine images](../specs/machine-images.md), [image publication](../design/image-publication.md), [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md).
-- Follows: [Ubuntu, CentOS Stream and openSUSE Leap machine images](more-machine-images.md).
+- Follows: [Ubuntu, CentOS Stream and openSUSE Leap machine images](more-machine-images.md). Followed by: [Debian testing, Fedora Rawhide and Ubuntu 24.04](more-releases.md).

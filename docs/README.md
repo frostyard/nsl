@@ -57,6 +57,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 - [Machines in a shared VM](plans/shared-vm-implementation.md) — implementation of ADR-0016 and ADR-0017; start here for new work.
 - [Ubuntu, CentOS Stream and openSUSE Leap machine images](plans/more-machine-images.md) — three more machine images, accepted and published.
 - [Azure Linux 4.0 machine image](plans/azure-linux.md) — Microsoft's Fedora-based beta in the rpm family.
+- [Debian testing, Fedora Rawhide and Ubuntu 24.04 machine images](plans/more-releases.md) — two development branches and the previous Ubuntu LTS.
 - [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; evidence for ADR-0017.
 - [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — deferred until cloud-init is re-validated in machines.
 

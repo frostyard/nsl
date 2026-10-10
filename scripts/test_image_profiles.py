@@ -24,9 +24,14 @@ def agent(directory, content=b'\x7fELF agent'):
 class VMImage(unittest.TestCase):
     def test_unsupported_inputs_are_rejected(self):
         for args in [('machine',), ('../vm',), ('vm', 'debian'), ('vm', None, 'trixie'), ('vm', None, None, 'arm64'),
-                     ('machine', 'gentoo'), ('machine', 'debian', 'bookworm'), ('machine', 'ubuntu', 'noble'), ('machine', '../vm')]:
+                     ('machine', 'gentoo'), ('machine', 'debian', 'bookworm'), ('machine', 'ubuntu', 'jammy'), ('machine', 'fedora', '43'), ('machine', 'debian', 'sid'), ('machine', '../vm')]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 compose.select(ROOT, *args)
+
+    def test_default_release_is_the_stable_one(self):
+        for distribution, release in [('debian', 'trixie'), ('fedora', '44'), ('ubuntu', 'resolute'), ('opensuse', 'tumbleweed')]:
+            with self.subTest(distribution=distribution):
+                self.assertEqual(compose.select(ROOT, 'machine', distribution)['release'], release)
 
     def test_builder_rejects_unsupported_options_before_tools(self):
         for args in [(), ('--role', 'machine'), ('--distribution', 'debian'), ('--release', 'trixie'), ('--role', 'vm', '--distribution', 'debian'),
@@ -101,7 +106,8 @@ class VMImage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for distribution, release, family in [('debian', 'trixie', 'debian'), ('ubuntu', 'resolute', 'debian'), ('fedora', '44', 'rpm'),
                                                   ('centos', '10', 'rpm'), ('arch', 'rolling', 'arch'), ('opensuse', 'tumbleweed', 'suse'),
-                                                  ('opensuse', '16.0', 'suse'), ('azure', '4.0', 'rpm')]:
+                                                  ('opensuse', '16.0', 'suse'), ('azure', '4.0', 'rpm'), ('debian', 'testing', 'debian'),
+                                                  ('fedora', 'rawhide', 'rpm'), ('ubuntu', 'noble', 'debian')]:
                 destination = Path(tmp)/f'{distribution}-{release}'
                 profile = compose.select(ROOT, 'machine', distribution, release)
                 name = compose.compose(ROOT, destination, profile, 'recipes-pin', 'mkosi-pin')
@@ -123,6 +129,8 @@ class VMImage(unittest.TestCase):
                 self.assertEqual((destination/'mkosi.tools.conf').is_file(), distribution != 'debian')
                 self.assertEqual(config.rsplit('ToolsTree=', 1)[1].split()[0], 'no' if distribution == 'debian' else 'default')
             self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch-rolling/mkosi.local.conf').read_text())
+            # Rawhide changes signing keys at each branch point, so the build fetches the current one.
+            self.assertIn('RepositoryKeyFetch=yes', (Path(tmp)/'fedora-rawhide/mkosi.local.conf').read_text())
             # Azure Linux 4.0 builds from its beta repository and keeps the signed repository package, not the dev feed.
             azure = (Path(tmp)/'azure-4.0/mkosi.local.conf').read_text()
             self.assertIn('LocalMirror=https://packages.microsoft.com/azurelinux/4.0/beta/base/x86_64/', azure)

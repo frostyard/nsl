@@ -9,8 +9,11 @@ Choose from the machine images below, rebuilt by Frostyard at least weekly. Run 
 | Distro | Selectors | Family |
 | --- | --- | --- |
 | Debian 13 | `debian:13`, `debian:trixie` | debian |
+| Debian testing | `debian:testing` | debian |
 | Ubuntu 26.04 LTS | `ubuntu:26.04`, `ubuntu:resolute` | debian |
+| Ubuntu 24.04 LTS | `ubuntu:24.04`, `ubuntu:noble` | debian |
 | Fedora 44 | `fedora:44` | rpm |
+| Fedora Rawhide | `fedora:rawhide` | rpm |
 | CentOS Stream 10 | `centos:10`, `centos-stream:10` | rpm |
 | Arch Linux | `arch:rolling`, `arch:btw` | arch |
 | openSUSE Tumbleweed | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | suse |
@@ -34,6 +37,8 @@ All images are x86-64. A new distro or release has to pass the same acceptance t
 
 ## Distro notes
 
+- **Debian testing** and **Fedora Rawhide** are development branches. Each week's image is the branch as it was that week, and upgrading packages in your machine keeps it on the branch, so expect the occasional breakage. A Debian testing machine stays on testing after forky is released.
+- **Ubuntu 24.04 LTS** ships systemd 255 and Podman 4.9, older than the other images.
 - **CentOS Stream 10** enables EPEL, and adds GLES libraries so GTK 4 applications render.
 - **Arch Linux** initializes and populates its pacman keyring on the machine's first boot.
 - **openSUSE** images add `glibc-locale-base` for `C.UTF-8`.

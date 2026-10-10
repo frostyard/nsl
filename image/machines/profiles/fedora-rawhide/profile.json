@@ -1,0 +1,7 @@
+{
+  "distribution": "fedora",
+  "release": "rawhide",
+  "architecture": "x86-64",
+  "family": "rpm",
+  "revision": 1
+}

@@ -14,9 +14,12 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 
 | Selectors | Family | Adapter |
 | --- | --- | --- |
-| `debian:trixie`, `debian:13` | `debian` | `libpam-systemd`, `dbus-user-session`, `tzdata`; native Debian build tools. |
+| `debian:trixie`, `debian:13` | `debian` | `libpam-systemd`, `dbus-user-session`, `tzdata`, and `mount`, which systemd 262 only recommends; native Debian build tools. |
+| `debian:testing` | `debian` | A development branch: the image's apt sources name `testing`, so machines follow it past each release. Its os-release has no `VERSION_ID`, so `os_version` is `rolling`. Native Debian build tools. |
 | `ubuntu:resolute`, `ubuntu:26.04` | `debian` | The Debian family's packages; Fedora 44 tools tree, which carries the Ubuntu archive keyring. |
+| `ubuntu:noble`, `ubuntu:24.04` | `debian` | The Debian family's packages; Fedora 44 tools tree. Its systemd 255 is older than the VM's. |
 | `fedora:44` | `rpm` | `systemd-pam`, `shadow-utils`, `tzdata`; Fedora 44 tools tree. |
+| `fedora:rawhide` | `rpm` | A development branch. Rawhide moves to the next release's signing key at each branch point, so the build fetches the current key rather than trusting the tools tree's. Fedora 44 tools tree. |
 | `centos:10`, `centos-stream:10` | `rpm` | The rpm family's packages, and `libglvnd-gles`: GTK 4 renders through GLES, and CentOS Stream 10's `gtk4` does not require it. It brings Mesa and LLVM, about 60 MB compressed. The recipe adds EPEL, which stays enabled in the machine. Fedora 44 tools tree. |
 | `arch:rolling`, `arch:btw` | `arch` | No `/etc/pacman.d/gnupg` in the image: the recipe's keyring, with its master private key, is deleted after the recipe's own scripts run. `nsl-pacman-keyring.service` runs `pacman-key --init` and `--populate` on first boot. Fedora 44 tools tree. |
 | `opensuse:tumbleweed`, `opensuse-tumbleweed:rolling` | `suse` | `shadow`, `timezone`, and `glibc-locale-base` for `C.UTF-8`; openSUSE Tumbleweed tools tree. |
@@ -25,7 +28,7 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 
 Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
-Other distros and releases join after they pass acceptance ([plan](../plans/more-machine-images.md), [Azure Linux](../plans/azure-linux.md)).
+Other distros and releases join after they pass acceptance ([plan](../plans/more-machine-images.md), [Azure Linux](../plans/azure-linux.md), [more releases](../plans/more-releases.md)).
 
 ### Machine layer
 

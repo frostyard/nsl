@@ -1,7 +1,7 @@
 {
   "distribution": "ubuntu",
-  "release": "resolute",
+  "release": "noble",
   "architecture": "x86-64",
   "family": "debian",
-  "revision": 3
+  "revision": 2
 }
