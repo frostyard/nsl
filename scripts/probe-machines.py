@@ -231,6 +231,24 @@ def check_entry(p, name, machine):
     return out
 
 
+def machine_id_tally(tree_id, reads):
+    """The image tree has no machine ID, and every machine read its own: 32 characters, shared by no other.
+
+    A failed read or a shared ID names the machines, so evidence shows which half failed. Machine
+    IDs are confidential; the evidence records a read's output only when it is no ID.
+    """
+    failed = {n: {'returncode': r.returncode, 'length': len(r.text), 'output': '' if len(r.text) == 32 else r.text[:64],
+                  'stderr': tail(r.err, 200), 'seconds': r.seconds}
+              for n, r in reads.items() if r.returncode or len(r.text) != 32}
+    holders = {}
+    for n, r in reads.items():
+        if n not in failed:
+            holders.setdefault(r.text, []).append(n)
+    shared = sorted(sorted(names) for names in holders.values() if len(names) > 1)
+    return {'pass': tree_id in ('', 'uninitialized') and not failed and not shared,
+            'image': tree_id, 'machines': len(reads), 'failed_reads': failed, 'shared': shared}
+
+
 def check_tally(p, name, machine, image):
     """What the hub images needed fixing at creation must not recur."""
     listing = subprocess.run(['tar', '--zstd', '-tf', str(image)], capture_output=True, text=True).stdout.splitlines()
@@ -245,9 +263,7 @@ def check_tally(p, name, machine, image):
     states = {fields[0]: fields[1] for fields in map(str.split, listed.splitlines()) if len(fields) > 1}
     out['network'] = {'pass': {'systemd-networkd.service', 'systemd-resolved.service'} <= set(states)
                       and all(state == 'masked' for state in states.values()), 'states': states}
-    ids = {n: p.m(n, 'cat', '/etc/machine-id').text for n in p.machines}
-    out['machine_id'] = {'pass': tree_id in ('', 'uninitialized') and len(set(ids.values())) == len(ids) and all(len(v) == 32 for v in ids.values()),
-                         'image': tree_id, 'distinct_across_machines': len(set(ids.values())) == len(ids)}
+    out['machine_id'] = machine_id_tally(tree_id, {n: p.m(n, 'cat', '/etc/machine-id') for n in p.machines})
     keys = [e for e in listing if re.search(r'etc/ssh/ssh_host_.*key', e)]
     sshd = p.m(name, 'sh', '-c', 'systemctl is-enabled ssh.service sshd.service ssh.socket sshd.socket 2>/dev/null').text.split()
     out['ssh'] = {'pass': not keys and 'enabled' not in sshd, 'image_host_keys': keys, 'units': sshd}
