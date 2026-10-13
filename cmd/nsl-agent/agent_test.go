@@ -303,6 +303,11 @@ func TestRun(t *testing.T) {
 	if spec = ta.sys.manager.started[1]; spec.User != "root" || spec.PAM || spec.Directory != "/srv" || spec.SearchPath[0] != "/root/.local/bin" {
 		t.Fatalf("%+v", spec)
 	}
+	// A unit that ends without forking the command is an agent error, never a silent 255.
+	ta.sys.manager.code, ta.sys.manager.status = 0, 0
+	if status := ta.serve(request(t, run)); status != 255 || !strings.Contains(ta.errors(), "nsl-agent: failed: printf did not start") {
+		t.Fatal(status, ta.errors())
+	}
 }
 
 func TestRemove(t *testing.T) {

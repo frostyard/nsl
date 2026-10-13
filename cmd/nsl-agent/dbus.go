@@ -268,7 +268,21 @@ func (m *dbusManager) unit(unit string) (dbus.BusObject, error) {
 	return m.conn.Object(systemdName, path), nil
 }
 
+// unitJob is a unit's Job property, (uo): ID 0 when no job is pending.
+type unitJob struct {
+	ID   uint32
+	Path dbus.ObjectPath
+}
+
+// finished reports whether a run unit is done. A queued start job leaves the
+// unit inactive, and systemd answers D-Bus calls before it runs its job queue,
+// so inactive means done only once no job is pending, as for systemd-run.
+func finished(active, sub string, job uint32) bool {
+	return job == 0 && (active == "failed" || active == "inactive" || (active == "active" && sub == "exited"))
+}
+
 // Wait returns the main process's ExecMainCode and ExecMainStatus once it exits.
+// ExecMainCode 0 means the unit ended without running its command.
 func (m *dbusManager) Wait(ctx context.Context, unit string) (int32, int32, error) {
 	obj, err := m.unit(unit)
 	if err != nil {
@@ -285,6 +299,15 @@ func (m *dbusManager) Wait(ctx context.Context, unit string) (int32, int32, erro
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {
+		// The job first: once the start job is gone, a later inactive state is final.
+		v, err := obj.GetProperty("org.freedesktop.systemd1.Unit.Job")
+		if err != nil {
+			return 0, 0, err
+		}
+		var job unitJob
+		if err = v.Store(&job); err != nil {
+			return 0, 0, fmt.Errorf("reading the job of %s: %w", unit, err)
+		}
 		active, err := obj.GetProperty("org.freedesktop.systemd1.Unit.ActiveState")
 		if err != nil {
 			return 0, 0, err
@@ -293,7 +316,7 @@ func (m *dbusManager) Wait(ctx context.Context, unit string) (int32, int32, erro
 		if err != nil {
 			return 0, 0, err
 		}
-		if a, s := active.Value().(string), sub.Value().(string); a == "failed" || a == "inactive" || (a == "active" && s == "exited") {
+		if a, s := active.Value().(string), sub.Value().(string); finished(a, s, job.ID) {
 			var code, status int32
 			if v, err := obj.GetProperty("org.freedesktop.systemd1.Service.ExecMainCode"); err == nil {
 				code, _ = v.Value().(int32)

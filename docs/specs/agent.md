@@ -73,14 +73,14 @@ The agent starts a transient service named `nsl-run-` followed by 32 random hex 
 - **Streams without a PTY:** the agent passes its own stdin, stdout and stderr to the unit as file descriptors. It copies no bytes, so binary data and separate streams survive.
 - **PTY:** the agent opens a PTY in the machine through machined's `OpenMachinePTY` and runs the unit on it. It copies bytes between its stdio and the PTY unchanged. It adds no terminal-title or color sequences; OSC 3008 context sequences from the machine pass. The PTY takes the session terminal's size at start and follows its changes. Ctrl-C reaches the command through the PTY's line discipline.
 - **Lifetime:** the unit has `RemainAfterExit=yes`, so its result stays readable until the agent collects it by stopping and resetting the unit. If the SSH session ends first, the agent stops the unit, delivering SIGTERM and SIGHUP and then SIGKILL after 10 s. Commands see SIGPIPE as they would in a shell (`IgnoreSIGPIPE=no`).
-- **Exit status:** read from `ExecMainCode` and `ExecMainStatus`:
+- **Exit status:** read from `ExecMainCode` and `ExecMainStatus` once the unit is inactive, failed or exited and has no pending job. A unit whose start job is still queued is inactive too, and systemd answers D-Bus calls before it runs queued jobs.
 
 | Outcome | Exit status |
 | --- | --- |
 | The command exited with status N | N |
 | The command was killed by signal N, with or without a core dump | 128 + N |
 | systemd could not start the command, for example `200/CHDIR`, `203/EXEC`, `217/USER` or `224/PAM` | systemd's status, and the agent SHOULD name the step on stderr |
-| The agent refused or failed before starting the command | 255, with an error line on stderr |
+| The agent refused or failed before starting the command, or the unit ended without running it (`ExecMainCode` 0) | 255, with an error line on stderr |
 
 A running `nsl-run-*` unit whose command has not exited is an nsl command session for idle accounting.
 

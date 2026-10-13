@@ -51,7 +51,7 @@ source build/poc/env.sh
 
 # The VM image.
 scripts/build-image.sh --role vm
-image=build/image/share/nsl-vm-trixie-x86-64-r10.raw
+image=build/image/share/nsl-vm-trixie-x86-64-r11.raw
 build/nsl update --image "$image" --digest "sha256:$(sha256sum "$image" | cut -d' ' -f1)"
 build/nsl recover
 

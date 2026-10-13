@@ -206,7 +206,7 @@ Rules:
 {
   "catalogue": {"sequence": 14, "expires": "2026-11-04T13:09:26Z"},
   "images": [
-    {"kind": "vm", "selectors": [], "build": "nsl-vm-trixie-x86-64-r10", "manifest": "sha256:…", "cached": false},
+    {"kind": "vm", "selectors": [], "build": "nsl-vm-trixie-x86-64-r11", "manifest": "sha256:…", "cached": false},
     {"kind": "machine", "selectors": ["debian:trixie", "debian:13"], "build": "nsl-machine-debian-trixie-x86-64-r4",
      "manifest": "sha256:…", "cached": true}
   ],
