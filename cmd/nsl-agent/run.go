@@ -98,6 +98,10 @@ func (a *agent) runUnit(name string, spec unitSpec, tty bool) (int, error) {
 		// The session ended: stop the command rather than leave it behind.
 		return 0, &protocol.Error{Code: protocol.CodeFailed, Message: "command interrupted: " + err.Error()}
 	}
+	if code == 0 {
+		// The start job failed or was cancelled before systemd forked the command.
+		return 0, &protocol.Error{Code: protocol.CodeFailed, Message: spec.Argv[0] + " did not start: its unit ended without running it"}
+	}
 	if pty != nil {
 		// Stop leftover processes, then release the slave: the master reads
 		// what is still buffered and then reports the hangup.
