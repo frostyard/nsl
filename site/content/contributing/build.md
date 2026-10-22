@@ -6,7 +6,7 @@ description: Build nsl and its images from source, run the tests, and edit this 
 
 ## The CLI
 
-You'll need Go 1.25.8 or newer to build nsl. To run the checks, install the golangci-lint version pinned in `mise.toml`. [mise ↗](https://mise.jdx.dev) installs it and verifies it against `mise.lock`.
+You'll need Go 1.26.10 or newer to build nsl. To run the checks, install the golangci-lint version pinned in `mise.toml`. [mise ↗](https://mise.jdx.dev) installs it and verifies it against `mise.lock`.
 
 ```sh
 mise install  # the pinned golangci-lint and svu
