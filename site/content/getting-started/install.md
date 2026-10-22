@@ -80,7 +80,7 @@ Each release has tarballs for `linux_amd64` and `linux_arm64`, a `checksums.txt`
 
 ## Build from source
 
-To build it yourself, use Go 1.25.8 or newer.
+To build it yourself, use Go 1.26.10 or newer.
 
 ```sh
 git clone https://github.com/frostyard/nsl.git

@@ -10554,7 +10554,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-golang.org/x/crypto v0.54.0 / LICENSE
+golang.org/x/crypto v0.57.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10586,7 +10586,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/mod v0.38.0 / LICENSE
+golang.org/x/mod v0.41.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10618,7 +10618,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/net v0.57.0 / LICENSE
+golang.org/x/net v0.60.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10650,7 +10650,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/sync v0.22.0 / LICENSE
+golang.org/x/sync v0.23.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10682,7 +10682,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/sys v0.47.0 / LICENSE
+golang.org/x/sys v0.48.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10714,7 +10714,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/term v0.45.0 / LICENSE
+golang.org/x/term v0.46.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10746,7 +10746,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/text v0.40.0 / LICENSE
+golang.org/x/text v0.42.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10778,7 +10778,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa / LICENSE
+google.golang.org/genproto/googleapis/api v0.0.0-20260706201446-f0a921348800 / LICENSE
 ==============================================================================
 
 
@@ -10985,7 +10985,7 @@ google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa / L
    limitations under the License.
 
 ==============================================================================
-google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 / LICENSE
+google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 / LICENSE
 ==============================================================================
 
 
@@ -11192,7 +11192,7 @@ google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 / L
    limitations under the License.
 
 ==============================================================================
-google.golang.org/grpc v1.82.1 / LICENSE
+google.golang.org/grpc v1.84.0 / LICENSE
 ==============================================================================
 
 
@@ -11399,7 +11399,7 @@ google.golang.org/grpc v1.82.1 / LICENSE
    limitations under the License.
 
 ==============================================================================
-google.golang.org/grpc v1.82.1 / NOTICE.txt
+google.golang.org/grpc v1.84.0 / NOTICE.txt
 ==============================================================================
 
 Copyright 2014 gRPC authors.

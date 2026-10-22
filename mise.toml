@@ -7,7 +7,7 @@ lockfile = true
 
 [tools]
 # Explicit selection avoids mise's deprecated use of go.mod's minimum version.
-go = "1.25.8"
+go = "1.26.10"
 # make lint, and so make verify and make ci; the Makefile checks this release.
 golangci-lint = "2.13.1"
 # make bump: the next version from conventional commits, per .svu.yml.
