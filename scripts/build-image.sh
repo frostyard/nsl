@@ -62,6 +62,8 @@ staging=$(mktemp -d "$work/share/integration.XXXXXX")
 integration="$staging/tree"
 python3 scripts/compose-image.py "${selection[@]}" --destination "$integration" \
   --recipes "$recipes" --mkosi "$mkosi" --agent build/nsl-agent >/dev/null
+# The guest copies tree into the mkosi definitions; the builder script sits beside it.
+cp scripts/prepare-builder.sh "$staging/prepare-builder.sh"
 # Export committed source only; previous outputs or dirty checkout files cannot enter it.
 source_tree=$(mktemp -d "$work/share/source.XXXXXX")
 for item in mkosi mkosi-definitions; do
@@ -99,8 +101,11 @@ trap '"$limactl" --tty=false stop "$builder" >&2 || true' EXIT
 "$limactl" --tty=false start --timeout=8m "$builder"
 "$limactl" shell --workdir / "$builder" sudo -n sh -c '
 set -eu
+# Old builder kernels fill the small ESP that systemd-boot hooks copy them to.
+sh "$(dirname "$1")/prepare-builder.sh"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 git systemd-container systemd-ukify systemd-repart systemd-boot bubblewrap dosfstools mtools fdisk uidmap zstd cpio btrfs-progs e2fsprogs debootstrap openssl kmod dnf rpm policycoreutils
+DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge
 build_dir=$(mktemp -d /root/nsl-build.XXXXXX)
 tar -xf "$1/sources.tar" -C "$build_dir"
 cp -a "$1/." "$build_dir/mkosi-definitions/"
