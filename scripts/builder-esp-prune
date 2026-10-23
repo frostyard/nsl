@@ -1,0 +1,41 @@
+#!/bin/sh
+# Kernel postinst.d hook for the image builder: keep the ESP copies of only the
+# kernel being installed and the running kernel, since the ESP holds 2 kernels.
+# It runs before initramfs-tools, whose update-initramfs copies them there.
+set -eu
+
+NSL_ESP=${NSL_ESP:-/boot/efi}
+NSL_ETC=${NSL_ETC:-/etc}
+
+incoming=${1:-}
+[ -n "$incoming" ] || exit 0
+running=$(uname -r)
+[ -d "$NSL_ESP" ] || exit 0
+
+token=
+if [ -r "$NSL_ETC/kernel/entry-token" ]; then
+  token=$(head -n 1 "$NSL_ETC/kernel/entry-token" || true)
+fi
+if [ -z "$token" ] && [ -r "$NSL_ETC/machine-id" ]; then
+  token=$(head -n 1 "$NSL_ETC/machine-id" || true)
+fi
+# Without a usable token there is no directory this hook may touch.
+case "$token" in
+  ''|*/*) exit 0 ;;
+esac
+[ -d "$NSL_ESP/$token" ] || exit 0
+
+for copy in "$NSL_ESP/$token"/*/; do
+  [ -d "$copy" ] || continue
+  name=$(basename "$copy")
+  [ "$name" != "$incoming" ] || continue
+  [ "$name" != "$running" ] || continue
+  # Only the ESP copies go; the packages stay installed.
+  rm -rf "$copy"
+  rm -f "$NSL_ESP/loader/entries/$token-$name.conf"
+  for entry in "$NSL_ESP/loader/entries/$token-$name"+*.conf; do
+    [ -e "$entry" ] || continue
+    rm -f "$entry"
+  done
+  echo "Pruned the ESP copy of kernel $name"
+done
