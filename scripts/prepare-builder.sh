@@ -6,6 +6,12 @@ set -eu
 
 NSL_BOOT=${NSL_BOOT:-/boot}
 NSL_ESP=${NSL_ESP:-/boot/efi}
+NSL_ETC=${NSL_ETC:-/etc}
+
+# Kernels also arrive from unattended upgrades between builds, so prune the ESP
+# before every kernel install; 00 sorts before initramfs-tools, which copies it.
+mkdir -p "$NSL_ETC/kernel/postinst.d"
+install -m 0755 "$(dirname "$0")/builder-esp-prune" "$NSL_ETC/kernel/postinst.d/00-nsl-esp-prune"
 
 running="linux-image-$(uname -r)"
 # The newest kernel is the one the metapackage depends on; it is empty when the

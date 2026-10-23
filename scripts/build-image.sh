@@ -64,6 +64,7 @@ python3 scripts/compose-image.py "${selection[@]}" --destination "$integration" 
   --recipes "$recipes" --mkosi "$mkosi" --agent build/nsl-agent >/dev/null
 # The guest copies tree into the mkosi definitions; the builder script sits beside it.
 cp scripts/prepare-builder.sh "$staging/prepare-builder.sh"
+cp scripts/builder-esp-prune "$staging/builder-esp-prune"
 # Export committed source only; previous outputs or dirty checkout files cannot enter it.
 source_tree=$(mktemp -d "$work/share/source.XXXXXX")
 for item in mkosi mkosi-definitions; do

@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT/'scripts/prepare-builder.sh'
+HOOK = ROOT/'scripts/builder-esp-prune'
 RUNNING = '6.12.107+deb13-amd64'
 NEWEST = 'linux-image-6.12.113+deb13-amd64'
 OLD = 'linux-image-6.12.99+deb13-amd64'
@@ -76,7 +77,7 @@ class Builder(unittest.TestCase):
                         FAKE_KERNEL=RUNNING, FAKE_NEWEST=NEWEST, FAKE_PACKAGES=PACKAGES,
                         FAKE_NEWEST_RC='', FAKE_PACKAGES_RC='', FAKE_CONFIGURE_RC='', FAKE_PURGE_RC='',
                         FAKE_ESP_FREE='500000', FAKE_FILE_KIB='1000', FAKE_ESP_KIB='0',
-                        NSL_BOOT=str(self.boot), NSL_ESP=str(self.esp))
+                        NSL_BOOT=str(self.boot), NSL_ESP=str(self.esp), NSL_ETC=str(self.dir/'etc'))
 
     def run_script(self, **overrides):
         return subprocess.run(['sh', str(SCRIPT)], capture_output=True, text=True,
@@ -156,6 +157,14 @@ class Builder(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('has 5 MiB free', result.stdout)
 
+    def test_installs_the_kernel_hook(self):
+        for _ in range(2):
+            result = self.run_script()
+            self.assertEqual(result.returncode, 0, result.stderr)
+        installed = Path(self.env['NSL_ETC'])/'kernel'/'postinst.d'/'00-nsl-esp-prune'
+        self.assertEqual(installed.read_bytes(), HOOK.read_bytes())
+        self.assertEqual(installed.stat().st_mode & 0o777, 0o755)
+
     def test_missing_kernel_files_count_as_nothing(self):
         version = NEWEST.removeprefix('linux-image-')
         (self.boot/f'vmlinuz-{version}').unlink()
@@ -164,10 +173,96 @@ class Builder(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class Hook(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.bin = self.dir/'bin'
+        self.bin.mkdir()
+        uname = self.bin/'uname'
+        uname.write_text('#!/bin/sh\nprintf "%s\\n" "$FAKE_KERNEL"\n')
+        uname.chmod(0o755)
+        self.esp = self.dir/'esp'
+        self.etc = self.dir/'etc'
+        (self.esp/'loader'/'entries').mkdir(parents=True)
+        self.etc.mkdir()
+        self.env = dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}', FAKE_KERNEL=RUNNING,
+                        NSL_ESP=str(self.esp), NSL_ETC=str(self.etc))
+
+    def run_hook(self, *args, **overrides):
+        return subprocess.run(['sh', str(HOOK), *args], capture_output=True, text=True,
+                              env={**self.env, **overrides})
+
+    def kernel(self, token, version, suffix=''):
+        (self.esp/'loader'/'entries'/f'{token}-{version}{suffix}.conf').write_text('title')
+        directory = self.esp/token/version
+        directory.mkdir(parents=True)
+        return directory
+
+    def entries(self):
+        return sorted(path.name for path in (self.esp/'loader'/'entries').iterdir())
+
+    def test_prunes_old_copies_and_their_entries(self):
+        incoming = '6.12.113+deb13-amd64'
+        (self.etc/'kernel').mkdir()
+        (self.etc/'kernel'/'entry-token').write_text('systemd\n')
+        keep = self.kernel('systemd', incoming)
+        running = self.kernel('systemd', RUNNING)
+        old = self.kernel('systemd', '6.12.99+deb13-amd64')
+        older = self.kernel('systemd', '6.12.90+deb13-amd64', '+3-0')
+        # Another token's tree, and a stray loader entry, stay untouched.
+        other = self.kernel('othertoken', '6.12.50+deb13-amd64')
+        result = self.run_hook(incoming)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(keep.is_dir())
+        self.assertTrue(running.is_dir())
+        self.assertFalse(old.exists())
+        self.assertFalse(older.exists())
+        self.assertTrue(other.is_dir())
+        self.assertEqual(self.entries(), sorted([f'systemd-{incoming}.conf', f'systemd-{RUNNING}.conf',
+                                                 'othertoken-6.12.50+deb13-amd64.conf']))
+        self.assertIn('Pruned the ESP copy of kernel 6.12.99+deb13-amd64', result.stdout)
+
+    def test_entry_token_wins_over_machine_id(self):
+        (self.etc/'kernel').mkdir()
+        (self.etc/'kernel'/'entry-token').write_text('nsl\n')
+        (self.etc/'machine-id').write_text('abc123\n')
+        from_token = self.kernel('nsl', '6.12.99+deb13-amd64')
+        from_machine_id = self.kernel('abc123', '6.12.99+deb13-amd64')
+        result = self.run_hook('6.12.113+deb13-amd64')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(from_token.exists())
+        self.assertTrue(from_machine_id.is_dir())
+
+    def test_machine_id_is_the_fallback_token(self):
+        (self.etc/'machine-id').write_text('abc123\n')
+        old = self.kernel('abc123', '6.12.99+deb13-amd64')
+        result = self.run_hook('6.12.113+deb13-amd64')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(old.exists())
+
+    def test_nothing_happens_without_a_target(self):
+        (self.etc/'machine-id').write_text('abc\n')
+        kept = self.kernel('abc', '6.12.99+deb13-amd64')
+        slash = self.dir/'slash'
+        (slash/'kernel').mkdir(parents=True)
+        (slash/'kernel'/'entry-token').write_text('a/b\n')
+        for label, args, env in [('no argument', (), {}),
+                                 ('no ESP', ('6.12.113+deb13-amd64',), {'NSL_ESP': str(self.dir/'missing')}),
+                                 ('no token', ('6.12.113+deb13-amd64',), {'NSL_ETC': str(self.dir/'empty')}),
+                                 ('token with a slash', ('6.12.113+deb13-amd64',), {'NSL_ETC': str(slash)})]:
+            with self.subTest(label):
+                result = self.run_hook(*args, **env)
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
+                self.assertTrue(kept.is_dir())
+
+
 class BuildOrder(unittest.TestCase):
     def test_the_build_prepares_the_builder_before_apt(self):
         text = (ROOT/'scripts/build-image.sh').read_text()
         self.assertIn('cp scripts/prepare-builder.sh "$staging/prepare-builder.sh"', text)
+        self.assertIn('cp scripts/builder-esp-prune "$staging/builder-esp-prune"', text)
         prepare = text.index('sh "$(dirname "$1")/prepare-builder.sh"')
         self.assertLess(prepare, text.index('apt-get update'))
         self.assertLess(text.index('apt-get install'), text.index('apt-get autoremove -y --purge'))
