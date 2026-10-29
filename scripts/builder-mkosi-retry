@@ -22,10 +22,10 @@ step and command show one of these failures:
   failed fetch of a package file, with no sign of a missing package.
 
 A download counts only when a mirror caused it. dnf and dnf5 need a mirror or curl line
-that names an http or https URL, and zypper needs libzypp's network-error text; a line
-that names a local failure such as "No space left on device", "Permission denied",
-"filesystem error", "Input/output error" or "Failure writing output to destination"
-means no retry.
+that names an http or https URL, zypper needs libzypp's network-error text, and apt-get
+and pacman need a network reason on each failed fetch line; a line that names a local
+failure such as "No space left on device", "Permission denied", "filesystem error",
+"Input/output error" or "Failure writing output to destination" means no retry.
 
 A Python traceback anywhere in the output means no retry.
 NSL_MKOSI_TRIES (default 3) and NSL_MKOSI_RETRY_DELAY (default 60 s) tune the tries
@@ -53,11 +53,25 @@ PACMAN_COMMIT = 'error: failed to commit transaction (failed to retrieve some fi
 LOCAL_FAILURES = ('No space left on device', 'Disk quota exceeded', 'Read-only file system',
                   'Permission denied', 'Input/output error', 'filesystem error',
                   'Cannot allocate memory', 'Too many open files',
-                  'Failure writing output to destination', 'Failed writing')
+                  'Failure writing output to destination', 'Failed writing',
+                  'Error writing to file', 'File too large')
 DNF_MISSING = ('No match for argument', 'Unable to find a match', 'Failed to resolve the transaction')
 DNF_NETWORK = ('Curl error (', 'Status code: ')
 ZYPPER_NETWORK = ("Download (curl) error for '", "Timeout exceeded when accessing '",
                   'is temporarily unaccessible', "not found on medium 'http")
+# apt prints an HTTP status, or one of its methods/ strings, when a mirror is at fault.
+APT_STATUS = re.compile(r'\s[1-5]\d\d\s')
+APT_NETWORK = ('Could not connect to ', "Could not resolve '", "Temporary failure resolving '",
+               "Something wicked happened resolving '", 'Unable to connect to ',
+               'Connection failed', 'Connection timed out', 'Error reading from server',
+               'Hash Sum mismatch', 'File has unexpected size')
+# pacman repeats curl's reason after " : "; its own text does not name a network cause.
+PACMAN_NETWORK = ('The requested URL returned error: ', 'Could not resolve host',
+                  'Resolving timed out', 'Failed to connect', "Couldn't connect to server",
+                  'Connection timed out', 'Operation timed out', 'Operation too slow',
+                  'Connection reset', 'Recv failure', 'Send failure', 'SSL connect error',
+                  'transfer closed', 'Empty reply from server', 'HTTP/2 stream',
+                  'expected download size exceeded')
 
 
 def cleaned(line):
@@ -123,12 +137,17 @@ def is_install_step(step):
 
 
 def apt_download_failure(lines):
-    """True when apt-get failed to fetch package files and named no missing package."""
+    """True when apt-get failed to fetch package files from a mirror, naming no missing package."""
+    def failed(line):
+        return (line.startswith('E: Failed to fetch ')
+                or line.startswith('E: Unable to fetch some archives'))
+
     errors = [line for line in lines if line.startswith('E: ')]
-    if not any(line.startswith('E: Failed to fetch ') for line in errors):
+    fetches = [line for line in errors if line.startswith('E: Failed to fetch ')]
+    if not fetches or not all(failed(line) for line in errors):
         return False
-    return all(line.startswith('E: Failed to fetch ')
-               or line.startswith('E: Unable to fetch some archives') for line in errors)
+    return all(APT_STATUS.search(line) or any(marker in line for marker in APT_NETWORK)
+               for line in fetches)
 
 
 def dnf_download_failure(lines):
@@ -146,12 +165,19 @@ def dnf_download_failure(lines):
 
 
 def pacman_download_failure(lines):
-    """True when pacman failed to retrieve package files and named no missing package."""
+    """True when pacman failed to retrieve package files from a mirror, with no missing package."""
     def failed(line):
         return line.startswith('error: failed retrieving file ') or line == PACMAN_COMMIT
 
+    def network(line):
+        _, separator, reason = line.partition(' : ')
+        return bool(separator) and any(marker in reason for marker in PACMAN_NETWORK)
+
     errors = [line for line in lines if line.startswith('error: ')]
-    return bool(errors) and all(failed(line) for line in errors)
+    if not errors or not all(failed(line) for line in errors):
+        return False
+    fetches = [line for line in lines if line.startswith('error: failed retrieving file ')]
+    return bool(fetches) and all(network(line) for line in fetches)
 
 
 def zypper_download_failure(lines):

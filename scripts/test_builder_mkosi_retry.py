@@ -48,6 +48,21 @@ APT_DOWNLOAD = (
     'E: Unable to fetch some archives, maybe run apt-get update or try with --fix-missing?\n')
 APT_FIXTURE = APT_STEP + APT_DOWNLOAD + APT_FAILED + OMITTED
 APT_MISSING = APT_STEP + 'Reading package lists...\nE: Unable to locate package foo\n' + APT_FAILED + OMITTED
+APT_UNABLE_TO_FETCH = ('E: Unable to fetch some archives, maybe run apt-get update or try with '
+                       '--fix-missing?\n')
+APT_WRITE_FAILURE = (
+    APT_STEP + 'E: Failed to fetch https://mirror.example/foo.deb  '
+    'Error writing to file - write (27: File too large)\n' + APT_UNABLE_TO_FETCH + APT_FAILED + OMITTED)
+APT_OPEN_FAILURE = (
+    APT_STEP + 'E: Failed to fetch http://deb.debian.org/debian/pool/main/f/foo/foo_1.0_amd64.deb  '
+    'Could not open file /var/cache/apt/archives/partial/foo_1.0_amd64.deb - open (13: Permission denied)\n'
+    + APT_UNABLE_TO_FETCH + APT_FAILED + OMITTED)
+APT_RESOLVE_FAILURE = (
+    APT_STEP + 'E: Failed to fetch http://deb.debian.org/debian/pool/main/f/foo/foo_1.0_amd64.deb  '
+    "Temporary failure resolving 'deb.debian.org'\n" + APT_UNABLE_TO_FETCH + APT_FAILED + OMITTED)
+APT_HASH_MISMATCH = (
+    APT_STEP + 'E: Failed to fetch http://deb.debian.org/debian/pool/main/f/foo/foo_1.0_amd64.deb  '
+    'Hash Sum mismatch\n' + APT_UNABLE_TO_FETCH + APT_FAILED + OMITTED)
 
 DNF4_STEP = '‣ Installing Fedora Linux\n'
 DNF4_FAILED = '‣ "dnf --assumeyes --best --installroot=/buildroot install foo" returned non-zero exit code 1.\n'
@@ -83,6 +98,23 @@ PACMAN_DOWNLOAD = (
     'Errors occurred, no packages were upgraded.\n')
 PACMAN_FIXTURE = PACMAN_STEP + PACMAN_DOWNLOAD + PACMAN_FAILED + OMITTED
 PACMAN_MISSING = PACMAN_STEP + 'error: target not found: foo\n' + PACMAN_FAILED + OMITTED
+PACMAN_TIMEOUT = (
+    PACMAN_STEP
+    + "error: failed retrieving file 'foo.pkg.tar.zst' from mirror.example : "
+      'Operation timed out after 10000 milliseconds\n'
+      'warning: failed to retrieve some files\n'
+      'error: failed to commit transaction (failed to retrieve some files)\n'
+    + PACMAN_FAILED + OMITTED)
+PACMAN_UNKNOWN_REASON = (
+    PACMAN_STEP
+    + "error: failed retrieving file 'foo.pkg.tar.zst' from mirror.example : "
+      'Some unknown local reason\n'
+      'warning: failed to retrieve some files\n'
+      'error: failed to commit transaction (failed to retrieve some files)\n'
+    + PACMAN_FAILED + OMITTED)
+PACMAN_SUMMARY_ONLY = (
+    PACMAN_STEP + 'warning: failed to retrieve some files\n'
+    'error: failed to commit transaction (failed to retrieve some files)\n' + PACMAN_FAILED + OMITTED)
 
 ZYPPER_STEP = '‣ Installing openSUSE\n'
 ZYPPER_FAILED = '‣ "zypper --root /buildroot --non-interactive install foo" returned non-zero exit code 106.\n'
@@ -112,8 +144,11 @@ KEYRING = (
     'returned non-zero exit code 1.\n'
     '‣ [tools] (sandbox command omitted, rerun with --debug to see the full sandbox command.)\n')
 
-DOWNLOADS = (('apt-get', APT_FIXTURE), ('dnf 4', DNF4_FIXTURE), ('dnf5', DNF5_FIXTURE),
-             ('pacman', PACMAN_FIXTURE), ('zypper', ZYPPER_FIXTURE), ('arch keyring', KEYRING))
+DOWNLOADS = (('apt-get', APT_FIXTURE), ('apt-get resolve failure', APT_RESOLVE_FAILURE),
+             ('apt-get hash mismatch', APT_HASH_MISMATCH), ('dnf 4', DNF4_FIXTURE),
+             ('dnf5', DNF5_FIXTURE), ('pacman', PACMAN_FIXTURE),
+             ('pacman timeout', PACMAN_TIMEOUT), ('zypper', ZYPPER_FIXTURE),
+             ('arch keyring', KEYRING))
 LOCAL_FAILURES = (
     ('dnf5 nested filesystem error',
      DNF5_STEP + 'Failed to download packages\n'
@@ -138,7 +173,11 @@ LOCAL_FAILURES = (
      + PACMAN_FAILED + OMITTED),
     ('apt-get out of space',
      APT_STEP + APT_DOWNLOAD + 'dpkg: error: unable to create new file: No space left on device\n'
-     + APT_FAILED + OMITTED))
+     + APT_FAILED + OMITTED),
+    ('apt-get write failure', APT_WRITE_FAILURE),
+    ('apt-get could not open file', APT_OPEN_FAILURE),
+    ('pacman unknown reason', PACMAN_UNKNOWN_REASON),
+    ('pacman commit summary only', PACMAN_SUMMARY_ONLY))
 MISSING = (('apt-get', APT_MISSING), ('dnf 4', DNF4_MISSING), ('dnf5', DNF5_MISSING),
            ('pacman', PACMAN_MISSING), ('zypper', ZYPPER_MISSING))
 MISSING_LINES = (('apt-get', APT_FIXTURE, 'E: Unable to locate package bar'),
