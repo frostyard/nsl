@@ -82,10 +82,40 @@ class Retry(unittest.TestCase):
         self.assertEqual((result.returncode, count), (1, 1))
         self.assertNotIn('retrying', result.stderr)
 
-    def test_a_python_error_after_the_sync_does_not_retry(self):
+    def test_an_interrupt_after_the_sync_does_not_retry(self):
         text = SYNC + FAILED + OMITTED + '‣ Interrupted by SIGINT signal\n'
         result, count = self.run_retry([[text, 1], [GOOD, 0]])
         self.assertEqual((result.returncode, count), (1, 1))
+
+    def test_a_traceback_after_the_failure_does_not_retry(self):
+        text = FIXTURE + ('Traceback (most recent call last):\n'
+                          '  File "/root/mkosi/run.py", line 1, in run\n'
+                          'OSError: [Errno 28] No space left on device\n')
+        result, count = self.run_retry([[text, 1], [GOOD, 0]])
+        self.assertEqual((result.returncode, count), (1, 1))
+
+    def test_a_failed_cleanup_command_after_the_sync_does_not_retry(self):
+        text = SYNC + '‣ "rm -rf -- /var/tmp/mkosi-workspace" returned non-zero exit code 1.\n' + OMITTED
+        result, count = self.run_retry([[text, 1], [GOOD, 0]])
+        self.assertEqual((result.returncode, count), (1, 1))
+
+    def test_an_install_command_after_the_sync_does_not_retry(self):
+        text = SYNC + '‣ "dnf --assumeyes install foo" returned non-zero exit code 1.\n' + OMITTED
+        result, count = self.run_retry([[text, 1], [GOOD, 0]])
+        self.assertEqual(count, 1)
+
+    def test_other_package_manager_sync_failures_retry(self):
+        for command in ('/usr/bin/apt-get -o Dir=/x update', 'pacman --config /x --sync --refresh',
+                        'zypper --root /x refresh', 'dnf5 --refresh makecache'):
+            with self.subTest(command=command):
+                text = SYNC + f'‣ "{command}" returned non-zero exit code 100.\n' + OMITTED
+                result, count = self.run_retry([[text, 100], [GOOD, 0]])
+                self.assertEqual((result.returncode, count), (0, 2))
+
+    def test_an_unparsable_command_does_not_retry(self):
+        text = SYNC + '‣ "dnf makecache \'unclosed" returned non-zero exit code 1.\n'
+        result, count = self.run_retry([[text, 1], [GOOD, 0]])
+        self.assertEqual(count, 1)
 
     def test_two_command_failures_do_not_retry(self):
         result, count = self.run_retry([[SYNC + FAILED + FAILED + OMITTED, 1], [GOOD, 0]])
