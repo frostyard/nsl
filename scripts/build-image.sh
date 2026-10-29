@@ -65,6 +65,7 @@ python3 scripts/compose-image.py "${selection[@]}" --destination "$integration" 
 # The guest copies tree into the mkosi definitions; the builder script sits beside it.
 cp scripts/prepare-builder.sh "$staging/prepare-builder.sh"
 cp scripts/builder-esp-prune "$staging/builder-esp-prune"
+cp scripts/builder-mkosi-retry "$staging/builder-mkosi-retry"
 # Export committed source only; previous outputs or dirty checkout files cannot enter it.
 source_tree=$(mktemp -d "$work/share/source.XXXXXX")
 for item in mkosi mkosi-definitions; do
@@ -114,11 +115,11 @@ cd "$build_dir/mkosi-definitions"
 # Keep downloads and tools trees across builds; outputs stay per build.
 mkdir -p /var/cache/nsl-mkosi
 if [ "$6" = vm ]; then
-  PYTHONPATH="$build_dir/mkosi" python3 -m mkosi --cache-directory=/var/cache/nsl-mkosi --profile=disk -d "$2" -r "$3" --architecture "$4" build
+  PYTHONPATH="$build_dir/mkosi" python3 "$(dirname "$1")/builder-mkosi-retry" python3 -m mkosi --cache-directory=/var/cache/nsl-mkosi --profile=disk -d "$2" -r "$3" --architecture "$4" build
   cp --sparse=always "mkosi.output/$5.raw" "$1/$5.raw"
   systemd-dissect --copy-from "mkosi.output/$5.raw" /usr/lib/nsl/image.json "$1/$5.json"
 else
-  PYTHONPATH="$build_dir/mkosi" python3 -m mkosi --cache-directory=/var/cache/nsl-mkosi -d "$2" -r "$3" --architecture "$4" build
+  PYTHONPATH="$build_dir/mkosi" python3 "$(dirname "$1")/builder-mkosi-retry" python3 -m mkosi --cache-directory=/var/cache/nsl-mkosi -d "$2" -r "$3" --architecture "$4" build
   cp "mkosi.output/$5.tar.zst" "$1/$5.tar.zst"
   tar --zstd -xOf "mkosi.output/$5.tar.zst" ./usr/lib/nsl/machine.json > "$1/$5.json"
 fi

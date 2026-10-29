@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Run a mkosi command and retry it when only the package-metadata sync failed.
+
+Usage: builder-mkosi-retry COMMAND [ARGS...]
+
+Distribution mirrors can lag the repository index, so the metadata sync can fail
+with a transient error. The sync runs before any image build, so a new run after
+that failure is safe. Every other failure ends the build at once.
+NSL_SYNC_TRIES (default 3) and NSL_SYNC_RETRY_DELAY (default 60 s) tune the
+tries and the backoff base for tests; the delay before try n+1 is base * 3^(n-1).
+"""
+import os
+import re
+import subprocess
+import sys
+import time
+
+ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])')
+STEP = 'Syncing package manager metadata'
+IMAGE_PREFIX = re.compile(r'^\[[^\]]*\] ?')
+FAILED = re.compile(r'^".*" returned non-zero exit code \d+\.$')
+
+
+def message(line):
+    """Return the text of a mkosi log line, or None when the line is not one."""
+    line = ANSI.sub('', line).strip()
+    if not line.startswith('‣'):
+        return None
+    text = line[1:].strip()
+    return IMAGE_PREFIX.sub('', text).strip()
+
+
+def sync_failure(lines):
+    """True when the last mkosi step is the sync and only its command failure follows."""
+    steps = [m for m in map(message, lines) if m is not None]
+    for index in range(len(steps) - 1, -1, -1):
+        if steps[index] == STEP:
+            rest = steps[index + 1:]
+            if not rest or not FAILED.match(rest[0]):
+                return False
+            tail = rest[1:]
+            if not tail:
+                return True
+            return len(tail) == 1 and (tail[0].startswith('(sandbox command omitted')
+                                       or tail[0].startswith('Sandbox command:'))
+    return False
+
+
+def setting(name, default, minimum):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    if not re.fullmatch(r'[0-9]+', raw) or int(raw) < minimum:
+        kind = 'a positive integer' if minimum else 'a non-negative integer'
+        print(f'{name} must be {kind}.', file=sys.stderr)
+        sys.exit(2)
+    return int(raw)
+
+
+def run(command):
+    """Stream the command's output unchanged and keep its mkosi log lines."""
+    env = dict(os.environ, PYTHONUNBUFFERED='1')
+    lines = []
+    out = sys.stdout.buffer
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as child:
+        for raw in child.stdout:
+            out.write(raw)
+            out.flush()
+            line = raw.decode('utf-8', 'replace')
+            if message(line) is not None:
+                lines.append(line)
+    return child.returncode, lines
+
+
+def main(argv):
+    if not argv:
+        print('Usage: builder-mkosi-retry COMMAND [ARGS...]', file=sys.stderr)
+        return 2
+    tries = setting('NSL_SYNC_TRIES', 3, 1)
+    delay = setting('NSL_SYNC_RETRY_DELAY', 60, 0)
+    code = 0
+    for attempt in range(1, tries + 1):
+        try:
+            code, lines = run(argv)
+        except OSError as error:
+            print(f'Cannot run {argv[0]}: {error}', file=sys.stderr)
+            return 127
+        if code < 0:
+            # Report a child killed by a signal as a shell does.
+            return 128 - code
+        if code == 0 or not sync_failure(lines):
+            return code
+        if attempt == tries:
+            print(f'Package metadata sync failed after {tries} tries.', file=sys.stderr)
+            return code
+        wait = delay * 3 ** (attempt - 1)
+        print(f'Package metadata sync failed (try {attempt} of {tries}); retrying in {wait} s.',
+              file=sys.stderr, flush=True)
+        time.sleep(wait)
+    return code
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
