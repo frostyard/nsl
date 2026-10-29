@@ -21,6 +21,12 @@ step and command show one of these failures:
   between the step and the failure line shows a download failure of that tool: a
   failed fetch of a package file, with no sign of a missing package.
 
+A download counts only when a mirror caused it. dnf and dnf5 need a mirror or curl line
+that names an http or https URL, and zypper needs libzypp's network-error text; a line
+that names a local failure such as "No space left on device", "Permission denied",
+"filesystem error", "Input/output error" or "Failure writing output to destination"
+means no retry.
+
 A Python traceback anywhere in the output means no retry.
 NSL_MKOSI_TRIES (default 3) and NSL_MKOSI_RETRY_DELAY (default 60 s) tune the tries
 and the backoff base for tests; the delay before try n+1 is base * 3^(n-1).
@@ -43,6 +49,15 @@ FAILED = re.compile(r'^"(.*)" returned non-zero exit code \d+\.$')
 TRACEBACK = 'Traceback (most recent call last):'
 MESSAGES = {'sync': 'Package metadata sync failed', 'download': 'Package download failed'}
 PACMAN_COMMIT = 'error: failed to commit transaction (failed to retrieve some files)'
+# A local failure is never a mirror failure, whatever the tool's download summary says.
+LOCAL_FAILURES = ('No space left on device', 'Disk quota exceeded', 'Read-only file system',
+                  'Permission denied', 'Input/output error', 'filesystem error',
+                  'Cannot allocate memory', 'Too many open files',
+                  'Failure writing output to destination', 'Failed writing')
+DNF_MISSING = ('No match for argument', 'Unable to find a match', 'Failed to resolve the transaction')
+DNF_NETWORK = ('Curl error (', 'Status code: ')
+ZYPPER_NETWORK = ("Download (curl) error for '", "Timeout exceeded when accessing '",
+                  'is temporarily unaccessible', "not found on medium 'http")
 
 
 def cleaned(line):
@@ -117,13 +132,14 @@ def apt_download_failure(lines):
 
 
 def dnf_download_failure(lines):
-    """True when dnf or dnf5 failed to download packages, in either tool's output."""
-    if any(marker in line for line in lines
-           for marker in ('No match for argument', 'Unable to find a match',
-                          'Failed to resolve the transaction')):
+    """True when dnf or dnf5 failed to download packages from a network mirror."""
+    if any(marker in line for line in lines for marker in DNF_MISSING):
         return False
     if any(line.startswith('Error: ') and line != 'Error: Error downloading packages:'
            for line in lines):
+        return False
+    if not any(any(marker in line for marker in DNF_NETWORK)
+               and ('http://' in line or 'https://' in line) for line in lines):
         return False
     return any(line == 'Error: Error downloading packages:'
                or line == 'Failed to download packages' for line in lines)
@@ -139,8 +155,10 @@ def pacman_download_failure(lines):
 
 
 def zypper_download_failure(lines):
-    """True when zypper failed to provide a package it could not download."""
+    """True when zypper failed to provide a package it could not download from a mirror."""
     if any('No provider of' in line or 'not found in package names' in line for line in lines):
+        return False
+    if not any(marker in line for line in lines for marker in ZYPPER_NETWORK):
         return False
     return any(line.startswith('Failed to provide Package ')
                and 'Do you want to retry retrieval?' in line for line in lines)
@@ -182,7 +200,10 @@ def classify(lines):
     tool = install_tool(command)
     if tool is None:
         return None
-    return 'download' if DOWNLOAD_FAILURES[tool](plain_lines(lines, step_index, failure_index)) else None
+    between = plain_lines(lines, step_index, failure_index)
+    if any(marker in line for line in between for marker in LOCAL_FAILURES):
+        return None
+    return 'download' if DOWNLOAD_FAILURES[tool](between) else None
 
 
 def setting(name, default, minimum):

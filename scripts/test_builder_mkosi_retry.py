@@ -53,6 +53,8 @@ DNF4_STEP = '‣ Installing Fedora Linux\n'
 DNF4_FAILED = '‣ "dnf --assumeyes --best --installroot=/buildroot install foo" returned non-zero exit code 1.\n'
 DNF4_DOWNLOAD = (
     'Foo                    1.2 MB/s | 3.0 MB     00:02\n'
+    '[MIRROR] foo-1.0-1.x86_64.rpm: Status code: 404 for '
+    'https://mirror.example/foo-1.0-1.x86_64.rpm (IP: 1.2.3.4)\n'
     'Error: Error downloading packages:\n'
     '  foo-1.0-1.x86_64: Cannot download, all mirrors were already tried without success\n')
 DNF4_FIXTURE = DNF4_STEP + DNF4_DOWNLOAD + DNF4_FAILED + OMITTED
@@ -86,6 +88,10 @@ ZYPPER_STEP = '‣ Installing openSUSE\n'
 ZYPPER_FAILED = '‣ "zypper --root /buildroot --non-interactive install foo" returned non-zero exit code 106.\n'
 ZYPPER_DOWNLOAD = (
     'Retrieving: foo-1.0.x86_64.rpm .............................[error]\n'
+    "Download (curl) error for 'https://download.opensuse.org/tumbleweed/repo/oss/x86_64/"
+    "foo-1.0.x86_64.rpm':\n"
+    'Error code: HTTP response: 404\n'
+    'Error message: The requested URL returned error: 404\n'
     'Failed to provide Package foo-1.0.x86_64. Do you want to retry retrieval?\n'
     '\n'
     '[1/1] package foo-1.0.x86_64 requires libbar.so.1, but this requirement cannot be provided\n'
@@ -108,6 +114,31 @@ KEYRING = (
 
 DOWNLOADS = (('apt-get', APT_FIXTURE), ('dnf 4', DNF4_FIXTURE), ('dnf5', DNF5_FIXTURE),
              ('pacman', PACMAN_FIXTURE), ('zypper', ZYPPER_FIXTURE), ('arch keyring', KEYRING))
+LOCAL_FAILURES = (
+    ('dnf5 nested filesystem error',
+     DNF5_STEP + 'Failed to download packages\n'
+     ' filesystem error: cannot create directories: No space left on device [/var/cache/nsl-mkosi]\n'
+     + DNF5_FAILED + OMITTED),
+    ('dnf5 summary without a URL',
+     DNF5_STEP + 'Failed to download packages\n'
+     ' Librepo error: Cannot download, all mirrors were already tried without success\n'
+     + DNF5_FAILED + OMITTED),
+    ('dnf curl error on a file URL',
+     DNF4_STEP + 'Error: Error downloading packages:\n'
+     "  foo-1.0-1.x86_64: Curl error (37): Couldn't open file "
+     'file:///repository/foo-1.0-1.x86_64.rpm for reading\n' + DNF4_FAILED + OMITTED),
+    ('zypper without network evidence',
+     ZYPPER_STEP + 'Failed to provide Package foo-1.0.x86_64. Do you want to retry retrieval?\n'
+     'Abort, retry, ignore? [a/r/i] (a): a\n' + ZYPPER_FAILED + OMITTED),
+    ('pacman write failure',
+     PACMAN_STEP + "error: failed retrieving file 'foo.pkg.tar.zst' from mirror.example : "
+     'Failure writing output to destination\n'
+     'warning: failed to retrieve some files\n'
+     'error: failed to commit transaction (failed to retrieve some files)\n'
+     + PACMAN_FAILED + OMITTED),
+    ('apt-get out of space',
+     APT_STEP + APT_DOWNLOAD + 'dpkg: error: unable to create new file: No space left on device\n'
+     + APT_FAILED + OMITTED))
 MISSING = (('apt-get', APT_MISSING), ('dnf 4', DNF4_MISSING), ('dnf5', DNF5_MISSING),
            ('pacman', PACMAN_MISSING), ('zypper', ZYPPER_MISSING))
 MISSING_LINES = (('apt-get', APT_FIXTURE, 'E: Unable to locate package bar'),
@@ -272,6 +303,13 @@ class Retry(unittest.TestCase):
     def test_a_missing_package_fails_at_once(self):
         for tool, text in MISSING:
             with self.subTest(tool=tool):
+                result, count = self.run_retry([[text, 1], [GOOD, 0]])
+                self.assertEqual((result.returncode, count), (1, 1))
+                self.assertNotIn('retrying', result.stderr)
+
+    def test_a_local_failure_is_never_a_download_failure(self):
+        for name, text in LOCAL_FAILURES:
+            with self.subTest(case=name):
                 result, count = self.run_retry([[text, 1], [GOOD, 0]])
                 self.assertEqual((result.returncode, count), (1, 1))
                 self.assertNotIn('retrying', result.stderr)
