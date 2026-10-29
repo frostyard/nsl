@@ -263,6 +263,10 @@ class BuildOrder(unittest.TestCase):
         text = (ROOT/'scripts/build-image.sh').read_text()
         self.assertIn('cp scripts/prepare-builder.sh "$staging/prepare-builder.sh"', text)
         self.assertIn('cp scripts/builder-esp-prune "$staging/builder-esp-prune"', text)
+        self.assertIn('cp scripts/builder-mkosi-retry "$staging/builder-mkosi-retry"', text)
+        wrapped = 'PYTHONPATH="$build_dir/mkosi" python3 "$(dirname "$1")/builder-mkosi-retry" python3 -m mkosi'
+        self.assertEqual(text.count(wrapped), 2)
+        self.assertEqual(text.count('python3 -m mkosi'), 2)
         prepare = text.index('sh "$(dirname "$1")/prepare-builder.sh"')
         self.assertLess(prepare, text.index('apt-get update'))
         self.assertLess(text.index('apt-get install'), text.index('apt-get autoremove -y --purge'))
