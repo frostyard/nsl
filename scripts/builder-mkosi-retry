@@ -1,17 +1,29 @@
 #!/usr/bin/env python3
-"""Run a mkosi command and retry it when only the package-metadata sync failed.
+"""Run a mkosi command and retry it when only a metadata sync or a package download failed.
 
 Usage: builder-mkosi-retry COMMAND [ARGS...]
 
-Distribution mirrors can lag the repository index, so the metadata sync can fail
-with a transient error. The sync runs before any image build, so a new run after
-that failure is safe. The command is retried only when the last mkosi step is the
-sync, the next mkosi line is the failure of a package-manager sync command (dnf or
-dnf5 makecache, apt-get update, pacman --sync --refresh, zypper refresh), nothing
-else follows but its sandbox-command line, and the output has no Python traceback.
-Every other failure ends the build at once.
-NSL_SYNC_TRIES (default 3) and NSL_SYNC_RETRY_DELAY (default 60 s) tune the
-tries and the backoff base for tests; the delay before try n+1 is base * 3^(n-1).
+Distribution mirrors can lag the repository index, so a package-manager metadata sync
+or a package download can fail with a transient error. mkosi runs the failed step
+again from the start of a new run, so a retry is safe. Every other failure, a missing
+package for example, ends the build at once.
+
+A run is retried only when its last mkosi log messages are exactly one step, the
+failure of that step's command, and at most one sandbox-command line, and when the
+step and command show one of these failures:
+
+- metadata sync: the step is "Syncing package manager metadata" and the command is a
+  sync command (dnf or dnf5 makecache, apt-get update, pacman --sync --refresh, zypper
+  refresh), whatever the output between the two lines.
+- package download: the step installs packages (Installing Debian, Installing extra
+  packages for X, Downloading Arch Linux keyring, and the like) and the command
+  installs packages with dnf, dnf5, apt-get, pacman or zypper, and the plain output
+  between the step and the failure line shows a download failure of that tool: a
+  failed fetch of a package file, with no sign of a missing package.
+
+A Python traceback anywhere in the output means no retry.
+NSL_MKOSI_TRIES (default 3) and NSL_MKOSI_RETRY_DELAY (default 60 s) tune the tries
+and the backoff base for tests; the delay before try n+1 is base * 3^(n-1).
 """
 import os
 import re
@@ -21,18 +33,43 @@ import sys
 import time
 
 ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])')
-STEP = 'Syncing package manager metadata'
+SYNC_STEP = 'Syncing package manager metadata'
+INSTALL_STEP = re.compile(r'^(?:Installing [^…]+|Downloading [^…]+ keyring)$')
+NOT_INSTALL_STEP = 'Installing cache copies'
+PREBUILT_UKI_STEP = 'Installing prebuilt UKI at '
+SANDBOX_LINE = ('(sandbox command omitted', 'Sandbox command:')
 IMAGE_PREFIX = re.compile(r'^\[[^\]]*\] ?')
 FAILED = re.compile(r'^"(.*)" returned non-zero exit code \d+\.$')
 TRACEBACK = 'Traceback (most recent call last):'
+MESSAGES = {'sync': 'Package metadata sync failed', 'download': 'Package download failed'}
+PACMAN_COMMIT = 'error: failed to commit transaction (failed to retrieve some files)'
+
+
+def cleaned(line):
+    """Return a log line without ANSI escapes and surrounding whitespace."""
+    return ANSI.sub('', line).strip()
+
+
+def message(line):
+    """Return the text of a mkosi log line, or None when the line is not one."""
+    line = cleaned(line)
+    if not line.startswith('‣'):
+        return None
+    text = line[1:].strip()
+    return IMAGE_PREFIX.sub('', text).strip()
+
+
+def split_command(quoted):
+    """Return the words of the quoted command of a failure line."""
+    try:
+        return shlex.split(quoted)
+    except ValueError:
+        return []
 
 
 def is_sync_command(quoted):
     """True when the quoted command of a failure line is a package-manager metadata sync."""
-    try:
-        words = shlex.split(quoted)
-    except ValueError:
-        return False
+    words = split_command(quoted)
     if not words:
         return False
     tool, arguments = os.path.basename(words[0]), words[1:]
@@ -47,30 +84,105 @@ def is_sync_command(quoted):
     return False
 
 
-def message(line):
-    """Return the text of a mkosi log line, or None when the line is not one."""
-    line = ANSI.sub('', line).strip()
-    if not line.startswith('‣'):
+def install_tool(quoted):
+    """Return the package manager whose install command failed, or None."""
+    words = split_command(quoted)
+    if not words:
         return None
-    text = line[1:].strip()
-    return IMAGE_PREFIX.sub('', text).strip()
+    tool, arguments = os.path.basename(words[0]), words[1:]
+    if tool in ('dnf', 'dnf5'):
+        return 'dnf' if 'install' in arguments else None
+    if tool == 'apt-get' or tool == 'zypper':
+        return tool if 'install' in arguments else None
+    if tool == 'pacman':
+        # The keyring step adds --downloadonly; a refresh is a sync, not an install.
+        return tool if '--sync' in arguments and '--refresh' not in arguments else None
+    return None
 
 
-def sync_failure(lines):
-    """True when the last mkosi step is the sync and only its command failure follows."""
-    steps = [m for m in map(message, lines) if m is not None]
-    for index in range(len(steps) - 1, -1, -1):
-        if steps[index] == STEP:
-            rest = steps[index + 1:]
-            failure = FAILED.match(rest[0]) if rest else None
-            if not failure or not is_sync_command(failure.group(1)):
-                return False
-            tail = rest[1:]
-            if not tail:
-                return True
-            return len(tail) == 1 and (tail[0].startswith('(sandbox command omitted')
-                                       or tail[0].startswith('Sandbox command:'))
-    return False
+def is_install_step(step):
+    """True when a mkosi step installs packages, so a download failure there is transient."""
+    if step == NOT_INSTALL_STEP or step.startswith(PREBUILT_UKI_STEP):
+        return False
+    return INSTALL_STEP.match(step) is not None
+
+
+def apt_download_failure(lines):
+    """True when apt-get failed to fetch package files and named no missing package."""
+    errors = [line for line in lines if line.startswith('E: ')]
+    if not any(line.startswith('E: Failed to fetch ') for line in errors):
+        return False
+    return all(line.startswith('E: Failed to fetch ')
+               or line.startswith('E: Unable to fetch some archives') for line in errors)
+
+
+def dnf_download_failure(lines):
+    """True when dnf or dnf5 failed to download packages, in either tool's output."""
+    if any(marker in line for line in lines
+           for marker in ('No match for argument', 'Unable to find a match',
+                          'Failed to resolve the transaction')):
+        return False
+    if any(line.startswith('Error: ') and line != 'Error: Error downloading packages:'
+           for line in lines):
+        return False
+    return any(line == 'Error: Error downloading packages:'
+               or line == 'Failed to download packages' for line in lines)
+
+
+def pacman_download_failure(lines):
+    """True when pacman failed to retrieve package files and named no missing package."""
+    def failed(line):
+        return line.startswith('error: failed retrieving file ') or line == PACMAN_COMMIT
+
+    errors = [line for line in lines if line.startswith('error: ')]
+    return bool(errors) and all(failed(line) for line in errors)
+
+
+def zypper_download_failure(lines):
+    """True when zypper failed to provide a package it could not download."""
+    if any('No provider of' in line or 'not found in package names' in line for line in lines):
+        return False
+    return any(line.startswith('Failed to provide Package ')
+               and 'Do you want to retry retrieval?' in line for line in lines)
+
+
+DOWNLOAD_FAILURES = {'apt-get': apt_download_failure, 'dnf': dnf_download_failure,
+                     'pacman': pacman_download_failure, 'zypper': zypper_download_failure}
+
+
+def plain_lines(lines, start, stop):
+    """Return the text of the non-mkosi lines between two log line indexes."""
+    texts = []
+    for line in lines[start + 1:stop]:
+        text = cleaned(line)
+        if not text.startswith('‣'):
+            texts.append(text)
+    return texts
+
+
+def classify(lines):
+    """Return 'sync', 'download' or None for the failure that ended this run."""
+    messages = [(index, text) for index, text
+                in ((index, message(line)) for index, line in enumerate(lines))
+                if text is not None]
+    if len(messages) < 2:
+        return None
+    tail = messages[-3:] if messages[-1][1].startswith(SANDBOX_LINE) else messages[-2:]
+    if len(tail) < 2:
+        return None
+    (step_index, step), (failure_index, failure_text) = tail[0], tail[1]
+    failure = FAILED.match(failure_text)
+    if not failure:
+        return None
+    command = failure.group(1)
+    if step == SYNC_STEP and is_sync_command(command):
+        return 'sync'
+    if not is_install_step(step):
+        return None
+    tool = install_tool(command)
+    if tool is None:
+        return None
+    return 'download' if DOWNLOAD_FAILURES[tool](plain_lines(lines, step_index, failure_index)) else None
 
 
 def setting(name, default, minimum):
@@ -85,7 +197,7 @@ def setting(name, default, minimum):
 
 
 def run(command):
-    """Stream the command's output unchanged; keep its mkosi log lines and note a traceback."""
+    """Stream the command's output unchanged; keep its lines and note a traceback."""
     env = dict(os.environ, PYTHONUNBUFFERED='1')
     lines = []
     traceback = False
@@ -95,10 +207,9 @@ def run(command):
             out.write(raw)
             out.flush()
             line = raw.decode('utf-8', 'replace')
-            if ANSI.sub('', line).strip() == TRACEBACK:
+            if cleaned(line) == TRACEBACK:
                 traceback = True
-            if message(line) is not None:
-                lines.append(line)
+            lines.append(line)
     return child.returncode, lines, traceback
 
 
@@ -106,8 +217,8 @@ def main(argv):
     if not argv:
         print('Usage: builder-mkosi-retry COMMAND [ARGS...]', file=sys.stderr)
         return 2
-    tries = setting('NSL_SYNC_TRIES', 3, 1)
-    delay = setting('NSL_SYNC_RETRY_DELAY', 60, 0)
+    tries = setting('NSL_MKOSI_TRIES', 3, 1)
+    delay = setting('NSL_MKOSI_RETRY_DELAY', 60, 0)
     code = 0
     for attempt in range(1, tries + 1):
         try:
@@ -118,13 +229,14 @@ def main(argv):
         if code < 0:
             # Report a child killed by a signal as a shell does.
             return 128 - code
-        if code == 0 or traceback or not sync_failure(lines):
+        kind = None if code == 0 or traceback else classify(lines)
+        if kind is None:
             return code
         if attempt == tries:
-            print(f'Package metadata sync failed after {tries} tries.', file=sys.stderr)
+            print(f'{MESSAGES[kind]} after {tries} tries.', file=sys.stderr)
             return code
         wait = delay * 3 ** (attempt - 1)
-        print(f'Package metadata sync failed (try {attempt} of {tries}); retrying in {wait} s.',
+        print(f'{MESSAGES[kind]} (try {attempt} of {tries}); retrying in {wait} s.',
               file=sys.stderr, flush=True)
         time.sleep(wait)
     return code
