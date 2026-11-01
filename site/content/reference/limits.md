@@ -39,6 +39,9 @@ The VM does not become ready
 A new setting has no effect
 :   Resource changes apply at the VM's next start. `nsl config` shows what is pending; `nsl shutdown` applies it at the next command.
 
+`nsl` reports `Failed to connect to bus`
+:   nsl runs each VM as a user systemd unit, so the shell it runs in must reach your user systemd manager. A shell from `su`, `sudo -u` or a plain `ssh` without a login session can lack `XDG_RUNTIME_DIR`. Log in as that user, or set `XDG_RUNTIME_DIR=/run/user/$(id -u)` in the shell.
+
 ## Report a problem
 
 If you're still stuck, open an issue at [github.com/frostyard/nsl ↗](https://github.com/frostyard/nsl/issues). Include what you tried and the output of `nsl version` and `nsl doctor`. Add `nsl logs` when it helps explain the failure.

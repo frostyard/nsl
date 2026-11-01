@@ -31,13 +31,41 @@ func cid(v *vmRecord) uint32 {
 	return 0x40000000 | (binary.BigEndian.Uint32(b[:4]) & 0x3fffffff)
 }
 
+// isUserSystemd reports whether the command talks to the user systemd manager,
+// the one a shell without XDG_RUNTIME_DIR cannot reach.
+func isUserSystemd(bin string, args []string) bool {
+	if bin != "systemctl" && bin != "systemd-run" {
+		return false
+	}
+	return slices.Contains(args, "--user")
+}
+
+// userSystemdHint explains a failed user systemd call, or returns "" when the
+// shell can reach the manager. With XDG_RUNTIME_DIR set, systemctl finds the
+// manager at $XDG_RUNTIME_DIR/systemd/private without DBUS_SESSION_BUS_ADDRESS,
+// so an unset DBUS address alone is not a cause; an unset XDG_RUNTIME_DIR is.
+func userSystemdHint() string {
+	if os.Getenv("XDG_RUNTIME_DIR") != "" {
+		return ""
+	}
+	unset := "XDG_RUNTIME_DIR is unset"
+	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
+		unset += " (and DBUS_SESSION_BUS_ADDRESS is unset)"
+	}
+	return fmt.Sprintf("%s: the user systemd manager is not reachable from this shell; run nsl in a login session, or set XDG_RUNTIME_DIR=/run/user/%d", unset, os.Getuid())
+}
+
 func (a *app) capture(timeout time.Duration, bin string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var out, stderr bytes.Buffer
 	err := a.r.run(ctx, nil, &out, &stderr, os.Environ(), bin, args...)
 	if err != nil {
-		return out.Bytes(), fmt.Errorf("%s: %w: %s", bin, err, strings.TrimSpace(stderr.String()))
+		err = fmt.Errorf("%s: %w: %s", bin, err, strings.TrimSpace(stderr.String()))
+		if hint := userSystemdHint(); hint != "" && isUserSystemd(bin, args) {
+			return out.Bytes(), fmt.Errorf("%w; %s", err, hint)
+		}
+		return out.Bytes(), err
 	}
 	return out.Bytes(), nil
 }

@@ -103,7 +103,18 @@ func groupSwitcher(lookPath func(string) (string, error)) string {
 }
 
 func (a *app) call(in io.Reader, out io.Writer, bin string, args ...string) error {
-	return a.r.run(context.Background(), in, out, a.err, os.Environ(), bin, args...)
+	err := a.r.run(context.Background(), in, out, a.err, os.Environ(), bin, args...)
+	// nsl run and nsl shell return the machine command's own status through
+	// ssh, so their error stays bare. A user systemd call is nsl's own work:
+	// its failure needs a message, and a shell that cannot reach the user
+	// manager needs the hint.
+	if err != nil && isUserSystemd(bin, args) {
+		if hint := userSystemdHint(); hint != "" {
+			return fmt.Errorf("%s: %w; %s", bin, err, hint)
+		}
+		return fmt.Errorf("%s: %w", bin, err)
+	}
+	return err
 }
 
 func usage(w io.Writer) {
@@ -245,11 +256,18 @@ func main() {
 		err = a.execute(os.Args[1:])
 	}
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			os.Exit(exit.ExitCode())
-		}
-		fmt.Fprintln(os.Stderr, "nsl:", err)
-		os.Exit(1)
+		os.Exit(exitStatus(err, os.Stderr))
 	}
+}
+
+// exitStatus turns a command's error into nsl's exit status. A bare
+// *exec.ExitError is a machine command's own status, and the machine wrote
+// its own stderr, so nsl passes it through silently. A wrapped one is nsl's
+// own failure, and its message must show.
+func exitStatus(err error, stderr io.Writer) int {
+	if exit, ok := err.(*exec.ExitError); ok {
+		return exit.ExitCode()
+	}
+	fmt.Fprintln(stderr, "nsl:", err)
+	return 1
 }
