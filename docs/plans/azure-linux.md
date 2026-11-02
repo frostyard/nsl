@@ -1,6 +1,6 @@
 # Plan: Azure Linux 4.0 machine image
 
-**Status: Phase 1 complete, 2026-10-08. Phase 2 waits for a publication run.**
+**Status: Phase 1 complete, 2026-10-08. Catalogue sequence 16 published the image on 2026-10-09; Phase 2 waits for the clean-host check.**
 
 Add Azure Linux 4.0, Microsoft's Fedora-based cloud distribution, as a machine image in the `rpm` family. It joins the catalogue only after it passes the [machine-image acceptance](../specs/machine-images.md#acceptance), under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md).
 
@@ -28,6 +28,8 @@ Azure Linux 4.0 is a beta. Microsoft publishes it only under `packages.microsoft
 
 - Add the selectors `azurelinux:4.0` and `azure-linux:4.0` to the publisher, and list the image as a beta in the user documentation.
 - **Done when:** a signed catalogue lists the image, and `nsl create` works from `azurelinux:4.0` on a host with an empty cache.
+
+**Publication, 2026-10-09.** [Run 37848515876](https://github.com/frostyard/nsl/actions/runs/37848515876) published catalogue sequence 16 with `nsl-machine-azure-4.0-x86-64-r1` and the selectors `azurelinux:4.0` and `azure-linux:4.0`. No clean-host `nsl create` from `azurelinux:4.0` is recorded yet.
 
 ## Later / ideas
 
