@@ -137,6 +137,13 @@ CONFLICT = ('Error: signing /x/descriptor.json: signing bundle: error signing bu
             f'already exists in the transparency log with UUID {UUID}"}}')
 SIGNER_ERROR = 'Error: getting signer: getting GitHub token: no OIDC token available'
 MISSING_BLOB = 'Error: signing /x/descriptor.json: open /x/descriptor.json: no such file or directory'
+EMPTY_RETRIES = ('Error: signing x: POST https://fulcio.sigstore.dev/api/v2/signingCert '
+                 'giving up after 4 attempt(s)')
+# go-retryablehttp names the cause after ': ' when a transport error ended the retries.
+CAUSED_RETRIES = ['Error: signing x: POST https://fulcio.sigstore.dev/api/v2/signingCert '
+                  'giving up after 1 attempt(s): x509: certificate signed by unknown authority',
+                  'Error: signing x: POST https://fulcio.sigstore.dev/api/v2/signingCert '
+                  'giving up after 4 attempt(s): some unknown error']
 TRANSIENT = ['Error: signing /x/descriptor.json: [POST /api/v1/log/entries][503] Service Unavailable',
              'Error: signing /x/descriptor.json: Post "https://rekor.sigstore.dev/api/v1/log/entries": '
              'giving up after 5 attempt(s): [POST /api/v1/log/entries][502] Bad Gateway',
@@ -165,9 +172,9 @@ def hashedrekord(digest, kind='hashedrekord', algorithm='sha256'):
                 spec=dict(data=dict(hash=dict(algorithm=algorithm, value=digest)), signature=dict(content='c2ln')))
 
 
-def entry(body):
+def entry(body, key=UUID):
     """A Rekor v1 log entry response holding one entry for this body."""
-    return json.dumps({UUID: dict(body=base64.b64encode(json.dumps(body).encode()).decode(), integratedTime=1,
+    return json.dumps({key: dict(body=base64.b64encode(json.dumps(body).encode()).decode(), integratedTime=1,
                                  logID='c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d',
                                  logIndex=1, verification={})}).encode()
 
@@ -281,8 +288,20 @@ class SignRetry(unittest.TestCase):
         self.assertIn('cosign sign-blob failed (try 1 of 3): transient HTTP error; retrying in 15 s.', self.out.getvalue())
         self.assertIn('cosign sign-blob failed after 3 tries.', self.out.getvalue())
 
+    def test_a_bare_giving_up_line_is_transient(self):
+        run = self.signing(cosign(EMPTY_RETRIES, returncode=1), cosign())
+        pub.sign(self.tools, self.directory, 'descriptor')
+        self.assertEqual(run.call_count, 2)
+        self.sleep.assert_called_once_with(15)
+        self.verify.assert_called_once()
+
+    def test_a_giving_up_line_with_another_cause_never_matches(self):
+        for stderr in CAUSED_RETRIES:
+            with self.subTest(stderr[-40:]):
+                self.assertIsNone(pub.sign_retry_reason(stderr, self.blob))
+
     def test_other_errors_stop_at_once(self):
-        for stderr in (SIGNER_ERROR, MISSING_BLOB, 'error: some other failure'):
+        for stderr in (SIGNER_ERROR, MISSING_BLOB, 'error: some other failure', *CAUSED_RETRIES):
             with self.subTest(stderr[:30]):
                 with mock.patch.object(pub.subprocess, 'run', side_effect=steps(cosign(stderr, returncode=1), cosign())) as run:
                     with self.assertRaises(subprocess.CalledProcessError):
@@ -317,6 +336,21 @@ class SignRetry(unittest.TestCase):
         self.signing(failing, cosign())
         pub.sign(self.tools, self.directory, 'descriptor')
         self.assertEqual(seen, [True])
+
+    def test_an_entry_named_by_its_tree_id_or_its_uuid_matches(self):
+        short, long = UUID[16:], UUID
+        for name, requested in ((short, short), (long, long), (long, short), (short, long)):
+            with self.subTest(f'{len(name)} for {len(requested)}'):
+                response = Response(entry(hashedrekord(self.digest), key=name))
+                with mock.patch.object(pub.urllib.request, 'urlopen', return_value=response):
+                    self.assertTrue(pub.rekor_entry_matches(requested, self.blob))
+
+    def test_an_entry_for_another_uuid_never_matches(self):
+        for name in ('f'*64, 'f'*80, UUID[:60] + 'f'*4, 'not a uuid'):
+            with self.subTest(name[:16]):
+                response = Response(entry(hashedrekord(self.digest), key=name))
+                with mock.patch.object(pub.urllib.request, 'urlopen', return_value=response):
+                    self.assertFalse(pub.rekor_entry_matches(UUID, self.blob))
 
     def test_an_entry_that_records_this_blob_matches(self):
         urlopen = self.start(mock.patch.object(pub.urllib.request, 'urlopen', return_value=Response(entry(hashedrekord(self.digest)))))

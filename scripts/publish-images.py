@@ -62,7 +62,9 @@ SIGN_RESPONSE_LIMIT = 1 << 20
 SIGN_CONFLICT = re.compile(r'\[POST /api/v1/log/entries\]\[409\] createLogEntryConflict')
 SIGN_CONFLICT_UUID = re.compile(r'with UUID ([0-9a-f]{64,80})')
 SIGN_TRANSIENT = [re.compile(r'\]\[(?:408|429|500|502|503|504)\]'),
-                  re.compile(r'giving up after \d+ attempt'),
+                  # go-retryablehttp names a cause after ': ' when a transport error ended the retries; then only
+                  # the cause decides, because it can be permanent. A bare line means the server kept answering.
+                  re.compile(r'giving up after \d+ attempt\(s\)["\'\]\s]*$', re.MULTILINE),
                   re.compile(r'i/o timeout|connection reset by peer|TLS handshake timeout|context deadline exceeded')]
 
 
@@ -279,6 +281,16 @@ def unconfirmed(reason):
     return False
 
 
+def names_entry(name, uuid):
+    """True when a Rekor response key names the requested entry: a 64-hex UUID or an 80-hex tree ID and UUID."""
+    if name == uuid:
+        return True
+    for long, short in ((name, uuid), (uuid, name)):
+        if re.fullmatch(r'[0-9a-f]{80}', long) and re.fullmatch(r'[0-9a-f]{64}', short) and long.endswith(short):
+            return True
+    return False
+
+
 def rekor_entry_matches(uuid, blob):
     """True only when the Rekor entry records this blob's SHA256 as a hashedrekord; false on any doubt."""
     try:
@@ -289,7 +301,10 @@ def rekor_entry_matches(uuid, blob):
         entries = json.loads(raw)
         if not isinstance(entries, dict) or len(entries) != 1:
             return unconfirmed('the response does not hold exactly one entry')
-        body = json.loads(base64.b64decode(next(iter(entries.values()))['body'], validate=True))
+        name, held = next(iter(entries.items()))
+        if not names_entry(name, uuid):
+            return unconfirmed('the response holds the entry for another UUID')
+        body = json.loads(base64.b64decode(held['body'], validate=True))
         recorded = body['spec']['data']['hash']
         if body.get('kind') != 'hashedrekord' or recorded.get('algorithm') != 'sha256':
             return unconfirmed('the entry is not a sha256 hashedrekord')
