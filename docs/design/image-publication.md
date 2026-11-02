@@ -20,7 +20,7 @@ A self-hosted runner labeled `nsl-image-builder` supplies the host prerequisites
 
 A public directory holds the payload, the package inventory, provenance, the acceptance report and the unsigned descriptor. VM disks are compressed with a pinned zstd (`scripts/zstd-image.go`). Machine images are published as built, and the same tool measures the root filesystem the descriptor records. Acceptance reports use an explicit field list: check names and results, protocols and a few timings. Probe logs, host paths, test state and archives stay in private evidence.
 
-The publication step receives a repository-scoped Actions token and uses GitHub OIDC to sign with the exact workflow identity. It verifies each signature against the CLI's embedded root, pushes immutable image tags named by build ID and workflow run number, then signs and promotes `catalogue-v1` with one `vm` entry and one `machine` entry per profile. All promoted digests are kept.
+The publication step receives a repository-scoped Actions token and uses GitHub OIDC to sign with the exact workflow identity. It verifies each signature against the CLI's embedded root, pushes immutable image tags named by build ID and workflow run number, then signs and promotes `catalogue-v1` with one `vm` entry and one `machine` entry per profile. All promoted digests are kept. The publisher retries `cosign sign-blob` up to 3 tries with 15 s and 45 s backoff on a transient HTTP error, or on a Rekor 409 conflict after it confirms that the conflicting entry records this blob's digest, since cosign's own HTTP retry can repeat an accepted upload; every other error stops the publication.
 
 ## Operational notes
 

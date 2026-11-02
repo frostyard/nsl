@@ -9,6 +9,7 @@
 See docs/design/image-publication.md and docs/specs/image-delivery.md.
 """
 import argparse
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
@@ -19,7 +20,9 @@ import re
 import resource
 import shutil
 import subprocess
+import sys
 import time
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('compose', ROOT/'scripts/compose-image.py')
@@ -50,6 +53,17 @@ VM_CHECKS = {'readiness', 'formatting', 'allowlist', 'ownership', 'sockets', 'ro
 MACHINE_CHECKS = {'entry', 'system', 'tally', 'packages', 'podman', 'files', 'ports', 'translation', 'broker', 'ssh', 'gui', 'persistence'}
 ISOLATED_CHECKS = {'entry', 'system', 'tally', 'packages', 'podman', 'isolation', 'ssh', 'persistence'}
 EVIDENCE_LIMIT = 16 << 20
+# Cosign signs at the public Rekor instance; a signing bundle is retried a few times (see sign()).
+REKOR = 'https://rekor.sigstore.dev'
+SIGN_TRIES = 3
+SIGN_DELAY = 15
+SIGN_RESPONSE_LIMIT = 1 << 20
+# A 409 conflict names the entry Rekor already holds; cosign's own HTTP retry can repeat an accepted upload.
+SIGN_CONFLICT = re.compile(r'\[POST /api/v1/log/entries\]\[409\] createLogEntryConflict')
+SIGN_CONFLICT_UUID = re.compile(r'with UUID ([0-9a-f]{64,80})')
+SIGN_TRANSIENT = [re.compile(r'\]\[(?:408|429|500|502|503|504)\]'),
+                  re.compile(r'giving up after \d+ attempt'),
+                  re.compile(r'i/o timeout|connection reset by peer|TLS handshake timeout|context deadline exceeded')]
 
 
 def run(args, **kwargs):
@@ -216,9 +230,76 @@ def build(base):
 
 
 def sign(tools, directory, stem):
-    run([tools/'cosign', 'sign-blob', '--yes', '--oidc-provider', 'github-actions',
-         '--bundle', directory/f'{stem}.sigstore.json', directory/f'{stem}.json'])
-    verify_signature(tools, directory, stem)
+    """Sign the blob, retrying only a transient HTTP error or a Rekor conflict that records this blob.
+
+    Cosign's HTTP client retries a slow request that Rekor already accepted, so a second
+    upload of the same signature conflicts with its own first entry. Every new call makes a
+    new ephemeral key, so a retry cannot conflict again.
+    """
+    bundle = directory/f'{stem}.sigstore.json'
+    blob = directory/f'{stem}.json'
+    kept = bundle.exists()
+    args = [str(x) for x in (tools/'cosign', 'sign-blob', '--yes', '--oidc-provider', 'github-actions',
+                             '--bundle', bundle, blob)]
+    for attempt in range(1, SIGN_TRIES + 1):
+        result = subprocess.run(args, capture_output=True, text=True)
+        sys.stdout.write(result.stdout)
+        sys.stdout.flush()
+        sys.stderr.write(result.stderr)
+        sys.stderr.flush()
+        if result.returncode == 0:
+            verify_signature(tools, directory, stem)
+            return
+        reason = sign_retry_reason(result.stderr, blob)
+        if reason is None or attempt == SIGN_TRIES:
+            if reason:
+                print(f'cosign sign-blob failed after {SIGN_TRIES} tries.', flush=True)
+            raise subprocess.CalledProcessError(result.returncode, args, output=result.stdout, stderr=result.stderr)
+        delay = SIGN_DELAY * 3 ** (attempt - 1)
+        print(f'cosign sign-blob failed (try {attempt} of {SIGN_TRIES}): {reason}; retrying in {delay} s.', flush=True)
+        if not kept:
+            bundle.unlink(missing_ok=True)
+        time.sleep(delay)
+
+
+def sign_retry_reason(stderr, blob):
+    """Why to retry cosign sign-blob, or None when this error must stop the publication."""
+    if SIGN_CONFLICT.search(stderr):
+        uuid = SIGN_CONFLICT_UUID.search(stderr)
+        if uuid is None or not rekor_entry_matches(uuid.group(1), blob):
+            return None
+        return 'Rekor entry conflict for this blob'
+    if any(pattern.search(stderr) for pattern in SIGN_TRANSIENT):
+        return 'transient HTTP error'
+    return None
+
+
+def unconfirmed(reason):
+    print(f'cosign sign-blob: the Rekor entry is not this blob: {reason}', file=sys.stderr, flush=True)
+    return False
+
+
+def rekor_entry_matches(uuid, blob):
+    """True only when the Rekor entry records this blob's SHA256 as a hashedrekord; false on any doubt."""
+    try:
+        with urllib.request.urlopen(f'{REKOR}/api/v1/log/entries/{uuid}', timeout=30) as response:
+            raw = response.read(SIGN_RESPONSE_LIMIT + 1)
+        if len(raw) > SIGN_RESPONSE_LIMIT:
+            return unconfirmed('the entry response exceeds its bound')
+        entries = json.loads(raw)
+        if not isinstance(entries, dict) or len(entries) != 1:
+            return unconfirmed('the response does not hold exactly one entry')
+        body = json.loads(base64.b64decode(next(iter(entries.values()))['body'], validate=True))
+        recorded = body['spec']['data']['hash']
+        if body.get('kind') != 'hashedrekord' or recorded.get('algorithm') != 'sha256':
+            return unconfirmed('the entry is not a sha256 hashedrekord')
+        with blob.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if recorded.get('value') != digest:
+            return unconfirmed('the entry records another digest')
+        return True
+    except Exception as error:  # no network, a broken response or an unreadable blob all mean no retry
+        return unconfirmed(f'{type(error).__name__}: {error}')
 
 
 def verify_signature(tools, directory, stem):
