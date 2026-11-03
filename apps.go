@@ -28,9 +28,11 @@ import (
 const (
 	appUsage = "usage: app add [-m NAME] APP | app remove [-m NAME] APP | app list [-m NAME]"
 
-	// The reads are bounded: one entry, one icon.
-	appEntryLimit = 64 << 10
-	appIconLimit  = 1 << 20
+	// The guest reads are bounded: one entry, one icon. A host entry is a
+	// guest entry quoted for a desktop, so it can be longer than the guest's.
+	appEntryLimit  = 64 << 10
+	appIconLimit   = 1 << 20
+	hostEntryLimit = 1 << 20
 )
 
 // appCommand is `nsl app add|remove|list`.
@@ -351,7 +353,7 @@ func (a *app) ownedEntry(path string, m *machineRecord, app string) (*desktopEnt
 		return nil, false, err
 	}
 	stat, ok := st.Sys().(*syscall.Stat_t)
-	if !st.Mode().IsRegular() || !ok || int(stat.Uid) != a.uid || st.Size() > appEntryLimit {
+	if !st.Mode().IsRegular() || !ok || int(stat.Uid) != a.uid || st.Size() > hostEntryLimit {
 		return nil, false, nil
 	}
 	b, err := os.ReadFile(path)
@@ -361,10 +363,11 @@ func (a *app) ownedEntry(path string, m *machineRecord, app string) (*desktopEnt
 	if err != nil {
 		return nil, false, err
 	}
-	entry, err := parseDesktopEntry(b)
+	values, err := readDesktopGroup(b)
 	if err != nil {
 		return nil, false, nil
 	}
+	entry := desktopEntryOf(values)
 	if entry.Machine != m.Name || entry.MachineID != m.ID || entry.App == "" || (app != "" && entry.App != app) {
 		return nil, false, nil
 	}
@@ -499,9 +502,11 @@ type desktopEntry struct {
 	Machine, MachineID, App                                                string // nsl's markers
 }
 
-// parseDesktopEntry reads [Desktop Entry] and refuses an entry a host cannot
-// honour for a machine application.
-func parseDesktopEntry(content []byte) (*desktopEntry, error) {
+// readDesktopGroup reads the unlocalized keys of the entry's first group,
+// which MUST be [Desktop Entry], with their string escapes decoded. It is all a
+// host entry needs: nsl's own entries pass the guest checks below, and a user
+// may edit one without nsl losing it.
+func readDesktopGroup(content []byte) (map[string]string, error) {
 	if !utf8.Valid(content) {
 		return nil, errors.New("the desktop entry is not UTF-8")
 	}
@@ -551,6 +556,26 @@ func parseDesktopEntry(content []byte) (*desktopEntry, error) {
 	if first {
 		return nil, errors.New("the entry has no [Desktop Entry] group")
 	}
+	return values, nil
+}
+
+// desktopEntryOf is the entry nsl reads from a group's keys. It leaves out the
+// guest checks, which a host entry nsl wrote has already passed.
+func desktopEntryOf(values map[string]string) *desktopEntry {
+	return &desktopEntry{Name: values["Name"], GenericName: values["GenericName"], Comment: values["Comment"],
+		Icon: values["Icon"], Categories: values["Categories"], Keywords: values["Keywords"],
+		StartupWMClass: values["StartupWMClass"], Exec: values["Exec"], Path: values["Path"],
+		Terminal: values["Terminal"] == "true", Machine: values["X-Nsl-Machine"],
+		MachineID: values["X-Nsl-Machine-ID"], App: values["X-Nsl-App"]}
+}
+
+// parseDesktopEntry reads a machine's desktop entry and refuses one a host
+// cannot honour for a machine application.
+func parseDesktopEntry(content []byte) (*desktopEntry, error) {
+	values, err := readDesktopGroup(content)
+	if err != nil {
+		return nil, err
+	}
 	if typ := values["Type"]; typ != "Application" {
 		if typ == "" {
 			return nil, errors.New("the entry has no Type=Application")
@@ -560,11 +585,7 @@ func parseDesktopEntry(content []byte) (*desktopEntry, error) {
 	if values["Hidden"] == "true" {
 		return nil, errors.New("the entry is Hidden=true")
 	}
-	entry := &desktopEntry{Name: values["Name"], GenericName: values["GenericName"], Comment: values["Comment"],
-		Icon: values["Icon"], Categories: values["Categories"], Keywords: values["Keywords"],
-		StartupWMClass: values["StartupWMClass"], Exec: values["Exec"], Path: values["Path"],
-		Terminal: values["Terminal"] == "true", Machine: values["X-Nsl-Machine"],
-		MachineID: values["X-Nsl-Machine-ID"], App: values["X-Nsl-App"]}
+	entry := desktopEntryOf(values)
 	if entry.Name == "" {
 		return nil, errors.New("the entry has no Name")
 	}
@@ -674,6 +695,11 @@ func execArgs(execLine string) ([]string, error) {
 			}
 			if !closed {
 				return nil, errors.New("the Exec has an unclosed quote")
+			}
+			// A quote encloses a whole argument, so a space or the end of
+			// the line must follow it.
+			if i < len(execLine) && execLine[i] != ' ' {
+				return nil, errors.New("the Exec quotes part of an argument, which nsl does not support")
 			}
 			split = append(split, b.String())
 			continue
@@ -895,6 +921,16 @@ func (a *app) writeAppIcon(m *machineRecord, app string, icon *appIcon) (string,
 // it is then empty.
 func (a *app) removeAppIcons(m *machineRecord, app string) error {
 	dir := a.appsDir(m.Name)
+	// A missing directory holds no icons. A symlink or a foreign directory is
+	// refused, so that nothing outside nsl's own state is touched.
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if err := checkPrivateDir(dir, a.uid); err != nil {
+		return err
+	}
 	for _, ext := range []string{"png", "svg"} {
 		if err := os.Remove(filepath.Join(dir, app+"."+ext)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err

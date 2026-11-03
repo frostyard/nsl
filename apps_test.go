@@ -266,6 +266,56 @@ func TestAppAddPrefersTheAccountsOwnEntry(t *testing.T) {
 	}
 }
 
+func TestAppAddCopiesTerminalAndTheGuestPath(t *testing.T) {
+	a, f, _ := withMachine(t)
+	body := appEntryBody("Exec=calc --flag", "Terminal=true", "Path=/opt/calc/bin")
+	guestFiles(f, map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": body})
+	entry, err := os.ReadFile(addedEntry(t, a, f, "org.gnome.Calculator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\nTerminal=true\n", " --cd /opt/calc/bin -- calc --flag\n"} {
+		if !strings.Contains(string(entry), want) {
+			t.Fatalf("missing %q in\n%s", want, entry)
+		}
+	}
+}
+
+func TestAppAddIgnoresLocalizedKeys(t *testing.T) {
+	a, f, _ := withMachine(t)
+	body := appEntryBody("Name[de]=Taschenrechner", "Exec=calc", "Comment=Calculate", "Comment[de]=Rechnen")
+	guestFiles(f, map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": body})
+	entry, err := os.ReadFile(addedEntry(t, a, f, "org.gnome.Calculator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\nName=Calculator (debian)\n", "\nComment=Calculate\n"} {
+		if !strings.Contains(string(entry), want) {
+			t.Fatalf("missing %q in\n%s", want, entry)
+		}
+	}
+	for _, unwanted := range []string{"Taschenrechner", "Rechnen"} {
+		if strings.Contains(string(entry), unwanted) {
+			t.Fatalf("copied the localized value %q into\n%s", unwanted, entry)
+		}
+	}
+}
+
+func TestAppAddStopsOnAnOversizedIcon(t *testing.T) {
+	a, f, _ := withMachine(t)
+	files := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop":            guestApp("Calculator"),
+		"/usr/share/icons/hicolor/scalable/apps/org.gnome.Calculator.svg": "<svg>" + strings.Repeat("x", appIconLimit),
+	}
+	guestFiles(f, files)
+	if err := a.execute([]string{"app", "add", "org.gnome.Calculator"}); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(a.applicationsDir()); !os.IsNotExist(err) {
+		t.Fatal("wrote an entry after a failed icon read")
+	}
+}
+
 func TestAppAddRefusesWhatItCannotHonour(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -276,11 +326,13 @@ func TestAppAddRefusesWhatItCannotHonour(t *testing.T) {
 		{"shell syntax", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody(`Exec=sh -c 'echo hi'`)}, "org.gnome.Calculator", "shell syntax"},
 		{"another field code", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody("Exec=gimp --file=%f")}, "org.gnome.Calculator", "field code"},
 		{"a stray quote", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody(`Exec=calc --title="My Screen"`)}, "org.gnome.Calculator", "shell syntax"},
-		{"an unsupported escape", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody(`Exec=calc "\q"`)}, "org.gnome.Calculator", "escape"},
+		{"an unsupported escape", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody(`Exec=calc "\\q"`)}, "org.gnome.Calculator", "quotes the unsupported escape"},
 		{"hidden", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody("Exec=calc", "Hidden=true")}, "org.gnome.Calculator", "Hidden"},
 		{"a link", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": "[Desktop Entry]\nType=Link\nName=Calculator\nExec=calc\n"}, "org.gnome.Calculator", "not Application"},
 		{"no exec", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": "[Desktop Entry]\nType=Application\nName=Calculator\n"}, "org.gnome.Calculator", "no Exec"},
 		{"another first group", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": "[Desktop Action new]\nName=New\n[Desktop Entry]\nType=Application\nName=Calculator\nExec=calc\n"}, "org.gnome.Calculator", "[Desktop Entry]"},
+		{"a duplicate key", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": appEntryBody("Exec=calc", "Comment=one", "Comment=two")}, "org.gnome.Calculator", "appears twice"},
+		{"invalid UTF-8", map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": "[Desktop Entry]\nType=Application\nName=Calc\xff\nExec=calc\n"}, "org.gnome.Calculator", "not UTF-8"},
 		{"absent everywhere", map[string]string{}, "org.gnome.Calculator", "no org.gnome.Calculator.desktop in debian"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -341,9 +393,24 @@ func TestAppAddRefusesAnIsolatedOrUnpreparedMachine(t *testing.T) {
 	}
 }
 
+// noIcon checks that a refusal wrote neither the icon nor the machine's icon
+// directory, although the guest has an icon.
+func noIcon(t *testing.T, a *app) {
+	t.Helper()
+	if _, err := os.Lstat(filepath.Join(a.appsDir("debian"), "org.gnome.Calculator.svg")); !os.IsNotExist(err) {
+		t.Fatal("wrote an icon for a refused entry")
+	}
+	if _, err := os.Lstat(a.appsDir("debian")); !os.IsNotExist(err) {
+		t.Fatal("created the icon directory for a refused entry")
+	}
+}
+
 func TestAppAddNeverReplacesAFileItDidNotWrite(t *testing.T) {
 	a, f, m := withMachine(t)
-	files := map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": guestApp("Calculator")}
+	files := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop":            guestApp("Calculator"),
+		"/usr/share/icons/hicolor/scalable/apps/org.gnome.Calculator.svg": svgIcon,
+	}
 	guestFiles(f, files)
 	entry := a.menuEntryPath("debian", "org.gnome.Calculator")
 	foreign := []byte("[Desktop Entry]\nType=Application\nName=Mine\nExec=mine\n")
@@ -354,9 +421,7 @@ func TestAppAddNeverReplacesAFileItDidNotWrite(t *testing.T) {
 	if got, err := os.ReadFile(entry); err != nil || !bytes.Equal(got, foreign) {
 		t.Fatalf("%v %q", err, got)
 	}
-	if _, err := os.Lstat(a.appsDir("debian")); !os.IsNotExist(err) {
-		t.Fatal("wrote an icon for a refused entry")
-	}
+	noIcon(t, a)
 	// A symlink at the path is not owned, and nsl writes through nothing.
 	if err := os.Remove(entry); err != nil {
 		t.Fatal(err)
@@ -374,6 +439,7 @@ func TestAppAddNeverReplacesAFileItDidNotWrite(t *testing.T) {
 	if got, err := os.ReadFile(target); err != nil || !bytes.Equal(got, foreign) {
 		t.Fatalf("wrote through a symlink: %v %q", err, got)
 	}
+	noIcon(t, a)
 	// An entry of another ID is another machine's file.
 	if err := os.Remove(entry); err != nil {
 		t.Fatal(err)
@@ -387,6 +453,7 @@ func TestAppAddNeverReplacesAFileItDidNotWrite(t *testing.T) {
 	if _, owned, err := a.ownedEntry(entry, m, "org.gnome.Calculator"); err != nil || owned {
 		t.Fatal("accepted an entry of another ID", err)
 	}
+	noIcon(t, a)
 }
 
 func TestAppAddRefreshesAnOwnedEntry(t *testing.T) {
@@ -459,13 +526,24 @@ func TestAppRemoveDeletesTheEntryAndItsIcons(t *testing.T) {
 
 func TestAppListShowsOnlyOwnedEntries(t *testing.T) {
 	a, f, _ := withMachine(t)
+	// A second real machine, with an entry of its own.
+	if err := a.create(append([]string{"debian-2"}, machineImage(t, "second rootfs")...)); err != nil {
+		t.Fatal(err)
+	}
 	files := map[string]string{
 		"/usr/share/applications/org.gnome.Calculator.desktop": guestApp("Calculator"),
 		"/usr/share/applications/galculator.desktop":           guestApp("Galculator"),
 	}
 	guestFiles(f, files)
-	addedEntry(t, a, f, "org.gnome.Calculator")
-	addedEntry(t, a, f, "galculator")
+	for _, args := range [][]string{
+		{"app", "add", "org.gnome.Calculator"},
+		{"app", "add", "galculator"},
+		{"app", "add", "-m", "debian-2", "galculator"},
+	} {
+		if err := a.execute(args); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Files nsl did not write stay out of the list.
 	writeHostFile(t, a, "nsl-debian-other.desktop", "[Desktop Entry]\nType=Application\nName=Other\nExec=other\n")
 	other := strings.Replace(guestApp("Calculator"), "[Desktop Entry]\nType=Application\nName=Calculator\n",
@@ -473,40 +551,57 @@ func TestAppListShowsOnlyOwnedEntries(t *testing.T) {
 	writeHostFile(t, a, "nsl-debian-2-org.gnome.Calculator.desktop", other)
 	var out bytes.Buffer
 	a.out = &out
-	if err := a.execute([]string{"app", "list"}); err != nil {
-		t.Fatal(err)
+	// Every machine's entries, sorted by machine and APP, with the Name last.
+	rows := [][3]string{{"debian", "galculator", "Galculator (debian)"}, {"debian", "org.gnome.Calculator", "Calculator (debian)"},
+		{"debian-2", "galculator", "Galculator (debian-2)"}}
+	listed := func(machine string) []string {
+		t.Helper()
+		out.Reset()
+		args := []string{"app", "list"}
+		if machine != "" {
+			args = append(args, "-m", machine)
+		}
+		if err := a.execute(args); err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(strings.TrimSpace(out.String()), "\n")
 	}
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 3 || !strings.HasPrefix(lines[0], "MACHINE  APP") {
+	lines := listed("")
+	if len(lines) != len(rows)+1 || !strings.HasPrefix(lines[0], "MACHINE") {
 		t.Fatalf("%q", lines)
 	}
-	// Sorted by machine and APP, with the Name last.
-	for i, want := range [][3]string{{"debian", "galculator", "Galculator (debian)"}, {"debian", "org.gnome.Calculator", "Calculator (debian)"}} {
-		if line := lines[i+1]; !strings.HasPrefix(line, want[0]) || !strings.Contains(line, want[1]) || !strings.HasSuffix(line, want[2]) {
-			t.Fatalf("%q", line)
+	for i, want := range rows {
+		if fields := strings.Fields(lines[i+1]); len(fields) < 2 || fields[0] != want[0] || fields[1] != want[1] || !strings.HasSuffix(lines[i+1], want[2]) {
+			t.Fatalf("%q", lines[i+1])
 		}
 	}
-	// -m filters to one machine, and never lists another machine's entry.
-	out.Reset()
-	if err := a.execute([]string{"app", "list", "-m", "debian"}); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out.String(), "debian-2") || !strings.Contains(out.String(), "galculator") {
-		t.Fatal(out.String())
+	// -m lists one machine's entries only.
+	for machine, want := range map[string][][2]string{
+		"debian":   {{"debian", "galculator"}, {"debian", "org.gnome.Calculator"}},
+		"debian-2": {{"debian-2", "galculator"}},
+	} {
+		lines := listed(machine)
+		if len(lines) != len(want)+1 {
+			t.Fatalf("%s: %q", machine, lines)
+		}
+		for i, w := range want {
+			if fields := strings.Fields(lines[i+1]); len(fields) < 2 || fields[0] != w[0] || fields[1] != w[1] {
+				t.Fatalf("%s: %q", machine, lines[i+1])
+			}
+		}
 	}
 	if err := a.execute([]string{"app", "list", "-m", "ghost"}); err == nil {
 		t.Fatal("listed the entries of a machine that does not exist")
 	}
-	// A machine with no entries says how to add one.
-	if err := a.setDefault(""); err != nil {
-		t.Fatal(err)
+	// With no owned entries the list says how to add one, and the files nsl did
+	// not write still do not appear.
+	for _, args := range [][]string{{"app", "remove", "org.gnome.Calculator"}, {"app", "remove", "galculator"}, {"app", "remove", "-m", "debian-2", "galculator"}} {
+		if err := a.execute(args); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.Remove(a.machinePath("debian")); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	if err := a.execute([]string{"app", "list"}); err != nil || out.String() != "No menu entries; add one with nsl app add [-m NAME] APP\n" {
-		t.Fatal(err, out.String())
+	if got := listed(""); len(got) != 1 || got[0] != "No menu entries; add one with nsl app add [-m NAME] APP" {
+		t.Fatalf("%q", got)
 	}
 	if err := a.execute([]string{"app", "list", "x"}); err == nil {
 		t.Fatal("accepted an argument")
@@ -576,7 +671,8 @@ func TestExecArgs(t *testing.T) {
 			t.Fatalf("%q: %q %v", tc.exec, got, err)
 		}
 	}
-	for _, bad := range []string{"", "%U", "cal'c", `calc a\b`, "calc > out", `calc "a b`, `calc "a\qb"`, "calc --file=%f", "calc %", "calc percent%"} {
+	for _, bad := range []string{"", "%U", "cal'c", `calc a\b`, "calc > out", `calc "a b`, `calc "a\qb"`, "calc --file=%f", "calc %", "calc percent%",
+		`tool "one"two`, `tool "a""b"`} {
 		if got, err := execArgs(bad); err == nil {
 			t.Fatalf("%q: %q", bad, got)
 		}
@@ -714,5 +810,137 @@ func TestAppAddStopsOnACatFailure(t *testing.T) {
 	}
 	if err := a.execute([]string{"app", "add", "org.gnome.Calculator"}); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Fatal(err)
+	}
+}
+
+// editHostEntry writes a host entry without its Exec and with Hidden=true, as a
+// user might: nsl still owns it through its markers.
+func editHostEntry(t *testing.T, path string) {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(body), "\n") {
+		if line != "" && !strings.HasPrefix(line, "Exec=") {
+			lines = append(lines, line)
+		}
+	}
+	lines = append(lines, "Hidden=true", "")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppKeepsAnEditedOwnedEntry(t *testing.T) {
+	a, f, _ := withMachine(t)
+	files := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop":            guestApp("Calculator"),
+		"/usr/share/icons/hicolor/scalable/apps/org.gnome.Calculator.svg": svgIcon,
+	}
+	guestFiles(f, files)
+	entry := addedEntry(t, a, f, "org.gnome.Calculator")
+	// An entry the user edited is still owned: the markers decide.
+	editHostEntry(t, entry)
+	var out bytes.Buffer
+	a.out = &out
+	if err := a.execute([]string{"app", "list"}); err != nil || !strings.Contains(out.String(), "org.gnome.Calculator  Calculator (debian)") {
+		t.Fatal(err, out.String())
+	}
+	if err := a.execute([]string{"app", "remove", "org.gnome.Calculator"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(entry); !os.IsNotExist(err) {
+		t.Fatal("kept an edited entry")
+	}
+	// The same holds when the machine goes, edited entry and all.
+	entry = addedEntry(t, a, f, "org.gnome.Calculator")
+	editHostEntry(t, entry)
+	if err := a.remove([]string{"debian", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(entry); !os.IsNotExist(err) {
+		t.Fatal("kept an edited entry of a removed machine")
+	}
+}
+
+func TestAppHandlesALargeEntry(t *testing.T) {
+	a, f, _ := withMachine(t)
+	// A Comment that fills the guest read's bound, and a quoted argument of
+	// backslashes. The host entry is longer than the guest entry, so it passes
+	// the bound the read uses, and must still count as owned.
+	head := "[Desktop Entry]\nType=Application\nName=Calculator\nExec=gnome-calculator \"a" +
+		strings.Repeat(`\\`, 2000) + "b\"\nComment="
+	body := head + strings.Repeat("c", appEntryLimit-len(head)-60) + "\n"
+	if len(body) >= appEntryLimit {
+		t.Fatalf("the guest entry is %d bytes, not under the read's bound", len(body))
+	}
+	files := map[string]string{"/usr/share/applications/org.gnome.Calculator.desktop": body}
+	guestFiles(f, files)
+	entry := addedEntry(t, a, f, "org.gnome.Calculator")
+	st, err := os.Stat(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() <= appEntryLimit || st.Size() > hostEntryLimit {
+		t.Fatalf("the host entry is %d bytes", st.Size())
+	}
+	var out bytes.Buffer
+	a.out = &out
+	if err := a.execute([]string{"app", "list"}); err != nil || !strings.Contains(out.String(), "org.gnome.Calculator") {
+		t.Fatal(err, out.String())
+	}
+	if err := a.execute([]string{"app", "remove", "org.gnome.Calculator"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(entry); !os.IsNotExist(err) {
+		t.Fatal("kept the entry")
+	}
+}
+
+func TestAppRemoveRefusesAForeignIconDirectory(t *testing.T) {
+	a, f, _ := withMachine(t)
+	files := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop":            guestApp("Calculator"),
+		"/usr/share/icons/hicolor/scalable/apps/org.gnome.Calculator.svg": svgIcon,
+	}
+	guestFiles(f, files)
+	addedEntry(t, a, f, "org.gnome.Calculator")
+	// nsl's icon directory is replaced by a symlink to another program's.
+	outside := t.TempDir()
+	keep := filepath.Join(outside, "org.gnome.Calculator.svg")
+	if err := os.WriteFile(keep, []byte(svgIcon), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := a.appsDir("debian")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"app", "remove", "org.gnome.Calculator"}); err == nil || !strings.Contains(err.Error(), "state directory") {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(keep); err != nil || string(data) != svgIcon {
+		t.Fatal("touched a directory nsl does not own:", err)
+	}
+}
+
+func TestRemovePreviewReportsAMenuEntryFailure(t *testing.T) {
+	a, _, _ := withMachine(t)
+	// A file where the applications directory belongs makes the count fail.
+	if err := os.MkdirAll(a.dataHome, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.applicationsDir(), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.remove([]string{"debian"}); err == nil {
+		t.Fatal("ignored a failed menu entry count")
+	}
+	if _, err := a.machine("debian"); err != nil {
+		t.Fatal("the preview changed the machine:", err)
 	}
 }

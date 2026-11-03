@@ -57,11 +57,11 @@ APP is the application's desktop-file ID, without `.desktop`. To find it, list t
 nsl run ls /usr/share/applications
 ```
 
-nsl reads that file, its icon and its command line from the machine, and writes its own entry in `~/.local/share/applications`. It copies the keys your desktop can honour for a machine application, and the command line runs `nsl run` in the machine. Without `-m NAME`, the default machine is used.
+nsl reads that file, its icon and its command line from the machine, and writes its own entry in `~/.local/share/applications` (`$XDG_DATA_HOME/applications` when you set `XDG_DATA_HOME`). It copies the keys your desktop can honour for a machine application, and the command line runs `nsl run` in the machine. Without `-m NAME`, `nsl app add` and `nsl app remove` use the default machine, and `nsl app list` lists the entries of every machine.
 
 The entry runs nsl by its full path, the `nsl` on your `PATH`, so it works when your desktop session has a shorter `PATH`. If you move or reinstall nsl elsewhere, the entry disappears from the menu; run `nsl app add` again to refresh it.
 
-Icons come from the machine's `hicolor` icon theme. An application with an icon in another theme gets no icon in your menu, but the entry still works.
+The icon is the PNG or SVG file the application's entry names by its full path, or an icon of that name in the machine's `hicolor` theme. An application with an icon only in another theme gets no icon in your menu, but the entry still works.
 
 A menu entry starts its application without files. Opening a document from the menu, or a web link, is later work; start such a command with `nsl run` for now.
 

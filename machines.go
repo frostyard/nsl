@@ -542,7 +542,11 @@ func (a *app) remove(args []string) error {
 	}
 	if !*yes {
 		fmt.Fprintf(a.out, "This permanently deletes machine %s (%s): its packages, services and home.\n", name, m.BuildID)
-		if entries, err := a.menuEntryCount(m); err == nil && entries != 0 {
+		entries, err := a.menuEntryCount(m)
+		if err != nil {
+			return err
+		}
+		if entries != 0 {
 			if entries == 1 {
 				fmt.Fprintln(a.out, "Its 1 menu entry is removed too.")
 			} else {
