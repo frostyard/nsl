@@ -40,12 +40,26 @@ func isUserSystemd(bin string, args []string) bool {
 	return slices.Contains(args, "--user")
 }
 
+// isSocket reports whether path names a Unix socket.
+func isSocket(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode()&os.ModeSocket != 0
+}
+
 // userSystemdHint explains a failed user systemd call, or returns "" when the
-// shell can reach the manager. With XDG_RUNTIME_DIR set, systemctl finds the
-// manager at $XDG_RUNTIME_DIR/systemd/private without DBUS_SESSION_BUS_ADDRESS,
-// so an unset DBUS address alone is not a cause; an unset XDG_RUNTIME_DIR is.
+// shell can reach the manager. With XDG_RUNTIME_DIR set, it checks the
+// systemd/private and bus sockets. It only reports a missing socket when
+// DBUS_SESSION_BUS_ADDRESS is unset.
 func userSystemdHint() string {
-	if os.Getenv("XDG_RUNTIME_DIR") != "" {
+	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
+		privateSocket := filepath.Join(runtimeDir, "systemd", "private")
+		if isSocket(privateSocket) || os.Getenv("DBUS_SESSION_BUS_ADDRESS") != "" {
+			return ""
+		}
+		busSocket := filepath.Join(runtimeDir, "bus")
+		if !isSocket(busSocket) {
+			return fmt.Sprintf("no user bus socket in XDG_RUNTIME_DIR=%s (systemd/private and bus are absent): the user systemd manager is not running for this user; log in to start it, or keep it running with loginctl enable-linger", runtimeDir)
+		}
 		return ""
 	}
 	unset := "XDG_RUNTIME_DIR is unset"

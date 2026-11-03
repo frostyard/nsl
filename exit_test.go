@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,6 +60,27 @@ func TestExitStatusPlainError(t *testing.T) {
 	}
 }
 
+func socketDir(t *testing.T, names ...string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "nsl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	for _, name := range names {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		listener, err := net.Listen("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = listener.Close() })
+	}
+	return dir
+}
+
 func TestUserSystemdHint(t *testing.T) {
 	t.Run("both unset", func(t *testing.T) {
 		t.Setenv("XDG_RUNTIME_DIR", "")
@@ -69,10 +92,37 @@ func TestUserSystemdHint(t *testing.T) {
 			}
 		}
 	})
-	t.Run("runtime dir set", func(t *testing.T) {
-		t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	t.Run("systemd private socket", func(t *testing.T) {
+		dir := socketDir(t, "systemd/private")
+		t.Setenv("XDG_RUNTIME_DIR", dir)
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
 		if hint := userSystemdHint(); hint != "" {
-			t.Fatalf("hint = %q with XDG_RUNTIME_DIR set, want none", hint)
+			t.Fatalf("hint = %q with systemd/private socket, want none", hint)
+		}
+	})
+	t.Run("bus socket", func(t *testing.T) {
+		dir := socketDir(t, "bus")
+		t.Setenv("XDG_RUNTIME_DIR", dir)
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+		if hint := userSystemdHint(); hint != "" {
+			t.Fatalf("hint = %q with bus socket, want none", hint)
+		}
+	})
+	t.Run("socket absent", func(t *testing.T) {
+		dir := socketDir(t)
+		t.Setenv("XDG_RUNTIME_DIR", dir)
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+		hint := userSystemdHint()
+		if !strings.Contains(hint, "no user bus socket") || !strings.Contains(hint, dir) {
+			t.Fatalf("hint %q does not hold no user bus socket and %q", hint, dir)
+		}
+	})
+	t.Run("DBUS address set", func(t *testing.T) {
+		dir := socketDir(t)
+		t.Setenv("XDG_RUNTIME_DIR", dir)
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent")
+		if hint := userSystemdHint(); hint != "" {
+			t.Fatalf("hint = %q with DBUS_SESSION_BUS_ADDRESS set, want none", hint)
 		}
 	})
 }
@@ -114,7 +164,9 @@ func TestCaptureUserSystemdHint(t *testing.T) {
 	})
 
 	t.Run("set", func(t *testing.T) {
-		t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+		dir := socketDir(t, "systemd/private")
+		t.Setenv("XDG_RUNTIME_DIR", dir)
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
 		_, err := a.capture(5*time.Second, "systemctl", "--user", "show", "nsl-1-vm-x.service")
 		if err == nil {
 			t.Fatal("capture of a failing systemctl --user succeeded")
@@ -122,8 +174,24 @@ func TestCaptureUserSystemdHint(t *testing.T) {
 		if !strings.Contains(err.Error(), busMessage) {
 			t.Fatalf("error %q does not hold the bus message", err)
 		}
-		if strings.Contains(err.Error(), "XDG_RUNTIME_DIR is unset") {
-			t.Fatalf("error %q holds a hint although XDG_RUNTIME_DIR is set", err)
+		if strings.Contains(err.Error(), "no user bus socket") {
+			t.Fatalf("error %q holds a socket hint although systemd/private is a socket", err)
+		}
+	})
+
+	t.Run("socket absent", func(t *testing.T) {
+		dir := socketDir(t)
+		t.Setenv("XDG_RUNTIME_DIR", dir)
+		t.Setenv("DBUS_SESSION_BUS_ADDRESS", "")
+		_, err := a.capture(5*time.Second, "systemctl", "--user", "show", "nsl-1-vm-x.service")
+		if err == nil {
+			t.Fatal("capture of a failing systemctl --user succeeded")
+		}
+		if !strings.Contains(err.Error(), busMessage) {
+			t.Fatalf("error %q does not hold the bus message", err)
+		}
+		if !strings.Contains(err.Error(), "no user bus socket") {
+			t.Fatalf("error %q does not hold no user bus socket", err)
 		}
 	})
 }

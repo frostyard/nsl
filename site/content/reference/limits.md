@@ -40,7 +40,7 @@ A new setting has no effect
 :   Resource changes apply at the VM's next start. `nsl config` shows what is pending; `nsl shutdown` applies it at the next command.
 
 `nsl` reports `Failed to connect to bus`
-:   nsl runs each VM as a user systemd unit, so the shell it runs in must reach your user systemd manager. A shell from `su`, `sudo -u` or a plain `ssh` without a login session can lack `XDG_RUNTIME_DIR`. Log in as that user, or set `XDG_RUNTIME_DIR=/run/user/$(id -u)` in the shell.
+:   nsl runs each VM as a user systemd unit, so the shell it runs in must reach your user systemd manager. A shell from `su`, `sudo -u` or a plain `ssh` without a login session can lack `XDG_RUNTIME_DIR`. Log in as that user, or set `XDG_RUNTIME_DIR=/run/user/$(id -u)` in the shell. When `XDG_RUNTIME_DIR` is set but has no `bus` or `systemd/private` socket, your user systemd manager is not running; log in to start it, or run `loginctl enable-linger` to keep it running.
 
 ## Report a problem
 
