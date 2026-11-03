@@ -58,7 +58,7 @@ func userSystemdHint() string {
 		}
 		busSocket := filepath.Join(runtimeDir, "bus")
 		if !isSocket(busSocket) {
-			return fmt.Sprintf("no user bus socket in XDG_RUNTIME_DIR=%s (systemd/private and bus are absent): the user systemd manager is not running for this user; log in to start it, or keep it running with loginctl enable-linger", runtimeDir)
+			return fmt.Sprintf("no user bus socket in XDG_RUNTIME_DIR=%s (systemd/private and bus are absent): this shell cannot reach the user systemd manager; check that XDG_RUNTIME_DIR is /run/user/%d, and if the manager is not running, log in to start it or run loginctl enable-linger", runtimeDir, os.Getuid())
 		}
 		return ""
 	}

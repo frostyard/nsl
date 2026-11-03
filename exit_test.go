@@ -116,6 +116,12 @@ func TestUserSystemdHint(t *testing.T) {
 		if !strings.Contains(hint, "no user bus socket") || !strings.Contains(hint, dir) {
 			t.Fatalf("hint %q does not hold no user bus socket and %q", hint, dir)
 		}
+		if !strings.Contains(hint, "check that XDG_RUNTIME_DIR is /run/user/") {
+			t.Fatalf("hint %q does not hold the XDG_RUNTIME_DIR check", hint)
+		}
+		if strings.Contains(hint, "is not running for this user") {
+			t.Fatalf("hint %q says the manager is stopped", hint)
+		}
 	})
 	t.Run("DBUS address set", func(t *testing.T) {
 		dir := socketDir(t)
