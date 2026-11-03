@@ -22,6 +22,9 @@ Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent p
 | `nsl ports [NAME]` | Forwarding status and conflicts for one machine or all machines. |
 | `nsl logs [NAME]` | Recent logs of the host units nsl runs: the VM and its forwarder, and each machine's desktop session, or those of one machine. |
 | `nsl ssh-config NAME` | Start if needed and print an SSH configuration for remote editors. |
+| `nsl app add [-m NAME] APP` | Add the machine's application `APP.desktop` to the host's menu as `nsl-NAME-APP.desktop`, or refresh the entry nsl wrote before. |
+| `nsl app remove [-m NAME] APP` | Remove that menu entry and its icon. |
+| `nsl app list [-m NAME]` | The menu entries nsl owns, for one machine or for all. |
 | `nsl images [--offline \| --refresh] [--json]` | List authenticated machine-image selections and the VM image in effect. Reuse a catalogue checked less than one hour ago by default; `--refresh` checks the registry immediately. |
 | `nsl pull DISTRO:RELEASE [--offline]` | Verify and cache a machine image without creating a machine. |
 | `nsl update [--offline]` | Select the catalogue's current VM image for the next start of each nsl VM, isolated ones included. |
@@ -77,7 +80,23 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - The broker MUST authenticate each machine. It MUST accept only `http`/`https` URLs and translatable `/mnt/host` paths, and refuse every other target.
 - The broker speaks [Varlink](https://varlink.org) on the machine's `/run/nsl/desktop/open.sock`: one method, `io.frostyard.nsl.Broker.Open`, whose `target` parameter is a URL or an absolute machine path. A URL MUST have the `http` or `https` scheme and a host. A path MUST lie under `/mnt/host`, and the host path it names, with symlinks resolved on the host, MUST lie in a shared tree. The broker opens the target with the host's `xdg-open` as argv. It answers `io.frostyard.nsl.Broker.Refused` with a `reason` for any other target, and `io.frostyard.nsl.Broker.Failed` when the opener fails. Each machine's session has its own socket, so the broker knows which machine asked.
 - `ssh-config` MUST print a host alias that reaches the machine account through nsl, with a key generated for that machine. It MUST NOT enable a network listener in the machine. The alias is `nsl-NAME`; its proxy command, `nsl _ssh NAME`, starts the machine and runs the agent's [`ssh`](agent.md#ssh) operation. The key and the pinned host key live in `NSL_HOME/machines/NAME.ssh/` and are removed with the machine.
-- Launcher entries and terminal profiles MUST be user-scoped, nsl-prefixed and removed with their machine. They MUST NOT overwrite unrelated files. This work belongs to a later phase.
+- Launcher entries and terminal profiles MUST be user-scoped, nsl-prefixed and removed with their machine. They MUST NOT overwrite unrelated files. Terminal profiles belong to a later phase.
+
+### Menu entries
+
+`nsl app` manages host menu entries for machine applications ([ADR-0022](../adr/0022-desktop-menu-entries.md)). `-m NAME` selects the machine, the default machine when absent, as with `run`.
+
+- APP is a desktop-file ID without `.desktop` (a trailing `.desktop` is removed): an ASCII letter or digit, then letters, digits, `.`, `_` or `-`, at most 200 characters. The host entry is `$XDG_DATA_HOME/applications/nsl-NAME-APP.desktop`; when `XDG_DATA_HOME` is unset, empty or relative, it is `~/.local/share/applications`.
+- `app add` MUST refuse an isolated machine and an unprepared one. It starts the machine and reads `APP.desktop` with the agent's `run` operation and argv `cat -- PATH`, as the machine account, from the first of `/home/USER/.local/share/applications`, `/usr/local/share/applications` and `/usr/share/applications` that has it. A `cat` exit status of 1 means absent; any other failure stops the command. Reads are bounded: 64 KiB for an entry, 1 MiB for an icon.
+- The guest entry MUST be UTF-8 with `[Desktop Entry]` as its first group, `Type=Application`, no `Hidden=true`, and an `Exec`. Only that group's unlocalized keys are read, and a key that appears twice is refused; string escapes (`\s`, `\n`, `\t`, `\r`, `\\`) are decoded, and a decoded value with a control character is refused.
+- `Exec` is split by the desktop-entry rules: arguments separated by spaces, double-quoted arguments with `\"`, `` \` ``, `\$` and `\\` escapes. An unquoted argument containing `"`, `'`, `\`, `>`, `<`, `~`, `|`, `&`, `;`, `$`, `*`, `?`, `#`, `(`, `)` or `` ` `` MUST be refused as shell syntax. Arguments that are exactly `%f`, `%F`, `%u`, `%U`, `%i`, `%c`, `%k`, `%d`, `%D`, `%n`, `%N`, `%v` or `%m` are dropped; `%%` becomes `%`; any other `%` MUST be refused. An empty result MUST be refused.
+- The host entry holds `[Desktop Entry]`, `Type=Application`, `Name` as the guest `Name` with ` (NAME)` appended, `Exec`, `TryExec`, `Terminal` (`true` only when the guest says so), and, when the guest has them, `GenericName`, `Comment`, `Icon`, `Categories`, `Keywords` and `StartupWMClass`, then `X-Nsl-Machine=NAME`, `X-Nsl-Machine-ID=ID` and `X-Nsl-App=APP`. It has no `MimeType`, `Actions` or `DBusActivatable`. Values are written with the string escapes.
+- `Exec` MUST run `NSL run -m NAME --cd DIR -- ARGV`. NSL is the absolute path of `nsl` on `PATH`, or the running binary when `PATH` has none; `TryExec` is NSL. DIR is the guest `Path` when it is absolute, otherwise `/home/USER`. Each argument containing a space, tab, `"`, `'`, `\`, `>`, `<`, `~`, `|`, `&`, `;`, `$`, `*`, `?`, `#`, `(`, `)` or `` ` ``, or that is empty, is double-quoted with `"`, `` ` ``, `$` and `\` escaped by a backslash; then every `%` becomes `%%`, and the string escapes apply.
+- `Icon` from the guest is an absolute path ending in `.png` or `.svg`, or a name of letters, digits, `.`, `_`, `+` or `-`. A name is looked up as `/usr/share/icons/hicolor/scalable/apps/ICON.svg`, then `ICON.png` under `512x512`, `256x256`, `192x192`, `128x128`, `96x96`, `64x64`, `48x48` and `32x32`. A file found MUST start with the PNG signature, or contain `<svg` in its first 4 KiB, for the matching extension; one that does not is skipped with a note on stderr, and the lookup goes on. An `Icon` that is neither form finds no icon. It is written, mode 0600, to `NSL_HOME/machines/NAME.apps/APP.png` or `APP.svg`, replacing that APP's other icon, and `Icon` names that path. No icon found means no `Icon` key and a note on stderr.
+- A host entry is owned when it is a regular file of the user whose `X-Nsl-Machine`, `X-Nsl-Machine-ID` and `X-Nsl-App` name the machine, its current ID and APP. `app add` MUST write the entry under the machine lock and reject a machine whose ID changed. A new entry MUST be published without replacing any path; an existing entry MUST be replaced atomically only when owned, and any other file at the path MUST be refused unchanged.
+- `app remove` MUST delete only an owned entry, then the icons of APP. A missing entry is an error.
+- `app list` MUST print `MACHINE`, `APP` and `NAME` for each owned entry of an existing machine, sorted by machine and APP, or a line saying there are none.
+- `remove NAME --yes` MUST delete every owned entry of the machine's ID and `NAME.apps/` after the machine is gone and before the tombstone, so a resumed removal finishes them. Entries of another ID or of no nsl machine MUST be left. The preview without `--yes` MUST name how many menu entries go with the machine.
 
 ### Lifecycle
 
@@ -244,6 +263,6 @@ Unit tests use fake tools and local processes and need neither root nor a VM. In
 
 ## References
 
-- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md).
+- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md), [ADR-0022](../adr/0022-desktop-menu-entries.md).
 - Contracts: [agent](agent.md), [VM image](vm-image.md), [machine images](machine-images.md), [image delivery](image-delivery.md), [provisioning](provisioning.md) (deferred).
 - Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](../plans/shared-vm-implementation.md).

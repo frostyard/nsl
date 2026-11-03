@@ -26,6 +26,49 @@ nsl run galculator
 
 You can also start applications from a shell inside the machine. A Wayland-compatible editor runs there with the machine's tools and opens its window on your desktop.
 
+## Add an application to the menu
+
+Put an application in your host's menu, so you can start it without a terminal:
+
+```sh
+nsl app add org.gnome.Calculator
+```
+
+Your desktop's application menu and search now show `Calculator (debian)`: the application's own name, and the machine it runs in. `nsl app add` starts the machine first, as `nsl run` does.
+
+```sh
+nsl app list
+```
+
+```
+MACHINE  APP                   NAME
+debian   org.gnome.Calculator  Calculator (debian)
+```
+
+Remove an entry with `nsl app remove`:
+
+```sh
+nsl app remove org.gnome.Calculator
+```
+
+APP is the application's desktop-file ID, without `.desktop`. To find it, list the machine's entries:
+
+```sh
+nsl run ls /usr/share/applications
+```
+
+nsl reads that file, its icon and its command line from the machine, and writes its own entry in `~/.local/share/applications`. It copies the keys your desktop can honour for a machine application, and the command line runs `nsl run` in the machine. Without `-m NAME`, the default machine is used.
+
+The entry runs nsl by its full path, the `nsl` on your `PATH`, so it works when your desktop session has a shorter `PATH`. If you move or reinstall nsl elsewhere, the entry disappears from the menu; run `nsl app add` again to refresh it.
+
+Icons come from the machine's `hicolor` icon theme. An application with an icon in another theme gets no icon in your menu, but the entry still works.
+
+A menu entry starts its application without files. Opening a document from the menu, or a web link, is later work; start such a command with `nsl run` for now.
+
+`nsl app remove` deletes the entry and its icon. `nsl remove NAME --yes` deletes the entries of that machine too, and the preview names how many. Isolated machines have no host desktop session, so they have no menu entries.
+
+nsl never replaces a file it did not write: an entry of that name that another program created makes `nsl app add` stop and say so.
+
 ## The desktop session
 
 When you enter or start a machine from a Wayland session, nsl starts its desktop session too, if needed. The user unit `nsl-UID-vm-ID-desktop-NAME.service` runs Waypipe between your desktop and the machine. It restarts after a failure, stays up when the machine stops, and ends when the VM stops.

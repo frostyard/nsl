@@ -191,7 +191,7 @@ Refresh DNS/proxy settings on host changes. Test split DNS, VPN transitions, sus
 
 Prototype Waypipe for individual Wayland windows over authenticated transport, starting with software rendering. A host socket bind through virtiofs cannot transport Wayland's shared memory and file descriptors. [Waypipe architecture](https://mstoeckl.com/notes/gsoc/blog.html).
 
-Export selected applications into user `.desktop` entries and icons. Clicking one starts the VM and launches the app. Preserve desktop-file field-code semantics and quoting, identify its VM, and never overwrite unrelated launchers. Add optional automatic discovery after explicit exports work.
+Export selected applications into user `.desktop` entries and icons. Clicking one starts the VM and launches the app. Preserve desktop-file field-code semantics and quoting, identify its VM, and never overwrite unrelated launchers. `nsl app` does this for explicit additions ([ADR-0022](../adr/0022-desktop-menu-entries.md)); field codes that name files and URLs, and automatic discovery, are later.
 
 Validate clipboard, input methods, scaling and multiple monitors. Add guest Xwayland/remoting for X11 apps. Audio needs a transport designed for the protocol, such as a tested PulseAudio-compatible network path or established bridge; a raw PipeWire socket tunnel is insufficient evidence. Microphone access is a separate grant.
 

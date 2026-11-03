@@ -29,7 +29,7 @@ The project is one day old and has no users or compatibility obligations. The pr
 
 **Entry.** There is at most one default machine; the first machine created becomes it. Bare `nsl` opens a login shell in the default machine, in the translated current directory when it is shared, otherwise in the guest home. Commands use the same translation.
 
-**Desktop.** Machines that are not isolated run GUI applications by default. A persistent per-machine Waypipe session supplies `WAYLAND_DISPLAY` to guest sessions, so applications start from the shell without a separate verb. Launcher entries and terminal profiles are user-scoped host files owned by nsl and removed with their machine.
+**Desktop.** Machines that are not isolated run GUI applications by default. A persistent per-machine Waypipe session supplies `WAYLAND_DISPLAY` to guest sessions, so applications start from the shell without a separate verb. Launcher entries and terminal profiles are user-scoped host files owned by nsl and removed with their machine; [ADR-0022](0022-desktop-menu-entries.md) adds launcher entries with `nsl app`.
 
 **Guest-to-host actions.** Start with opening URLs and shared host paths through an on-demand, per-machine authenticated broker. The guest command `nsl-open` is the `BROWSER` and `xdg-open` handler. Arbitrary host command execution needs a separate decision.
 

@@ -527,7 +527,7 @@ Each item was found by a failing check and must not regress.
 - Measure and bound virtiofsd memory under file load.
 - Find the 1.3–2 s Ctrl-C delay in the SSH transport.
 - Translate absolute host symlinks; handle `/run/media/USER` appearing after VM start, and host automounts.
-- Launcher exports and terminal integration through OSC 3008 context markers.
+- Launcher exports exist as host menu entries, `nsl app` ([ADR-0022](../adr/0022-desktop-menu-entries.md)). Icon themes beyond `hicolor`, translation of `%f` and `%U` so a menu entry can pass files and URLs, and terminal integration through OSC 3008 context markers are later.
 - More machine images: Ubuntu, CentOS Stream and openSUSE Leap are [their own plan](more-machine-images.md).
 - Re-validate cloud-init inside machines before provisioning returns.
 - Private user namespaces with idmapped virtiofs mounts, if trusted machines ever need isolation from each other.
