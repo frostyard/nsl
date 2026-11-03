@@ -140,6 +140,11 @@ func (f *fakeRunner) run(ctx context.Context, in io.Reader, out, stderr io.Write
 			if err := f.agent(req, in, out); err == errAnswered {
 				return nil
 			} else if err != nil {
+				// A command's own exit status travels unchanged, as ssh does it.
+				var exit interface{ ExitCode() int }
+				if errors.As(err, &exit) {
+					return err
+				}
 				fmt.Fprintln(stderr, err.Error())
 				return errors.New("exit status 255")
 			}
@@ -194,7 +199,8 @@ func testApp(t *testing.T) (*app, *fakeRunner) {
 	t.Setenv("WAYLAND_DISPLAY", "") // desktop sessions only where a test asks
 	os.MkdirAll(filepath.Join(host, "home", "u"), 0700)
 	a := &app{home: filepath.Join(t.TempDir(), "nsl"), runtimeDir: t.TempDir(), self: "/test/nsl", waypipe: "waypipe", groupSwitch: "sg", uid: os.Getuid(), gid: os.Getgid(),
-		user: "u", group: "u", r: f, in: strings.NewReader(""), out: io.Discard, err: io.Discard, host: &hostFacts{memoryKiB: 16 << 20, cpus: 8}, hostRoot: host}
+		user: "u", group: "u", r: f, in: strings.NewReader(""), out: io.Discard, err: io.Discard, host: &hostFacts{memoryKiB: 16 << 20, cpus: 8}, hostRoot: host,
+		dataHome: filepath.Join(host, "home", "u", ".local", "share")}
 	os.Chmod(a.runtimeDir, 0700)
 	if a.uid == 0 {
 		t.Skip("nsl requires a normal user")
@@ -617,7 +623,7 @@ func TestPendingRestartIsReported(t *testing.T) {
 
 func TestUsage(t *testing.T) {
 	a, _ := testApp(t)
-	for _, args := range [][]string{{"shell"}, {"list", "x"}, {"list", "--yaml"}, {"config", "--json", "x"}, {"shutdown", "now"}} {
+	for _, args := range [][]string{{"shell"}, {"list", "x"}, {"list", "--yaml"}, {"config", "--json", "x"}, {"shutdown", "now"}, {"app", "nope"}, {"app", "add", "--y", "x"}} {
 		if err := a.execute(args); err == nil {
 			t.Fatal("accepted", args)
 		}

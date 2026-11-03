@@ -41,6 +41,7 @@ type app struct {
 	imageService                            *imageClient
 	host                                    *hostFacts // nil reads the real host
 	hostRoot                                string     // "/" outside tests; where shared trees are found
+	dataHome                                string     // the user's XDG data directory; menu entries live there
 }
 
 func newApp() (*app, error) {
@@ -66,6 +67,16 @@ func newApp() (*app, error) {
 		}
 		return fallback
 	}
+	// XDG_DATA_HOME must be an absolute path; when it is unset, empty or
+	// relative, the desktop specification reads the user's own data directory.
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if !filepath.IsAbs(dataHome) {
+		u, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		dataHome = filepath.Join(u, ".local", "share")
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -86,7 +97,7 @@ func newApp() (*app, error) {
 		return nil, err
 	}
 	return &app{home: home, waypipe: tool("NSL_WAYPIPE", "waypipe"), opener: tool("NSL_OPENER", "xdg-open"), self: self, runtimeDir: filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "nsl"),
-		uid: os.Getuid(), gid: gid, user: account.Username, group: group.Name, r: processRunner{}, in: os.Stdin, out: os.Stdout, err: os.Stderr, hostRoot: "/",
+		uid: os.Getuid(), gid: gid, user: account.Username, group: group.Name, r: processRunner{}, in: os.Stdin, out: os.Stdout, err: os.Stderr, hostRoot: "/", dataHome: dataHome,
 		groupSwitch: groupSwitcher(exec.LookPath)}, nil
 }
 
@@ -134,6 +145,9 @@ func usage(w io.Writer) {
   ports [NAME]
   ssh-config NAME
   logs [NAME]
+  app add [-m NAME] APP
+  app remove [-m NAME] APP
+  app list [-m NAME]
   shutdown
   update [--offline]
   update --image FILE --digest sha256:HEX
@@ -213,6 +227,8 @@ func (a *app) execute(args []string) error {
 		return a.ports(rest)
 	case "logs":
 		return a.logs(rest)
+	case "app":
+		return a.appCommand(rest)
 	case "ssh-config":
 		return a.sshConfig(rest)
 	case "_ssh":

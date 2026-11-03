@@ -541,7 +541,19 @@ func (a *app) remove(args []string) error {
 		return err
 	}
 	if !*yes {
-		fmt.Fprintf(a.out, "This permanently deletes machine %s (%s): its packages, services and home.\nHost files under /mnt/host are not touched. Run nsl remove %s --yes to proceed.\n", name, m.BuildID, name)
+		fmt.Fprintf(a.out, "This permanently deletes machine %s (%s): its packages, services and home.\n", name, m.BuildID)
+		entries, err := a.menuEntryCount(m)
+		if err != nil {
+			return err
+		}
+		if entries != 0 {
+			if entries == 1 {
+				fmt.Fprintln(a.out, "Its 1 menu entry is removed too.")
+			} else {
+				fmt.Fprintf(a.out, "Its %d menu entries are removed too.\n", entries)
+			}
+		}
+		fmt.Fprintf(a.out, "Host files under /mnt/host are not touched. Run nsl remove %s --yes to proceed.\n", name)
 		return nil
 	}
 	// Never wait for a machine while holding the manager lock: creation needs
@@ -587,6 +599,9 @@ func (a *app) remove(args []string) error {
 		}
 	}
 	if err = os.RemoveAll(a.sshDir(name)); err != nil {
+		return err
+	}
+	if err = a.removeMenuEntries(m); err != nil {
 		return err
 	}
 	if err = os.Remove(tombstone); err != nil {
