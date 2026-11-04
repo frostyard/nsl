@@ -304,6 +304,87 @@ func TestTranslateHostFiles(t *testing.T) {
 		}
 	})
 
+	t.Run("a missing file behind a symlink outside the shared home is refused", func(t *testing.T) {
+		outsideDir := t.TempDir()
+		link := filepath.Join(home, "outside-dir-link")
+		if err := os.Symlink(outsideDir, link); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := translateHostFiles([]string{"tool", "outside-dir-link/missing.pdf"}, "f", 1, 0, home, shares, false); err == nil {
+			t.Fatal("accepted a missing file behind an outside symlink")
+		}
+	})
+
+	t.Run("a dangling symlink in the shared home is refused", func(t *testing.T) {
+		link := filepath.Join(home, "dangling-link")
+		if err := os.Symlink("/nonexistent/target", link); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := translateHostFiles([]string{"tool", "dangling-link"}, "f", 1, 0, home, shares, false); err == nil {
+			t.Fatal("accepted a dangling symlink")
+		}
+	})
+
+	t.Run("a missing file in an existing home directory is translated", func(t *testing.T) {
+		dir := filepath.Join(home, "existing")
+		if err := os.Mkdir(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		got, err := translateHostFiles([]string{"tool", "existing/missing.pdf"}, "f", 1, 0, home, shares, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "/mnt/host" + filepath.Join(dir, "missing.pdf")
+		if len(got) != 2 || got[1] != want {
+			t.Fatalf("got %v, want tool %q", got, want)
+		}
+	})
+
+	t.Run("a missing file behind an inside symlink uses the target directory", func(t *testing.T) {
+		targetDir := filepath.Join(home, "target-directory")
+		if err := os.Mkdir(targetDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(home, "inside-directory-link")
+		if err := os.Symlink(targetDir, link); err != nil {
+			t.Fatal(err)
+		}
+		got, err := translateHostFiles([]string{"tool", "inside-directory-link/missing.pdf"}, "f", 1, 0, home, shares, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "/mnt/host" + filepath.Join(targetDir, "missing.pdf")
+		if len(got) != 2 || got[1] != want {
+			t.Fatalf("got %v, want tool %q", got, want)
+		}
+	})
+
+	t.Run("relative link dotdot follows symlinks instead of cleaning", func(t *testing.T) {
+		outsideBase := t.TempDir()
+		outsideSubdir := filepath.Join(outsideBase, "subdir")
+		if err := os.Mkdir(outsideSubdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outsideBase, "document"), []byte("outside"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "document"), []byte("inside"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsideSubdir, filepath.Join(home, "link")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := translateHostFiles([]string{"tool", "link/../document"}, "f", 1, 0, home, shares, false); err == nil {
+			t.Fatal("accepted link/../document after it resolved outside the shared tree")
+		}
+	})
+
+	t.Run("a missing file whose parent does not exist is refused", func(t *testing.T) {
+		if _, err := translateHostFiles([]string{"tool", "missing-parent/missing.pdf"}, "f", 1, 0, home, shares, false); err == nil {
+			t.Fatal("accepted a file below a missing parent")
+		}
+	})
+
 	for _, tc := range []struct {
 		name          string
 		argv          []string

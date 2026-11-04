@@ -736,14 +736,41 @@ func resolveHostFilePath(path, cwd string) (string, error) {
 		if cwd == "" {
 			return "", errors.New("relative host path has no working directory")
 		}
-		path = filepath.Join(cwd, path)
+		path = cwd + "/" + path
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err == nil {
 		return resolved, nil
 	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if _, lstatErr := os.Lstat(path); lstatErr == nil {
+		return "", errors.New("host path is a symlink to a missing file")
+	} else if !errors.Is(lstatErr, os.ErrNotExist) {
+		return "", lstatErr
+	}
+
+	trimmed := strings.TrimRight(path, "/")
+	lastSlash := strings.LastIndex(trimmed, "/")
+	last := trimmed
+	parent := ""
+	if lastSlash >= 0 {
+		last = trimmed[lastSlash+1:]
+		parent = trimmed[:lastSlash]
+	}
+	if last == "" || last == "." || last == ".." {
+		return "", errors.New("host path has no file name")
+	}
+	if parent == "" {
+		parent = "/"
+	}
+	resolvedParent, err := filepath.EvalSymlinks(parent)
+	if err == nil {
+		return filepath.Join(resolvedParent, last), nil
+	}
 	if errors.Is(err, os.ErrNotExist) {
-		return path, nil
+		return "", errors.New("host parent does not exist")
 	}
 	return "", err
 }

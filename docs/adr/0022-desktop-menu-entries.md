@@ -70,9 +70,10 @@ is dropped as before.
 Translation is the one `run` already uses for its working directory: a host
 path that lies in a shared tree, matched by the device and inode of its
 ancestors, becomes `/mnt/host` followed by the tree's canonical path and the
-rest. A relative path is taken from the host working directory, and the
-symlinks of an existing path are resolved on the host first, because a
-symlink can point somewhere the machine sees differently. For `%u` and
+rest. A relative path is taken from the host working directory. Symlinks are
+resolved on the host first, before `..` is applied, because a symlink can point
+somewhere the machine sees differently; a file that does not exist yet
+resolves through its parent directory, which must exist. For `%u` and
 `%U`, a `file:` URL (with no host, or `localhost`) is translated to a `file:`
 URL of the machine path, a path is translated as a path, and a URL of any
 other scheme is passed unchanged. `%f` and `%u` take at most one argument. A
@@ -96,8 +97,9 @@ before. When `hicolor` has none, nsl lists the other themes under
 `/usr/share/icons`, reads each one's `index.theme`, and looks in its
 `Applications` directories: themes in name order, scalable directories first,
 then fixed ones by size, largest first, SVG before PNG. Then
-`/usr/share/pixmaps`. One `ls -1d` with every candidate path finds which exist,
-so the lookup is a few round trips rather than one per candidate. nsl copies
+`/usr/share/pixmaps`. `ls -1d` with many candidate paths at once finds which
+exist, in batches that fit a request, so the lookup is a few round trips
+rather than one per candidate. nsl copies
 the icon to `NSL_HOME/machines/NAME.apps/` and names that absolute path in the
 entry. An entry without a found icon has no `Icon` key.
 

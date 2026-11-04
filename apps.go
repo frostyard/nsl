@@ -962,35 +962,53 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 	if len(fallback) == 0 {
 		return nil, nil
 	}
-	listingArgv := []string{"ls", "-1d", "--"}
-	listingArgv = append(listingArgv, candidatePaths(fallback)...)
-	listing, err := a.guestListing(v, m, listingArgv, 64<<10)
-	if err != nil {
-		return nil, err
-	}
-	foundPaths := map[string]bool{}
-	for _, line := range strings.Split(string(listing), "\n") {
-		line = strings.TrimSuffix(line, "\r")
-		if line != "" {
-			foundPaths[line] = true
+	const iconListingBatchBytes = 32768
+	for start := 0; start < len(fallback); {
+		end := start
+		size := 0
+		for end < len(fallback) {
+			length := len(fallback[end].path) + 1
+			if size+length > iconListingBatchBytes && end != start {
+				break
+			}
+			size += length
+			end++
+			if size >= iconListingBatchBytes {
+				break
+			}
 		}
-	}
-	for _, candidate := range fallback {
-		if !foundPaths[candidate.path] {
-			continue
-		}
-		content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
+		batch := fallback[start:end]
+		listingArgv := []string{"ls", "-1d", "--"}
+		listingArgv = append(listingArgv, candidatePaths(batch)...)
+		listing, err := a.guestListing(v, m, listingArgv, 64<<10)
 		if err != nil {
 			return nil, err
 		}
-		if !found {
-			continue
+		foundPaths := map[string]bool{}
+		for _, line := range strings.Split(string(listing), "\n") {
+			line = strings.TrimSuffix(line, "\r")
+			if line != "" {
+				foundPaths[line] = true
+			}
 		}
-		if !validIcon(content, candidate.ext) {
-			fmt.Fprintf(a.err, "nsl: %s in %s is not a %s image\n", candidate.path, m.Name, strings.ToUpper(candidate.ext))
-			continue
+		for _, candidate := range batch {
+			if !foundPaths[candidate.path] {
+				continue
+			}
+			content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				continue
+			}
+			if !validIcon(content, candidate.ext) {
+				fmt.Fprintf(a.err, "nsl: %s in %s is not a %s image\n", candidate.path, m.Name, strings.ToUpper(candidate.ext))
+				continue
+			}
+			return &appIcon{data: content, ext: candidate.ext}, nil
 		}
-		return &appIcon{data: content, ext: candidate.ext}, nil
+		start = end
 	}
 	return nil, nil
 }
@@ -1025,7 +1043,7 @@ func (a *app) otherThemeIconCandidates(v *vmRecord, m *machineRecord, icon strin
 	var themes []string
 	for _, line := range strings.Split(string(listing), "\n") {
 		theme := strings.TrimSuffix(line, "\r")
-		if theme == "" || theme == "hicolor" || !iconNamePattern.MatchString(theme) {
+		if theme == "" || theme == "hicolor" || strings.HasPrefix(theme, ".") || !iconNamePattern.MatchString(theme) {
 			continue
 		}
 		themes = append(themes, theme)
