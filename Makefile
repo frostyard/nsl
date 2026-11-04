@@ -56,9 +56,11 @@ verify:
 
 check: fmt verify
 
+# verify runs the tests under the caller's umask and ci runs the race tests
+# under a strict one, so no test depends on the umask of the machine that runs it.
 ci: verify
 	mkdir -p build
-	go test -race -coverprofile=build/coverage.out ./...
+	umask 0077 && go test -race -coverprofile=build/coverage.out ./...
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-amd64 .
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-arm64 .
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-agent ./cmd/nsl-agent
