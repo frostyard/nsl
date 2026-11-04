@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -25,8 +27,8 @@ const (
 )
 
 // guestApp is a machine's application entry: a quoted argument with a space, a
-// %U that is dropped, %% that becomes %, and a literal backslash, which the
-// format writes as four backslashes inside a quoted argument.
+// %U file field, %% that becomes %, and a literal backslash, which the format
+// writes as four backslashes inside a quoted argument.
 func guestApp(name string) string {
 	return `[Desktop Entry]
 Type=Application
@@ -45,7 +47,64 @@ StartupWMClass=Gnome-calculator
 // operation does: exit status 1 when the file is absent.
 func guestFiles(f *fakeRunner, files map[string]string) {
 	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
-		if req.Op != "run" || len(req.Argv) != 3 || req.Argv[0] != "cat" || req.Argv[1] != "--" {
+		if req.Op != "run" {
+			return nil
+		}
+		if len(req.Argv) >= 4 && req.Argv[0] == "ls" {
+			switch req.Argv[1] {
+			case "-1":
+				if req.Argv[2] != "--" {
+					return nil
+				}
+				dir := filepath.Clean(req.Argv[3])
+				var names []string
+				seen := map[string]bool{}
+				prefix := dir + "/"
+				for path := range files {
+					if !strings.HasPrefix(path, prefix) {
+						continue
+					}
+					rest := strings.TrimPrefix(path, prefix)
+					name := strings.SplitN(rest, "/", 2)[0]
+					if name != "" && !seen[name] {
+						seen[name] = true
+						names = append(names, name)
+					}
+				}
+				sort.Strings(names)
+				if len(names) == 0 {
+					return commandExit(2)
+				}
+				_, err := io.WriteString(stdout, strings.Join(names, "\n")+"\n")
+				if err != nil {
+					return err
+				}
+				return errAnswered
+			case "-1d":
+				if req.Argv[2] != "--" {
+					return nil
+				}
+				missing := false
+				var found []string
+				for _, path := range req.Argv[3:] {
+					if _, ok := files[path]; ok {
+						found = append(found, path)
+					} else {
+						missing = true
+					}
+				}
+				if len(found) != 0 {
+					if _, err := io.WriteString(stdout, strings.Join(found, "\n")+"\n"); err != nil {
+						return err
+					}
+				}
+				if missing {
+					return commandExit(2)
+				}
+				return errAnswered
+			}
+		}
+		if len(req.Argv) != 3 || req.Argv[0] != "cat" || req.Argv[1] != "--" {
 			return nil
 		}
 		content, ok := files[req.Argv[2]]
@@ -97,7 +156,7 @@ func TestAppAddWritesTheHostEntry(t *testing.T) {
 	want := `[Desktop Entry]
 Type=Application
 Name=Calculator (debian)
-Exec=/test/nsl run -m debian --cd /home/u -- gnome-calculator --title "My Screen" --note=%% "a\\\\b"
+Exec=/test/nsl run -m debian --cd /home/u --host-files U:3:2 -- gnome-calculator --title "My Screen" %U --note=%% "a\\\\b"
 TryExec=/test/nsl
 Terminal=false
 GenericName=Calculator
@@ -240,6 +299,109 @@ func TestAppAddFindsIcons(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAppAddWritesFField(t *testing.T) {
+	a, f, _ := withMachine(t)
+	guestFiles(f, map[string]string{
+		"/usr/share/applications/evince.desktop": `[Desktop Entry]
+Type=Application
+Name=Document Viewer
+Exec=evince %f
+`,
+	})
+	body, err := os.ReadFile(addedEntry(t, a, f, "evince"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "--host-files f:1:0 -- evince %f") {
+		t.Fatalf("missing f field in\n%s", body)
+	}
+}
+
+func TestAppAddFindsIconsInOtherThemes(t *testing.T) {
+	a, f, _ := withMachine(t)
+	files := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop": strings.Replace(guestApp("Calculator"), "Icon=org.gnome.Calculator", "Icon=sample-icon", 1),
+		"/usr/share/icons/Adwaita/index.theme": `[Icon Theme]
+Directories=scalable/apps,apps/48
+[scalable/apps]
+Context=Applications
+Type=Scalable
+Size=64
+[apps/48]
+Context=Applications
+Type=Fixed
+Size=48
+`,
+		"/usr/share/icons/breeze/index.theme": `[Icon Theme]
+Directories=apps/96,apps/128
+[apps/96]
+Context=Applications
+Type=Fixed
+Size=96
+[apps/128]
+Context=Applications
+Type=Fixed
+Size=128
+`,
+		"/usr/share/icons/broken/index.theme":                    `not an index theme`,
+		"/usr/share/icons/Adwaita/scalable/apps/sample-icon.svg": svgIcon,
+		"/usr/share/icons/breeze/apps/128/sample-icon.png":       pngIcon,
+		"/usr/share/pixmaps/sample-icon.svg":                     svgIcon,
+	}
+	guestFiles(f, files)
+	var stderr bytes.Buffer
+	a.err = &stderr
+	body, err := os.ReadFile(addedEntry(t, a, f, "org.gnome.Calculator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIcon := filepath.Join(a.machinesDir(), "debian.apps", "org.gnome.Calculator.svg")
+	if !strings.Contains(string(body), "Icon="+wantIcon+"\n") {
+		t.Fatalf("missing icon in\n%s", body)
+	}
+	var batch []string
+	for _, req := range f.requests {
+		if req.Op == "run" && len(req.Argv) >= 3 && req.Argv[0] == "ls" && req.Argv[1] == "-1d" {
+			batch = append([]string{}, req.Argv[3:]...)
+		}
+	}
+	if len(batch) == 0 {
+		t.Fatal("did not run the batched icon lookup")
+	}
+	wantPrefix := []string{
+		"/usr/share/icons/Adwaita/scalable/apps/sample-icon.svg",
+		"/usr/share/icons/Adwaita/scalable/apps/sample-icon.png",
+		"/usr/share/icons/Adwaita/apps/48/sample-icon.svg",
+		"/usr/share/icons/Adwaita/apps/48/sample-icon.png",
+		"/usr/share/icons/breeze/apps/128/sample-icon.svg",
+		"/usr/share/icons/breeze/apps/128/sample-icon.png",
+	}
+	for i, want := range wantPrefix {
+		if i >= len(batch) || batch[i] != want {
+			t.Fatalf("candidate %d: got %q, want %q in %v", i, batch[i], want, batch)
+		}
+	}
+	if batch[len(batch)-2] != "/usr/share/pixmaps/sample-icon.svg" || batch[len(batch)-1] != "/usr/share/pixmaps/sample-icon.png" {
+		t.Fatalf("pixmaps were not last: %v", batch)
+	}
+
+	// A hicolor icon wins and sends no theme listing request.
+	a2, f2, _ := withMachine(t)
+	files2 := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop":   strings.Replace(guestApp("Calculator"), "Icon=org.gnome.Calculator", "Icon=sample-icon", 1),
+		"/usr/share/icons/hicolor/scalable/apps/sample-icon.svg": svgIcon,
+	}
+	guestFiles(f2, files2)
+	if _, err := os.ReadFile(addedEntry(t, a2, f2, "org.gnome.Calculator")); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range f2.requests {
+		if req.Op == "run" && len(req.Argv) >= 2 && req.Argv[0] == "ls" {
+			t.Fatalf("hicolor unexpectedly listed themes: %+v", req)
+		}
 	}
 }
 
@@ -653,27 +815,29 @@ func TestRemoveDeletesTheMachinesMenuEntries(t *testing.T) {
 
 func TestExecArgs(t *testing.T) {
 	for _, tc := range []struct {
-		exec string
-		want []string
+		exec  string
+		want  []string
+		field *execField
 	}{
-		{"calc", []string{"calc"}},
-		{"calc   --x", []string{"calc", "--x"}},
-		{`calc "a b"`, []string{"calc", "a b"}},
-		{`calc "a\\b"`, []string{"calc", `a\b`}},
-		{`calc "say \"hi\""`, []string{"calc", `say "hi"`}},
-		{"calc %U", []string{"calc"}},
-		{"%f calc %i", []string{"calc"}},
-		{"calc --note=%%", []string{"calc", "--note=%"}},
-		{`calc ""`, []string{"calc", ""}},
+		{"calc", []string{"calc"}, nil},
+		{"calc   --x", []string{"calc", "--x"}, nil},
+		{`calc "a b"`, []string{"calc", "a b"}, nil},
+		{`calc "a\\b"`, []string{"calc", `a\b`}, nil},
+		{`calc "say \"hi\""`, []string{"calc", `say "hi"`}, nil},
+		{"calc %U", []string{"calc", "%U"}, &execField{Code: "U", Index: 1}},
+		{"%f calc %i", []string{"calc"}, nil},
+		{"calc %f %U", []string{"calc", "%f"}, &execField{Code: "f", Index: 1}},
+		{"calc --note=%%", []string{"calc", "--note=%"}, nil},
+		{`calc ""`, []string{"calc", ""}, nil},
 	} {
-		got, err := execArgs(tc.exec)
-		if err != nil || strings.Join(got, "|") != strings.Join(tc.want, "|") {
-			t.Fatalf("%q: %q %v", tc.exec, got, err)
+		got, field, err := execArgs(tc.exec)
+		if err != nil || strings.Join(got, "|") != strings.Join(tc.want, "|") || !reflect.DeepEqual(field, tc.field) {
+			t.Fatalf("%q: %q %+v %v", tc.exec, got, field, err)
 		}
 	}
 	for _, bad := range []string{"", "%U", "cal'c", `calc a\b`, "calc > out", `calc "a b`, `calc "a\qb"`, "calc --file=%f", "calc %", "calc percent%",
 		`tool "one"two`, `tool "a""b"`} {
-		if got, err := execArgs(bad); err == nil {
+		if got, _, err := execArgs(bad); err == nil {
 			t.Fatalf("%q: %q", bad, got)
 		}
 	}

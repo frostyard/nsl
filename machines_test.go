@@ -242,6 +242,167 @@ func TestTranslateByDeviceAndInode(t *testing.T) {
 	}
 }
 
+func TestTranslateHostFiles(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "project")
+	if err := os.MkdirAll(project, 0755); err != nil {
+		t.Fatal(err)
+	}
+	shares := []protocol.Share{{Source: home}}
+	argv := []string{"tool", filepath.Join(project, "a b.pdf"), "relative.txt", "file://" + filepath.Join(project, "My%20File.pdf") + "?x=1#page=2", "https://example.test/a", "tail"}
+	got, err := translateHostFiles(argv, "U", 1, 1, project, shares, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := "/mnt/host" + project
+	want := []string{"tool", wantPrefix + "/a b.pdf", wantPrefix + "/relative.txt", "file://" + wantPrefix + "/My%20File.pdf?x=1#page=2", "https://example.test/a", "tail"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("argv %d: got %q, want %q in %v", i, got[i], want[i], got)
+		}
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.pdf")
+	if err := os.WriteFile(outside, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	outsideLink := filepath.Join(home, "outside-link.pdf")
+	if err := os.Symlink(outside, outsideLink); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("a symlink outside the shared home is refused", func(t *testing.T) {
+		if _, err := translateHostFiles([]string{"tool", outsideLink}, "f", 1, 0, home, shares, false); err == nil {
+			t.Fatal("accepted a host symlink that resolves outside the shared tree")
+		}
+	})
+
+	target := filepath.Join(home, "target.pdf")
+	if err := os.WriteFile(target, []byte("target"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	insideLink := filepath.Join(home, "inside-link.pdf")
+	if err := os.Symlink(target, insideLink); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("a symlink inside the shared home uses the target path", func(t *testing.T) {
+		got, err := translateHostFiles([]string{"tool", insideLink}, "f", 1, 0, home, shares, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "/mnt/host" + target
+		if len(got) != 2 || got[1] != want {
+			t.Fatalf("got %v, want tool %q", got, want)
+		}
+	})
+
+	t.Run("a relative path with no cwd is refused", func(t *testing.T) {
+		if _, err := translateHostFiles([]string{"tool", "relative.txt"}, "f", 1, 0, "", shares, false); err == nil {
+			t.Fatal("accepted a relative host path without a working directory")
+		}
+	})
+
+	for _, tc := range []struct {
+		name          string
+		argv          []string
+		code          string
+		before, after int
+		isolated      bool
+	}{
+		{"bad outside", []string{"tool", "/outside/file"}, "f", 1, 0, false},
+		{"bad isolated", []string{"tool", filepath.Join(project, "a")}, "f", 1, 0, true},
+		{"bad two f", []string{"tool", filepath.Join(project, "a"), filepath.Join(project, "b")}, "f", 1, 0, false},
+		{"bad two u", []string{"tool", "/tmp/a", "/tmp/b"}, "u", 1, 0, false},
+		{"bad other file host", []string{"tool", "file://otherhost/x"}, "u", 1, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := translateHostFiles(tc.argv, tc.code, tc.before, tc.after, project, shares, tc.isolated); err == nil {
+				t.Fatalf("accepted %+v", tc)
+			}
+		})
+	}
+}
+
+func TestRunTranslatesFHostFile(t *testing.T) {
+	a, f, m := withMachine(t)
+	file := filepath.Join(a.hostRoot, "home", "u", "document.pdf")
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("pdf"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"run", "--cd", "/srv", "--host-files", "f:1:0", "--", "evince", file}); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := filepath.EvalSymlinks(filepath.Join(a.hostRoot, "home", "u"))
+	wantFile := "/mnt/host" + home + "/document.pdf"
+	run := f.requests[len(f.requests)-1]
+	if run.Op != "run" || run.ID != m.ID || len(run.Argv) != 2 || run.Argv[0] != "evince" || run.Argv[1] != wantFile {
+		t.Fatalf("%+v", run)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.pdf")
+	before := len(f.requests)
+	if err := a.execute([]string{"run", "--cd", "/srv", "--host-files", "f:1:0", "--", "evince", outside}); err == nil {
+		t.Fatal("accepted a file outside the shared trees")
+	}
+	if len(f.requests) != before {
+		t.Fatalf("outside file sent requests: before %d after %d", before, len(f.requests))
+	}
+}
+
+func TestRunTranslatesUHostFiles(t *testing.T) {
+	a, f, m := withMachine(t)
+	path := filepath.Join(a.hostRoot, "home", "u", "document with spaces.pdf")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("pdf"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := filepath.EvalSymlinks(filepath.Join(a.hostRoot, "home", "u"))
+	wantPath := "/mnt/host" + home + "/document with spaces.pdf"
+	if err := a.execute([]string{"run", "--cd", "/srv", "--host-files", "U:1:1", "--", "viewer", path, "https://example.test/x", "--tail"}); err != nil {
+		t.Fatal(err)
+	}
+	run := f.requests[len(f.requests)-1]
+	want := []string{"viewer", wantPath, "https://example.test/x", "--tail"}
+	if run.Op != "run" || run.ID != m.ID || len(run.Argv) != len(want) {
+		t.Fatalf("%+v", run)
+	}
+	for i := range want {
+		if run.Argv[i] != want[i] {
+			t.Fatalf("argv %d: got %q, want %q in %v", i, run.Argv[i], want[i], run.Argv)
+		}
+	}
+}
+
+func TestRunHostFilesRefusesBadFlagsAndIsolatedFiles(t *testing.T) {
+	a, f, m := withMachine(t)
+	for _, value := range []string{"x:1:0", "f:0:0", "f:1234567:0", "f:1:-1", "f:1", "f:xx:0"} {
+		before := len(f.requests)
+		if err := a.execute([]string{"run", "--host-files", value, "--", "tool", "file"}); err == nil {
+			t.Fatalf("accepted bad --host-files %q", value)
+		}
+		if len(f.requests) != before {
+			t.Fatalf("bad flag sent requests: %q", value)
+		}
+	}
+	if err := a.execute([]string{"run", "--host-files", "f:1:0", "--", "tool", "one", "two"}); err == nil {
+		t.Fatal("accepted two files for f")
+	}
+	m.Tier = "isolated"
+	if err := a.saveMachine(m); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.execute([]string{"run", "--host-files", "f:1:0", "--", "tool", filepath.Join(a.hostRoot, "home", "u", "file")}); err == nil {
+		t.Fatal("isolated machine accepted a file")
+	}
+}
+
 func TestRunSendsLiteralArgvFromTheTranslatedDirectory(t *testing.T) {
 	a, f, m := withMachine(t)
 	project := filepath.Join(a.hostRoot, "home", "u", "project")

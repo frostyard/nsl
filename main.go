@@ -132,7 +132,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, `nsl — WSL-style Linux machines (experimental)
 
   [-m NAME]                       login shell in NAME or the default machine
-  run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]
+  run [-m NAME] [--root] [--cd PATH] [--host-files CODE:BEFORE:AFTER] COMMAND [ARGS...]
   create NAME --distro DISTRO:RELEASE [--offline] [--isolated] [--default] [--user NAME]
   create NAME --image FILE --digest sha256:HEX [--isolated] [--default] [--user NAME]
   list [--json]

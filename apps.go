@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -123,7 +124,7 @@ func (a *app) appAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	argv, err := execArgs(guest.Exec)
+	argv, field, err := execArgs(guest.Exec)
 	if err != nil {
 		return fmt.Errorf("%s in %s: %w", path, m.Name, err)
 	}
@@ -164,7 +165,7 @@ func (a *app) appAdd(args []string) error {
 			return err
 		}
 	}
-	body := renderMenuEntry(menuInput{Machine: m.Name, ID: m.ID, App: app, Guest: guest, Argv: argv,
+	body := renderMenuEntry(menuInput{Machine: m.Name, ID: m.ID, App: app, Guest: guest, Argv: argv, Field: field,
 		Dir: dir, Nsl: a.nslPath(), Icon: iconPath})
 	if err = a.publishMenuEntry(entryPath, body, m, app); err != nil {
 		return err
@@ -449,6 +450,43 @@ func (a *app) guestFile(v *vmRecord, m *machineRecord, path string, limit int) (
 	return out.buffer.Bytes(), true, nil
 }
 
+// guestListing runs an argv-only guest listing. Exit statuses 0, 1 and 2 are
+// listings, as ls reports a usable directory or missing entries.
+func (a *app) guestListing(v *vmRecord, m *machineRecord, argv []string, limit int) ([]byte, error) {
+	idle, err := a.idleTimeout()
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := protocol.Encode(protocol.Request{Protocol: protocol.Version, Op: "run", Machine: m.Name, ID: m.ID,
+		Argv: argv, Directory: "/", IdleTimeout: idle})
+	if err != nil {
+		return nil, err
+	}
+	out := &boundedBuffer{limit: limit + 1}
+	err = a.r.run(context.Background(), nil, out, io.Discard, os.Environ(), "ssh", append(a.sshArgs(v, false), encoded)...)
+	if err != nil {
+		var exit interface{ ExitCode() int }
+		if errors.As(err, &exit) {
+			switch exit.ExitCode() {
+			case 0, 1, 2:
+				return boundedListing(out, limit)
+			}
+		}
+		if errors.Is(err, io.ErrShortBuffer) || out.buffer.Len() > limit {
+			return nil, fmt.Errorf("listing %s in %s is larger than %d bytes", strings.Join(argv[2:], " "), m.Name, limit)
+		}
+		return nil, fmt.Errorf("listing in %s: %w", m.Name, err)
+	}
+	return boundedListing(out, limit)
+}
+
+func boundedListing(out *boundedBuffer, limit int) ([]byte, error) {
+	if out.buffer.Len() > limit {
+		return nil, io.ErrShortBuffer
+	}
+	return out.buffer.Bytes(), nil
+}
+
 // guestEntryPaths is where a machine keeps desktop entries, in lookup order.
 func guestEntryPaths(user string) []string {
 	return []string{
@@ -650,10 +688,16 @@ func encodeDesktopValue(s string) string {
 	return b.String()
 }
 
-// fieldCodes are the Exec field codes nsl drops (ADR-0022): files and URLs are
-// not translated yet.
-var fieldCodes = map[string]bool{"%f": true, "%F": true, "%u": true, "%U": true, "%i": true, "%c": true,
-	"%k": true, "%d": true, "%D": true, "%n": true, "%N": true, "%v": true, "%m": true}
+// droppedFieldCodes are the Exec field codes nsl does not pass to the host.
+var droppedFieldCodes = map[string]bool{"%i": true, "%c": true, "%k": true, "%d": true, "%D": true,
+	"%n": true, "%N": true, "%v": true, "%m": true}
+
+// execField is the first file or URL field code in a guest Exec. Index is the
+// number of guest argv elements before it.
+type execField struct {
+	Code  string
+	Index int
+}
 
 // unquotedSyntax are the characters a desktop's Exec may not pass unquoted.
 // The double quote belongs here although the contract's list omits it: quoting
@@ -661,9 +705,10 @@ var fieldCodes = map[string]bool{"%f": true, "%F": true, "%u": true, "%U": true,
 // argument at its next space rather than refuse it.
 const unquotedSyntax = "'\\\"><~|&;$*?#()`"
 
-// execArgs splits a desktop entry's Exec into arguments and removes the field
-// codes. Shell syntax is refused rather than guessed.
-func execArgs(execLine string) ([]string, error) {
+// execArgs splits a desktop entry's Exec into arguments. The first file or
+// URL field code is kept; later file field codes and unsupported desktop fields
+// are dropped. Shell syntax is refused rather than guessed.
+func execArgs(execLine string) ([]string, *execField, error) {
 	var split []string
 	for i := 0; i < len(execLine); {
 		if execLine[i] == ' ' {
@@ -680,13 +725,13 @@ func execArgs(execLine string) ([]string, error) {
 					closed = true
 				case '\\':
 					if i+1 >= len(execLine) {
-						return nil, errors.New("the Exec ends with a backslash")
+						return nil, nil, errors.New("the Exec ends with a backslash")
 					}
 					if n := execLine[i+1]; strings.ContainsRune(execQuotedEscapes, rune(n)) {
 						b.WriteByte(n)
 						i += 2
 					} else {
-						return nil, fmt.Errorf("the Exec quotes the unsupported escape %q", `\`+string(n))
+						return nil, nil, fmt.Errorf("the Exec quotes the unsupported escape %q", `\`+string(n))
 					}
 				default:
 					b.WriteByte(execLine[i])
@@ -694,12 +739,12 @@ func execArgs(execLine string) ([]string, error) {
 				}
 			}
 			if !closed {
-				return nil, errors.New("the Exec has an unclosed quote")
+				return nil, nil, errors.New("the Exec has an unclosed quote")
 			}
 			// A quote encloses a whole argument, so a space or the end of
 			// the line must follow it.
 			if i < len(execLine) && execLine[i] != ' ' {
-				return nil, errors.New("the Exec quotes part of an argument, which nsl does not support")
+				return nil, nil, errors.New("the Exec quotes part of an argument, which nsl does not support")
 			}
 			split = append(split, b.String())
 			continue
@@ -707,27 +752,38 @@ func execArgs(execLine string) ([]string, error) {
 		start := i
 		for i < len(execLine) && execLine[i] != ' ' {
 			if strings.ContainsRune(unquotedSyntax, rune(execLine[i])) {
-				return nil, fmt.Errorf("the Exec argument %q uses shell syntax or quotes part of an argument", execLine[start:i+1])
+				return nil, nil, fmt.Errorf("the Exec argument %q uses shell syntax or quotes part of an argument", execLine[start:i+1])
 			}
 			i++
 		}
 		split = append(split, execLine[start:i])
 	}
 	var args []string
+	var field *execField
 	for _, arg := range split {
-		if fieldCodes[arg] {
+		if len(arg) == 2 && arg[0] == '%' && strings.ContainsRune("fFuU", rune(arg[1])) {
+			if len(args) == 0 {
+				continue
+			}
+			if field == nil {
+				field = &execField{Code: arg[1:2], Index: len(args)}
+				args = append(args, arg)
+			}
+			continue
+		}
+		if droppedFieldCodes[arg] {
 			continue
 		}
 		expanded, err := expandFieldCodes(arg)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		args = append(args, expanded)
 	}
 	if len(args) == 0 {
-		return nil, errors.New("the Exec has no command")
+		return nil, nil, errors.New("the Exec has no command")
 	}
-	return args, nil
+	return args, field, nil
 }
 
 // expandFieldCodes turns %% into % and refuses every other field code.
@@ -778,10 +834,11 @@ func quoteExecArg(arg string) string {
 type menuInput struct {
 	Machine, ID, App string
 	Guest            *desktopEntry
-	Argv             []string // the guest Exec, split and without field codes
-	Dir              string   // the machine directory the command starts in
-	Nsl              string   // the absolute path of nsl
-	Icon             string   // the host path of the icon, or ""
+	Argv             []string // the guest Exec, split and with the first file field code
+	Field            *execField
+	Dir              string // the machine directory the command starts in
+	Nsl              string // the absolute path of nsl
+	Icon             string // the host path of the icon, or ""
 }
 
 // renderMenuEntry is the host entry of one application: selected keys of the
@@ -819,12 +876,24 @@ func writeDesktopKey(b *strings.Builder, key, value string) {
 
 // hostExec is `NSL run -m NAME --cd DIR -- ARGV`, quoted for a desktop entry.
 func hostExec(in menuInput) string {
-	parts := []string{in.Nsl, "run", "-m", in.Machine, "--cd", in.Dir, "--"}
-	parts = append(parts, in.Argv...)
-	for i, part := range parts {
-		parts[i] = quoteExecArg(part)
+	parts := []string{in.Nsl, "run", "-m", in.Machine, "--cd", in.Dir}
+	if in.Field != nil {
+		after := len(in.Argv) - in.Field.Index - 1
+		parts = append(parts, "--host-files", in.Field.Code+":"+fmt.Sprint(in.Field.Index)+":"+fmt.Sprint(after))
 	}
-	return strings.ReplaceAll(strings.Join(parts, " "), "%", "%%")
+	parts = append(parts, "--")
+	out := make([]string, 0, len(parts)+len(in.Argv))
+	for _, part := range parts {
+		out = append(out, strings.ReplaceAll(quoteExecArg(part), "%", "%%"))
+	}
+	for i, part := range in.Argv {
+		if in.Field != nil && i == in.Field.Index {
+			out = append(out, "%"+in.Field.Code)
+		} else {
+			out = append(out, strings.ReplaceAll(quoteExecArg(part), "%", "%%"))
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 // appIcon is an icon's bytes and the file extension they belong in.
@@ -868,7 +937,48 @@ func iconCandidates(icon string) []iconCandidate {
 
 // readGuestIcon finds the machine's icon. A nil icon means none was found.
 func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIcon, error) {
-	for _, candidate := range iconCandidates(icon) {
+	candidates := iconCandidates(icon)
+	for _, candidate := range candidates {
+		content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		if !validIcon(content, candidate.ext) {
+			fmt.Fprintf(a.err, "nsl: %s in %s is not a %s image\n", candidate.path, m.Name, strings.ToUpper(candidate.ext))
+			continue
+		}
+		return &appIcon{data: content, ext: candidate.ext}, nil
+	}
+	if strings.HasPrefix(icon, "/") || !iconNamePattern.MatchString(icon) {
+		return nil, nil
+	}
+	fallback, err := a.otherThemeIconCandidates(v, m, icon)
+	if err != nil {
+		return nil, err
+	}
+	if len(fallback) == 0 {
+		return nil, nil
+	}
+	listingArgv := []string{"ls", "-1d", "--"}
+	listingArgv = append(listingArgv, candidatePaths(fallback)...)
+	listing, err := a.guestListing(v, m, listingArgv, 64<<10)
+	if err != nil {
+		return nil, err
+	}
+	foundPaths := map[string]bool{}
+	for _, line := range strings.Split(string(listing), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if line != "" {
+			foundPaths[line] = true
+		}
+	}
+	for _, candidate := range fallback {
+		if !foundPaths[candidate.path] {
+			continue
+		}
 		content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
 		if err != nil {
 			return nil, err
@@ -883,6 +993,172 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 		return &appIcon{data: content, ext: candidate.ext}, nil
 	}
 	return nil, nil
+}
+
+func candidatePaths(candidates []iconCandidate) []string {
+	paths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		paths = append(paths, candidate.path)
+	}
+	return paths
+}
+
+const iconThemeDirPattern = `^[A-Za-z0-9._+@-]+(?:/[A-Za-z0-9._+@-]+)*$`
+
+var iconThemeDirRegexp = regexp.MustCompile(iconThemeDirPattern)
+
+type themeDirectory struct {
+	name        string
+	themeIndex  int
+	size, scale int
+	scalable    bool
+	contextApp  bool
+}
+
+// otherThemeIconCandidates lists icon candidates from themes other than
+// hicolor, followed by the pixmaps directory.
+func (a *app) otherThemeIconCandidates(v *vmRecord, m *machineRecord, icon string) ([]iconCandidate, error) {
+	listing, err := a.guestListing(v, m, []string{"ls", "-1", "--", "/usr/share/icons"}, 64<<10)
+	if err != nil {
+		return nil, err
+	}
+	var themes []string
+	for _, line := range strings.Split(string(listing), "\n") {
+		theme := strings.TrimSuffix(line, "\r")
+		if theme == "" || theme == "hicolor" || !iconNamePattern.MatchString(theme) {
+			continue
+		}
+		themes = append(themes, theme)
+	}
+	sort.Strings(themes)
+	if len(themes) > 32 {
+		themes = themes[:32]
+	}
+	var candidates []iconCandidate
+	for _, theme := range themes {
+		content, found, err := a.guestFile(v, m, "/usr/share/icons/"+theme+"/index.theme", 256<<10)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		dirs, ok := parseIconTheme(content)
+		if !ok {
+			continue
+		}
+		for _, dir := range dirs {
+			base := "/usr/share/icons/" + theme + "/" + dir.name + "/" + icon
+			candidates = append(candidates, iconCandidate{base + ".svg", "svg"}, iconCandidate{base + ".png", "png"})
+			if len(candidates) >= 2048 {
+				break
+			}
+		}
+		if len(candidates) >= 2048 {
+			break
+		}
+	}
+	for _, ext := range []string{"svg", "png"} {
+		if len(candidates) >= 2048 {
+			break
+		}
+		candidates = append(candidates, iconCandidate{"/usr/share/pixmaps/" + icon + "." + ext, ext})
+	}
+	return candidates, nil
+}
+
+// parseIconTheme reads one machine index.theme and returns applications
+// directories in scalable-first, then largest-first order.
+func parseIconTheme(content []byte) ([]themeDirectory, bool) {
+	if !utf8.Valid(content) {
+		return nil, false
+	}
+	groups := map[string]map[string]string{}
+	current := ""
+	for _, raw := range strings.Split(string(content), "\n") {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			current = strings.TrimSpace(line[1 : len(line)-1])
+			if _, ok := groups[current]; !ok {
+				groups[current] = map[string]string{}
+			}
+			continue
+		}
+		if current == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		groups[current][strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	theme, ok := groups["Icon Theme"]
+	if !ok {
+		return nil, false
+	}
+	var names []string
+	seenNames := map[string]bool{}
+	for _, key := range []string{"Directories", "ScaledDirectories"} {
+		for _, item := range strings.Split(theme[key], ",") {
+			name := strings.TrimSpace(item)
+			if name == "" || seenNames[name] {
+				continue
+			}
+			seenNames[name] = true
+			names = append(names, name)
+		}
+	}
+	var dirs []themeDirectory
+	index := 0
+	for _, name := range names {
+		group, ok := groups[name]
+		if !ok || group["Context"] != "Applications" || !validIconThemeDir(name) {
+			continue
+		}
+		size, err := strconv.Atoi(group["Size"])
+		if err != nil || size < 1 {
+			continue
+		}
+		scale := 1
+		if value := strings.TrimSpace(group["Scale"]); value != "" {
+			scale, err = strconv.Atoi(value)
+			if err != nil || scale < 1 {
+				continue
+			}
+		}
+		dirs = append(dirs, themeDirectory{name: name, themeIndex: index, size: size, scale: scale,
+			scalable: group["Type"] == "Scalable", contextApp: true})
+		index++
+	}
+	sort.SliceStable(dirs, func(i, j int) bool {
+		if dirs[i].scalable != dirs[j].scalable {
+			return dirs[i].scalable
+		}
+		if !dirs[i].scalable {
+			left, right := dirs[i].size*dirs[i].scale, dirs[j].size*dirs[j].scale
+			if left != right {
+				return left > right
+			}
+		}
+		return dirs[i].themeIndex < dirs[j].themeIndex
+	})
+	return dirs, true
+}
+
+func validIconThemeDir(name string) bool {
+	if name == "" || strings.HasPrefix(name, "/") || !iconThemeDirRegexp.MatchString(name) {
+		return false
+	}
+	for _, component := range strings.Split(name, "/") {
+		if component == "" || component == "." || component == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // validIcon checks a file's signature for its extension.
