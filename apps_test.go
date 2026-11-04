@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -410,23 +411,53 @@ Size=128
 
 func TestAppAddRejectsDotThemeNames(t *testing.T) {
 	a, f, _ := withMachine(t)
+	validTheme := `[Icon Theme]
+Directories=apps
+[apps]
+Context=Applications
+Type=Scalable
+Size=48
+`
 	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
 		if req.Op != "run" {
 			return nil
 		}
-		if len(req.Argv) == 3 && req.Argv[0] == "cat" && req.Argv[1] == "--" {
-			if req.Argv[2] == "/usr/share/applications/org.gnome.Calculator.desktop" {
+		if len(req.Argv) >= 3 && req.Argv[0] == "cat" && req.Argv[1] == "--" {
+			switch req.Argv[2] {
+			case "/usr/share/applications/org.gnome.Calculator.desktop":
 				entry := strings.Replace(guestApp("Calculator"), "Icon=org.gnome.Calculator", "Icon=sample-icon", 1)
 				_, err := io.WriteString(stdout, entry)
 				if err != nil {
 					return err
 				}
 				return errAnswered
+			case "/usr/share/icons/.hidden/index.theme", "/usr/share/icons/../index.theme":
+				_, err := io.WriteString(stdout, validTheme)
+				if err != nil {
+					return err
+				}
+				return errAnswered
+			default:
+				if req.Argv[2] == "/usr/share/icons/../apps/sample-icon.svg" ||
+					req.Argv[2] == "/usr/share/icons/.hidden/apps/sample-icon.svg" {
+					_, err := io.WriteString(stdout, svgIcon)
+					if err != nil {
+						return err
+					}
+					return errAnswered
+				}
+				return commandExit(1)
 			}
-			return commandExit(1)
 		}
 		if len(req.Argv) == 4 && req.Argv[0] == "ls" && req.Argv[1] == "-1" && req.Argv[2] == "--" && req.Argv[3] == "/usr/share/icons" {
 			_, err := io.WriteString(stdout, "..\n.hidden\n")
+			if err != nil {
+				return err
+			}
+			return errAnswered
+		}
+		if len(req.Argv) >= 4 && req.Argv[0] == "ls" && req.Argv[1] == "-1d" && req.Argv[2] == "--" {
+			_, err := io.WriteString(stdout, strings.Join(req.Argv[3:], "\n")+"\n")
 			if err != nil {
 				return err
 			}
@@ -447,20 +478,29 @@ func TestAppAddRejectsDotThemeNames(t *testing.T) {
 			continue
 		}
 		if len(req.Argv) >= 3 && req.Argv[0] == "cat" && req.Argv[1] == "--" {
-			path := req.Argv[2]
-			if !strings.HasSuffix(path, "/.local/share/applications/org.gnome.Calculator.desktop") &&
-				path != "/usr/share/applications/org.gnome.Calculator.desktop" &&
-				path != "/usr/local/share/applications/org.gnome.Calculator.desktop" &&
-				!strings.HasPrefix(path, "/usr/share/icons/") && !strings.HasPrefix(path, "/usr/share/pixmaps/") {
+			raw := req.Argv[2]
+			cleaned := path.Clean(raw)
+			if strings.Contains(raw, "/../") || strings.HasSuffix(raw, "/..") || strings.Contains(raw, "/.hidden/") {
+				t.Fatalf("unsafe dot theme cat request: %+v", req)
+			}
+			if !strings.HasSuffix(cleaned, "/.local/share/applications/org.gnome.Calculator.desktop") &&
+				cleaned != "/usr/share/applications/org.gnome.Calculator.desktop" &&
+				cleaned != "/usr/local/share/applications/org.gnome.Calculator.desktop" &&
+				!strings.HasPrefix(cleaned, "/usr/share/icons/") && !strings.HasPrefix(cleaned, "/usr/share/pixmaps/") {
 				t.Fatalf("unsafe theme cat request: %+v", req)
 			}
 		}
 		if len(req.Argv) >= 3 && req.Argv[0] == "ls" {
 			for _, arg := range req.Argv[3:] {
-				if arg == "/usr/share/icons" {
+				raw := arg
+				cleaned := path.Clean(raw)
+				if strings.Contains(raw, "/../") || strings.HasSuffix(raw, "/..") || strings.Contains(raw, "/.hidden/") {
+					t.Fatalf("unsafe dot theme ls request: %+v", req)
+				}
+				if raw == "/usr/share/icons" {
 					continue
 				}
-				if !strings.HasPrefix(arg, "/usr/share/icons/") && !strings.HasPrefix(arg, "/usr/share/pixmaps/") {
+				if !strings.HasPrefix(cleaned, "/usr/share/icons/") && !strings.HasPrefix(cleaned, "/usr/share/pixmaps/") {
 					t.Fatalf("unsafe theme ls request: %+v", req)
 				}
 			}
