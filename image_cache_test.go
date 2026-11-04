@@ -533,9 +533,17 @@ func TestPullResumesAfterAnInterruptedPublication(t *testing.T) {
 	}
 	// Verified and made read-only, but never linked into the cache.
 	dir := filepath.Join(base, strings.TrimPrefix(f.cat.Images[1].Manifest, "sha256:"))
-	os.Mkdir(dir, 0700)
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	partial := filepath.Join(dir, "rootfs.tar.zst.part")
-	os.WriteFile(partial, f.machine.compressed, 0444)
+	if err := os.WriteFile(partial, f.machine.compressed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Publication sets the mode with fchmod, which the umask does not reduce, so the test sets it with chmod too.
+	if err := os.Chmod(partial, 0444); err != nil {
+		t.Fatal(err)
+	}
 	image, err := c.pullMachine("debian:13", false)
 	if err != nil {
 		t.Fatal(err)
@@ -547,8 +555,12 @@ func TestPullResumesAfterAnInterruptedPublication(t *testing.T) {
 		t.Fatal("kept the partial download")
 	}
 	// Linked into the cache, but the partial name and the receipt remain undone.
-	os.Link(image.path, partial)
-	os.Remove(filepath.Join(dir, "receipt.json"))
+	if err := os.Link(image.path, partial); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "receipt.json")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = c.pullMachine("debian:13", false); err != nil {
 		t.Fatal(err)
 	}
