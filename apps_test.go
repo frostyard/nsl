@@ -508,6 +508,41 @@ Size=48
 	}
 }
 
+func TestAppAddSkipsOversizedIconCandidates(t *testing.T) {
+	a, f, _ := withMachine(t)
+	hugeDir := "apps/" + strings.Repeat("a", 70000)
+	files := map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop": strings.Replace(guestApp("Calculator"), "Icon=org.gnome.Calculator", "Icon=ICON", 1),
+		"/usr/share/icons/LargeTheme/index.theme": `[Icon Theme]
+Directories=` + hugeDir + `
+[` + hugeDir + `]
+Context=Applications
+Type=Scalable
+Size=48
+`,
+		"/usr/share/pixmaps/ICON.png": pngIcon,
+	}
+	guestFiles(f, files)
+	body, err := os.ReadFile(addedEntry(t, a, f, "org.gnome.Calculator"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIcon := filepath.Join(a.machinesDir(), "debian.apps", "org.gnome.Calculator.png")
+	if !strings.Contains(string(body), "Icon="+wantIcon+"\n") {
+		t.Fatalf("oversized candidate lookup found no pixmap icon in\n%s", body)
+	}
+	if data, err := os.ReadFile(wantIcon); err != nil || string(data) != pngIcon {
+		t.Fatalf("wrong oversized-candidate pixmap bytes: %v %q", err, data)
+	}
+	for _, req := range f.requests {
+		for _, arg := range req.Argv {
+			if len(arg) > 4096 {
+				t.Fatalf("request argument is %d bytes, exceeds 4096: %+v", len(arg), req)
+			}
+		}
+	}
+}
+
 func TestAppAddFindsPixmapsOnlyIcon(t *testing.T) {
 	a, f, _ := withMachine(t)
 	files := map[string]string{

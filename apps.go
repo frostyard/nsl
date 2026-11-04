@@ -967,6 +967,10 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 		end := start
 		size := 0
 		for end < len(fallback) {
+			if len(fallback[end].path) > 4096 {
+				end++
+				continue
+			}
 			length := len(fallback[end].path) + 1
 			if size+length > iconListingBatchBytes && end != start {
 				break
@@ -978,6 +982,17 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 			}
 		}
 		batch := fallback[start:end]
+		var candidatesInBatch []iconCandidate
+		for _, candidate := range batch {
+			if len(candidate.path) <= 4096 {
+				candidatesInBatch = append(candidatesInBatch, candidate)
+			}
+		}
+		batch = candidatesInBatch
+		if len(batch) == 0 {
+			start = end
+			continue
+		}
 		listingArgv := []string{"ls", "-1d", "--"}
 		listingArgv = append(listingArgv, candidatePaths(batch)...)
 		listing, err := a.guestListing(v, m, listingArgv, 64<<10)
@@ -1043,7 +1058,7 @@ func (a *app) otherThemeIconCandidates(v *vmRecord, m *machineRecord, icon strin
 	var themes []string
 	for _, line := range strings.Split(string(listing), "\n") {
 		theme := strings.TrimSuffix(line, "\r")
-		if theme == "" || theme == "hicolor" || strings.HasPrefix(theme, ".") || !iconNamePattern.MatchString(theme) {
+		if theme == "" || theme == "hicolor" || len(theme) > 255 || strings.HasPrefix(theme, ".") || !iconNamePattern.MatchString(theme) {
 			continue
 		}
 		themes = append(themes, theme)
@@ -1168,11 +1183,11 @@ func parseIconTheme(content []byte) ([]themeDirectory, bool) {
 }
 
 func validIconThemeDir(name string) bool {
-	if name == "" || strings.HasPrefix(name, "/") || !iconThemeDirRegexp.MatchString(name) {
+	if len(name) > 1024 || name == "" || strings.HasPrefix(name, "/") || !iconThemeDirRegexp.MatchString(name) {
 		return false
 	}
 	for _, component := range strings.Split(name, "/") {
-		if component == "" || component == "." || component == ".." {
+		if len(component) > 255 || component == "" || component == "." || component == ".." {
 			return false
 		}
 	}

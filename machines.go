@@ -745,13 +745,16 @@ func resolveHostFilePath(path, cwd string) (string, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	if _, lstatErr := os.Lstat(path); lstatErr == nil {
+	trimmed := strings.TrimRight(path, "/")
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	if _, lstatErr := os.Lstat(trimmed); lstatErr == nil {
 		return "", errors.New("host path is a symlink to a missing file")
 	} else if !errors.Is(lstatErr, os.ErrNotExist) {
 		return "", lstatErr
 	}
 
-	trimmed := strings.TrimRight(path, "/")
 	lastSlash := strings.LastIndex(trimmed, "/")
 	last := trimmed
 	parent := ""

@@ -323,6 +323,12 @@ func TestTranslateHostFiles(t *testing.T) {
 		if _, err := translateHostFiles([]string{"tool", "dangling-link"}, "f", 1, 0, home, shares, false); err == nil {
 			t.Fatal("accepted a dangling symlink")
 		}
+		if _, err := translateHostFiles([]string{"tool", "dangling-link/"}, "f", 1, 0, home, shares, false); err == nil {
+			t.Fatal("accepted a dangling symlink with a trailing slash")
+		}
+		if _, err := translateHostFiles([]string{"tool", "file://" + link + "/"}, "U", 1, 0, "", shares, false); err == nil {
+			t.Fatal("accepted a file URL for a dangling symlink with a trailing slash")
+		}
 	})
 
 	t.Run("a missing file in an existing home directory is translated", func(t *testing.T) {
