@@ -215,6 +215,116 @@ func addedEntry(t *testing.T, a *app, f *fakeRunner, app string) string {
 	return a.menuEntryPath("debian", app)
 }
 
+func TestAppAddCopiesMimeTypes(t *testing.T) {
+	a, f, _ := withMachine(t)
+	body := appEntryBody("Exec=evince %F", "MimeType=image/png;;image/jpeg;image/png;")
+	guestFiles(f, map[string]string{"/usr/share/applications/org.gnome.Evince.desktop": body})
+	var out bytes.Buffer
+	a.out = &out
+	if err := a.execute([]string{"app", "add", "--mime-types", "org.gnome.Evince"}); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := os.ReadFile(a.menuEntryPath("debian", "org.gnome.Evince"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(entry)
+	if !strings.Contains(text, "MimeType=image/png;image/jpeg;\n") {
+		t.Fatalf("missing normalized MimeType in\n%s", text)
+	}
+	if !strings.Contains(text, "--host-files F:1:0") {
+		t.Fatalf("lost --host-files in\n%s", text)
+	}
+	if !strings.Contains(out.String(), "for 2 file types") {
+		t.Fatal(out.String())
+	}
+}
+
+func TestAppAddDoesNotCopyMimeTypesWithoutFlag(t *testing.T) {
+	a, f, _ := withMachine(t)
+	body := appEntryBody("Exec=evince %F", "MimeType=image/png;image/jpeg;")
+	guestFiles(f, map[string]string{"/usr/share/applications/org.gnome.Evince.desktop": body})
+	if err := a.execute([]string{"app", "add", "org.gnome.Evince"}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(a.menuEntryPath("debian", "org.gnome.Evince"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "MimeType=") {
+		t.Fatalf("host entry copied MimeType without the flag:\n%s", content)
+	}
+}
+
+func TestAppAddRefreshDropsMimeTypesWithoutFlag(t *testing.T) {
+	a, f, _ := withMachine(t)
+	body := appEntryBody("Exec=evince %F", "MimeType=image/png;image/jpeg;")
+	guestFiles(f, map[string]string{"/usr/share/applications/org.gnome.Evince.desktop": body})
+	if err := a.execute([]string{"app", "add", "--mime-types", "org.gnome.Evince"}); err != nil {
+		t.Fatal(err)
+	}
+	entry := a.menuEntryPath("debian", "org.gnome.Evince")
+	content, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "MimeType=") {
+		t.Fatalf("first entry has no MimeType:\n%s", content)
+	}
+	if err := a.execute([]string{"app", "add", "org.gnome.Evince"}); err != nil {
+		t.Fatal(err)
+	}
+	content, err = os.ReadFile(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "MimeType=") {
+		t.Fatalf("refresh kept MimeType:\n%s", content)
+	}
+}
+
+func TestAppAddRefusesMimeTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"no MimeType", appEntryBody("Exec=evince %F", "Icon=org.gnome.Calculator"), "no MimeType"},
+		{"only empty items", appEntryBody("Exec=evince %F", "MimeType=;;", "Icon=org.gnome.Calculator"), "only empty items"},
+		{"Exec without a file field", appEntryBody("Exec=calc", "MimeType=application/pdf", "Icon=org.gnome.Calculator"), "no %f, %F, %u or %U"},
+		{"wildcard", appEntryBody("Exec=evince %F", "MimeType=image/*", "Icon=org.gnome.Calculator"), "TYPE/SUBTYPE"},
+		{"parameter", appEntryBody("Exec=evince %F", "MimeType=text/plain;charset=utf-8", "Icon=org.gnome.Calculator"), "TYPE/SUBTYPE"},
+		{"no slash", appEntryBody("Exec=evince %F", "MimeType=image", "Icon=org.gnome.Calculator"), "TYPE/SUBTYPE"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, f, _ := withMachine(t)
+			guestFiles(f, map[string]string{
+				"/usr/share/applications/org.gnome.Calculator.desktop":            tc.body,
+				"/usr/share/icons/hicolor/scalable/apps/org.gnome.Calculator.svg": svgIcon,
+			})
+			err := a.execute([]string{"app", "add", "--mime-types", "org.gnome.Calculator"})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(a.applicationsDir()); !os.IsNotExist(err) {
+				t.Fatal("wrote a host entry for refused MIME types")
+			}
+			noIcon(t, a)
+		})
+	}
+}
+
+func TestMenuMimeTypesPartLength(t *testing.T) {
+	field := &execField{Code: "F", Index: 1}
+	valid, err := menuMimeTypes(strings.Repeat("a", 127)+"/png", field)
+	if err != nil || valid != strings.Repeat("a", 127)+"/png;" {
+		t.Fatalf("127-character part: %q %v", valid, err)
+	}
+	if _, err := menuMimeTypes(strings.Repeat("a", 128)+"/png", field); err == nil {
+		t.Fatal("accepted a 128-character part")
+	}
+}
+
 func TestAppAddFindsIcons(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -937,12 +1047,12 @@ func TestAppListShowsOnlyOwnedEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"/usr/share/applications/org.gnome.Calculator.desktop": guestApp("Calculator"),
+		"/usr/share/applications/org.gnome.Calculator.desktop": strings.Replace(guestApp("Calculator"), "StartupWMClass=Gnome-calculator\n", "StartupWMClass=Gnome-calculator\nMimeType=image/png;image/jpeg;image/png;;\n", 1),
 		"/usr/share/applications/galculator.desktop":           guestApp("Galculator"),
 	}
 	guestFiles(f, files)
 	for _, args := range [][]string{
-		{"app", "add", "org.gnome.Calculator"},
+		{"app", "add", "--mime-types", "org.gnome.Calculator"},
 		{"app", "add", "galculator"},
 		{"app", "add", "-m", "debian-2", "galculator"},
 	} {
@@ -958,8 +1068,8 @@ func TestAppListShowsOnlyOwnedEntries(t *testing.T) {
 	var out bytes.Buffer
 	a.out = &out
 	// Every machine's entries, sorted by machine and APP, with the Name last.
-	rows := [][3]string{{"debian", "galculator", "Galculator (debian)"}, {"debian", "org.gnome.Calculator", "Calculator (debian)"},
-		{"debian-2", "galculator", "Galculator (debian-2)"}}
+	rows := [][4]string{{"debian", "galculator", "Galculator (debian)", "-"}, {"debian", "org.gnome.Calculator", "Calculator (debian)", "2"},
+		{"debian-2", "galculator", "Galculator (debian-2)", "-"}}
 	listed := func(machine string) []string {
 		t.Helper()
 		out.Reset()
@@ -973,25 +1083,25 @@ func TestAppListShowsOnlyOwnedEntries(t *testing.T) {
 		return strings.Split(strings.TrimSpace(out.String()), "\n")
 	}
 	lines := listed("")
-	if len(lines) != len(rows)+1 || !strings.HasPrefix(lines[0], "MACHINE") {
+	if len(lines) != len(rows)+1 || !strings.Contains(lines[0], "MACHINE") || !strings.Contains(lines[0], "FILE TYPES") {
 		t.Fatalf("%q", lines)
 	}
 	for i, want := range rows {
-		if fields := strings.Fields(lines[i+1]); len(fields) < 2 || fields[0] != want[0] || fields[1] != want[1] || !strings.HasSuffix(lines[i+1], want[2]) {
+		if fields := strings.Fields(lines[i+1]); len(fields) < 4 || fields[0] != want[0] || fields[1] != want[1] || !strings.Contains(lines[i+1], want[2]) || !strings.HasSuffix(lines[i+1], " "+want[3]) {
 			t.Fatalf("%q", lines[i+1])
 		}
 	}
 	// -m lists one machine's entries only.
-	for machine, want := range map[string][][2]string{
-		"debian":   {{"debian", "galculator"}, {"debian", "org.gnome.Calculator"}},
-		"debian-2": {{"debian-2", "galculator"}},
+	for machine, want := range map[string][][3]string{
+		"debian":   {{"debian", "galculator", "-"}, {"debian", "org.gnome.Calculator", "2"}},
+		"debian-2": {{"debian-2", "galculator", "-"}},
 	} {
 		lines := listed(machine)
 		if len(lines) != len(want)+1 {
 			t.Fatalf("%s: %q", machine, lines)
 		}
 		for i, w := range want {
-			if fields := strings.Fields(lines[i+1]); len(fields) < 2 || fields[0] != w[0] || fields[1] != w[1] {
+			if fields := strings.Fields(lines[i+1]); len(fields) < 4 || fields[0] != w[0] || fields[1] != w[1] || !strings.HasSuffix(lines[i+1], " "+w[2]) {
 				t.Fatalf("%s: %q", machine, lines[i+1])
 			}
 		}
@@ -1173,6 +1283,9 @@ func TestAppEntryNamesTheNslToRun(t *testing.T) {
 
 func TestAppCommandUsage(t *testing.T) {
 	a, _, _ := withMachine(t)
+	if !strings.Contains(appUsage, "app add [-m NAME] [--mime-types] APP") {
+		t.Fatal(appUsage)
+	}
 	for _, args := range [][]string{{"app"}, {"app", "nope"}, {"app", "add"}, {"app", "add", "--y", "x"}, {"app", "list", "x"}, {"app", "remove"}} {
 		if err := a.execute(args); err == nil {
 			t.Fatal("accepted", args)

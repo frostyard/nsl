@@ -41,8 +41,8 @@ nsl app list
 ```
 
 ```
-MACHINE  APP                   NAME
-debian   org.gnome.Calculator  Calculator (debian)
+MACHINE  APP                   NAME                    FILE TYPES
+debian   org.gnome.Calculator  Calculator (debian)     -
 ```
 
 Remove an entry with `nsl app remove`:
@@ -81,11 +81,23 @@ nsl run --host-files F:1:0 -- evince ~/Documents/report.pdf
 
 `F:1:0` says that the arguments after the first one (the command) are host files. See the [CLI reference](../reference/cli.md) for the other forms.
 
-The entry does not register the application for any file type, so adding it never changes which application your desktop uses by default. Entries added by an earlier nsl pass no files; run `nsl app add` again to refresh them.
+Without [`--mime-types`](#copy-file-types-to-an-entry), the entry registers the application for no file type, so adding it never changes which application your desktop uses by default. Entries added by an earlier nsl pass no files; run `nsl app add` again to refresh them.
 
 `nsl app remove` deletes the entry and its icon. `nsl remove NAME --yes` deletes the entries of that machine too, and the preview names how many. Isolated machines have no host desktop session, so they have no menu entries.
 
 nsl never replaces a file it did not write: an entry of that name that another program created makes `nsl app add` stop and say so.
+
+### Copy file types to an entry
+
+To list a machine application in your desktop's "Open With" menus for its file types, add it with `--mime-types`:
+
+```sh
+nsl app add --mime-types org.gnome.Evince
+```
+
+Evince then appears in "Open With" for the file types its own entry declares, and the files open as described above. Your desktop can make it the default for a file type you have not chosen an application for. The flag is not remembered: `nsl app add org.gnome.Evince` without the flag removes the file types again, and `nsl app remove org.gnome.Evince` removes the entry. `nsl app list` shows the number of file types in the `FILE TYPES` column.
+
+nsl refuses the flag for an application whose entry declares no file types, or whose command line takes no files. It writes only the menu entry: it does not edit `mimeapps.list`, where your desktop keeps the defaults you choose, or any cache.
 
 ## The desktop session
 

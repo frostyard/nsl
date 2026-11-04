@@ -1,7 +1,7 @@
 # 0022 — Desktop menu entries for machine applications
 
 - **Status:** Accepted
-- **Date:** 2026-11-02; revised 2026-11-04 (icon themes, files and URLs)
+- **Date:** 2026-11-02; revised 2026-11-04 (icon themes, files and URLs; opt-in file types)
 
 ## Context
 
@@ -32,13 +32,14 @@ translated to `/mnt/host` paths first.
 A new command group, `nsl app`, manages host menu entries for applications
 in a machine:
 
-- `nsl app add [-m NAME] APP` reads the machine's desktop entry `APP.desktop`
+- `nsl app add [-m NAME] [--mime-types] APP` reads the machine's desktop entry `APP.desktop`
   (from the account's `~/.local/share/applications`, then
   `/usr/local/share/applications`, then `/usr/share/applications`) through
   the agent's `run` operation with `cat`, and writes the host entry
   `$XDG_DATA_HOME/applications/nsl-NAME-APP.desktop`.
 - `nsl app remove [-m NAME] APP` deletes that entry and its icon.
-- `nsl app list [-m NAME]` lists the entries nsl owns, for one machine or all.
+- `nsl app list [-m NAME]` lists the entries nsl owns, for one machine or all,
+  with the number of file types each one declares.
 - `nsl remove NAME --yes` deletes every entry and icon of the machine once the
   machine is gone, before it finishes removal; an interrupted removal deletes
   them when it resumes.
@@ -82,11 +83,37 @@ an isolated machine stops the command before anything runs, as an
 untranslatable working directory does; nsl never passes a host path that
 means something else in the machine.
 
-The host entry still declares no `MimeType`. A user entry with `MimeType`
-ranks before the system's applications, so adding an application would make a
-machine's viewer the host's default for its file types without asking. Files
-reach the application when the user chooses it for them, for example with
-`gio launch` or a file manager's list of all applications.
+By default the host entry declares no `MimeType`. A user entry with
+`MimeType` ranks before the system's applications, so adding an application
+would make a machine's viewer the host's default for its file types without
+asking. Files reach the application when the user chooses it for them, for
+example with `gio launch` or a file manager's list of all applications.
+
+### File types (opt-in)
+
+`nsl app add --mime-types` copies the guest entry's `MimeType` into the host
+entry, so the application appears in the desktop's "Open With" lists for those
+types. The user asks for it per application, knowing that the desktop can then
+make it the default handler for a type that has no other user choice. The flag
+is off by default for the reason above.
+
+With the flag, nsl refuses the application, before it writes anything, when:
+
+- the guest entry has no `MimeType`, or only empty items;
+- the guest `Exec` has no `%f`, `%F`, `%u` or `%U` that nsl keeps, because the
+  desktop would offer to open files with an application that cannot receive
+  them;
+- an item is not a media type `TYPE/SUBTYPE` whose parts are RFC 6838
+  restricted names (a letter or digit, then up to 126 letters, digits or
+  `!#$&^_.+-`), for example a parameter or a wildcard.
+
+The host `MimeType` is the guest's items in order, without empty or repeated
+items, each followed by `;`. nsl writes only its own entry: it does not edit
+`mimeapps.list`, run `update-desktop-database` or write any cache. The flag is
+not remembered. Each `nsl app add` writes the entry as its own flags say, so
+adding the application again without `--mime-types` takes the types away, and
+`nsl app remove` does too. `nsl app list` shows the number of types of each
+entry, so a refresh that dropped them is visible.
 
 ### Icons
 
@@ -128,7 +155,15 @@ under the machine lock and rechecks the machine's ID, so it cannot race
   earlier nsl keep working; they pass no files until `nsl app add` refreshes
   them.
 - A machine application never becomes the host's default handler by being
-  added: the entry has no `MimeType`.
+  added without `--mime-types`: the entry has no `MimeType`. With the flag, it
+  appears in "Open With" lists and can become the default for a type the user
+  has not chosen an application for; a default the user picks is in
+  `mimeapps.list`, which nsl never edits, and a desktop skips it once the entry
+  is gone.
+- Refreshing an entry with `nsl app add` and without `--mime-types` drops its
+  file types; `nsl app list` shows it.
+- `nsl app list` has a `FILE TYPES` column, the number of `MimeType` items of
+  each entry, `-` for none.
 - Most icons come from `hicolor`; the theme lookup finds icons that an
   application or a distribution ships only in another theme, at the cost of a
   few more guest reads when `hicolor` has none.
@@ -156,9 +191,19 @@ under the machine lock and rechecks the machine's ID, so it cannot race
   launch:** no positions on the command line, but launching would depend on
   reading and trusting a file the user may have edited, and `run` would not
   gain the ability for other callers.
-- **Copying `MimeType`:** puts the application in "Open With" lists by
-  default, but it can take over the host's default handlers silently (see
-  above). An opt-in can come later.
+- **Copying `MimeType` by default:** puts the application in "Open With"
+  lists without a flag, but it can take over the host's default handlers
+  silently (see above). The opt-in flag keeps that a choice.
+- **Remembering `--mime-types` in the entry:** a refresh would keep the types
+  without the flag, but turning them off would need a second flag, and the
+  command line would no longer say what the entry holds.
+- **Writing the entry without types when the guest has none or cannot take
+  files:** quieter, but the user asked for "Open With" and would not get it, or
+  would get an entry that opens the application without the file. A refusal
+  says why and changes nothing.
+- **Validating only the characters of `MimeType`:** a looser check passes
+  wildcards and parameters that desktops read differently; the media-type
+  grammar is exact.
 - **The host's current icon theme:** the host's theme says nothing about which
   themes the machine has, and changes would leave entries stale. A fixed order
   over the machine's own themes gives the same icon each time.
