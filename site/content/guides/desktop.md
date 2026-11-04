@@ -61,9 +61,27 @@ nsl reads that file, its icon and its command line from the machine, and writes 
 
 The entry runs nsl by its full path, the `nsl` on your `PATH`, so it works when your desktop session has a shorter `PATH`. If you move or reinstall nsl elsewhere, the entry disappears from the menu; run `nsl app add` again to refresh it.
 
-The icon is the PNG or SVG file the application's entry names by its full path, or an icon of that name in the machine's `hicolor` theme. An application with an icon only in another theme gets no icon in your menu, but the entry still works.
+The icon is the PNG or SVG file the application's entry names by its full path, or an icon of that name in the machine's icon themes: `hicolor` first, then the other themes in `/usr/share/icons` (such as `Adwaita` or `breeze`), then `/usr/share/pixmaps`. An application with no icon in any of them gets no icon in your menu, but the entry still works.
 
-A menu entry starts its application without files. Opening a document from the menu, or a web link, is later work; start such a command with `nsl run` for now.
+### Open files with a machine application
+
+When the application takes files or links, its entry takes them too. Start it with `gio launch`, or choose it in a file manager that lets you open a file with any application:
+
+```sh
+gio launch ~/.local/share/applications/nsl-debian-org.gnome.Evince.desktop ~/Documents/report.pdf
+```
+
+nsl translates each file to its path in the machine, as it does for the working directory of `nsl run`: `~/Documents/report.pdf` opens as `/mnt/host/var/home/you/Documents/report.pdf`. Links (`https://…`) pass unchanged, and a `file://` link becomes a link to the machine path.
+
+Only files in the trees the machine shares, your home, `/run/media/USER` and `/mnt`, can be opened. A file anywhere else stops the launch, and nothing runs; the reason is in your desktop's journal. The same works from a terminal:
+
+```sh
+nsl run --host-files F:1:0 -- evince ~/Documents/report.pdf
+```
+
+`F:1:0` says that the arguments after the first one (the command) are host files. See the [CLI reference](../reference/cli.md) for the other forms.
+
+The entry does not register the application for any file type, so adding it never changes which application your desktop uses by default. Entries added by an earlier nsl pass no files; run `nsl app add` again to refresh them.
 
 `nsl app remove` deletes the entry and its icon. `nsl remove NAME --yes` deletes the entries of that machine too, and the preview names how many. Isolated machines have no host desktop session, so they have no menu entries.
 

@@ -6,10 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -695,6 +698,164 @@ func translate(dir string, shares []protocol.Share) (string, bool) {
 	}
 }
 
+var hostFileSchemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
+
+// parseHostFiles parses CODE:BEFORE:AFTER. It keeps the decimal counts bounded
+// to the same six-digit size used by desktop launchers.
+func parseHostFiles(value string) (code string, before, after int, err error) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 || len(parts[1]) == 0 || len(parts[1]) > 6 || len(parts[2]) == 0 || len(parts[2]) > 6 {
+		return "", 0, 0, fmt.Errorf("bad --host-files value %q", value)
+	}
+	if len(parts[0]) != 1 || !strings.ContainsRune("fFuU", rune(parts[0][0])) {
+		return "", 0, 0, fmt.Errorf("bad --host-files value %q", value)
+	}
+	for _, count := range parts[1:] {
+		for i := 0; i < len(count); i++ {
+			if count[i] < '0' || count[i] > '9' {
+				return "", 0, 0, fmt.Errorf("bad --host-files value %q", value)
+			}
+		}
+	}
+	before, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("bad --host-files value %q", value)
+	}
+	after, err = strconv.Atoi(parts[2])
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("bad --host-files value %q", value)
+	}
+	if before < 1 {
+		return "", 0, 0, fmt.Errorf("bad --host-files value %q: BEFORE must be at least 1", value)
+	}
+	return parts[0], before, after, nil
+}
+
+func resolveHostFilePath(path, cwd string) (string, error) {
+	if !filepath.IsAbs(path) {
+		if cwd == "" {
+			return "", errors.New("relative host path has no working directory")
+		}
+		path = cwd + "/" + path
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	trimmed := strings.TrimRight(path, "/")
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	if _, lstatErr := os.Lstat(trimmed); lstatErr == nil {
+		return "", errors.New("host path is a symlink to a missing file")
+	} else if !errors.Is(lstatErr, os.ErrNotExist) {
+		return "", lstatErr
+	}
+
+	lastSlash := strings.LastIndex(trimmed, "/")
+	last := trimmed
+	parent := ""
+	if lastSlash >= 0 {
+		last = trimmed[lastSlash+1:]
+		parent = trimmed[:lastSlash]
+	}
+	if last == "" || last == "." || last == ".." {
+		return "", errors.New("host path has no file name")
+	}
+	if parent == "" {
+		parent = "/"
+	}
+	resolvedParent, err := filepath.EvalSymlinks(parent)
+	if err == nil {
+		return filepath.Join(resolvedParent, last), nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("host parent does not exist")
+	}
+	return "", err
+}
+
+// translateHostFiles translates argv's marked file slice without starting a
+// machine. It is intentionally pure except for file/ancestor stat checks.
+func translateHostFiles(argv []string, code string, before, after int, cwd string, shares []protocol.Share, isolated bool) ([]string, error) {
+	if before < 1 {
+		return nil, errors.New("--host-files BEFORE must be at least 1")
+	}
+	if len(argv) < before+after {
+		return nil, errors.New("--host-files marks arguments outside argv")
+	}
+	end := len(argv) - after
+	if end < before {
+		return nil, errors.New("--host-files marks arguments outside argv")
+	}
+	files := argv[before:end]
+	if (code == "f" || code == "u") && len(files) > 1 {
+		return nil, fmt.Errorf("--host-files %s accepts at most one file", code)
+	}
+	if isolated && len(files) != 0 {
+		return nil, errors.New("isolated machines cannot receive host files")
+	}
+	translated := append([]string{}, argv[:before]...)
+	for _, arg := range files {
+		var result string
+		switch code {
+		case "u", "U":
+			if hostFileSchemePattern.MatchString(arg) {
+				parsed, err := url.Parse(arg)
+				if err != nil {
+					return nil, fmt.Errorf("invalid host file URL %q: %w", arg, err)
+				}
+				if !strings.EqualFold(parsed.Scheme, "file") {
+					result = arg
+					break
+				}
+				if parsed.User != nil || (parsed.Host != "" && !strings.EqualFold(parsed.Host, "localhost")) {
+					return nil, fmt.Errorf("file: URL has another host: %s", arg)
+				}
+				if parsed.Opaque != "" || parsed.Path == "" || !filepath.IsAbs(parsed.Path) {
+					return nil, fmt.Errorf("file: URL is not an absolute file URL: %s", arg)
+				}
+				resolved, err := resolveHostFilePath(parsed.Path, "")
+				if err != nil {
+					return nil, fmt.Errorf("cannot resolve file URL path %s: %w", parsed.Path, err)
+				}
+				machinePath, ok := translate(resolved, shares)
+				if !ok {
+					return nil, fmt.Errorf("%s is not in a shared host tree", parsed.Path)
+				}
+				if !strings.HasPrefix(machinePath, "/mnt/host/") {
+					return nil, fmt.Errorf("translated file URL is outside /mnt/host: %s", machinePath)
+				}
+				output := &url.URL{Scheme: "file", Path: machinePath, RawQuery: parsed.RawQuery}
+				output.Fragment = parsed.Fragment
+				output.RawFragment = parsed.RawFragment
+				result = output.String()
+				if !strings.HasPrefix(result, "file:///mnt/host/") {
+					return nil, fmt.Errorf("translated file URL is outside /mnt/host: %s", result)
+				}
+				break
+			}
+			fallthrough
+		case "f", "F":
+			path, err := resolveHostFilePath(arg, cwd)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve host path %s: %w", arg, err)
+			}
+			machinePath, ok := translate(path, shares)
+			if !ok {
+				return nil, fmt.Errorf("%s is outside the shared host trees", arg)
+			}
+			result = machinePath
+		}
+		translated = append(translated, result)
+	}
+	translated = append(translated, argv[end:]...)
+	return translated, nil
+}
+
 func isTerminal(v any) bool {
 	f, ok := v.(*os.File)
 	if !ok {
@@ -725,6 +886,10 @@ func (a *app) run(args []string, shell bool) error {
 	name := fs.String("m", "", "machine name (default: the default machine)")
 	root := fs.Bool("root", false, "run as machine root")
 	cd := fs.String("cd", "", "absolute machine directory")
+	var hostFilesFlag *string
+	if !shell {
+		hostFilesFlag = fs.String("host-files", "", "host files or URLs: CODE:BEFORE:AFTER")
+	}
 	if shell {
 		fs = flag.NewFlagSet("nsl", flag.ContinueOnError)
 		fs.SetOutput(a.err)
@@ -738,7 +903,7 @@ func (a *app) run(args []string, shell bool) error {
 		if shell {
 			return errors.New("unexpected arguments; use nsl run to run a command")
 		}
-		return errors.New("usage: run [-m NAME] [--root] [--cd PATH] COMMAND [ARGS...]")
+		return errors.New("usage: run [-m NAME] [--root] [--cd PATH] [--host-files CODE:BEFORE:AFTER] COMMAND [ARGS...]")
 	}
 	if *cd != "" && !filepath.IsAbs(*cd) {
 		return errors.New("--cd takes an absolute machine path")
@@ -758,6 +923,24 @@ func (a *app) run(args []string, shell bool) error {
 	m, err := a.machine(*name)
 	if err != nil {
 		return err
+	}
+	if hostFilesFlag != nil && *hostFilesFlag != "" {
+		code, before, after, err := parseHostFiles(*hostFilesFlag)
+		if err != nil {
+			return err
+		}
+		shares, err := a.hostShares()
+		if err != nil {
+			return err
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			cwd = ""
+		}
+		argv, err = translateHostFiles(argv, code, before, after, cwd, shares, m.Tier == "isolated")
+		if err != nil {
+			return err
+		}
 	}
 	directory := *cd
 	if directory == "" {
