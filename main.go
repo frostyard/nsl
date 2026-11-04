@@ -145,7 +145,7 @@ func usage(w io.Writer) {
   ports [NAME]
   ssh-config NAME
   logs [NAME]
-  app add [-m NAME] APP
+  app add [-m NAME] [--mime-types] APP
   app remove [-m NAME] APP
   app list [-m NAME]
   shutdown

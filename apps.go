@@ -27,7 +27,7 @@ import (
 // host entry of its own. The guest is never given a shell command line.
 
 const (
-	appUsage = "usage: app add [-m NAME] APP | app remove [-m NAME] APP | app list [-m NAME]"
+	appUsage = "usage: app add [-m NAME] [--mime-types] APP | app remove [-m NAME] APP | app list [-m NAME]"
 
 	// The guest reads are bounded: one entry, one icon. A host entry is a
 	// guest entry quoted for a desktop, so it can be longer than the guest's.
@@ -99,6 +99,7 @@ func (a *app) appAdd(args []string) error {
 	fs := flag.NewFlagSet("app add", flag.ContinueOnError)
 	fs.SetOutput(a.err)
 	name := fs.String("m", "", "machine name (default: the default machine)")
+	mimeTypes := fs.Bool("mime-types", false, "copy the application's MimeType so it appears in Open With lists")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -127,6 +128,15 @@ func (a *app) appAdd(args []string) error {
 	argv, field, err := execArgs(guest.Exec)
 	if err != nil {
 		return fmt.Errorf("%s in %s: %w", path, m.Name, err)
+	}
+	mimeType := ""
+	mimeTypeCount := 0
+	if *mimeTypes {
+		mimeType, err = menuMimeTypes(guest.MimeType, field)
+		if err != nil {
+			return fmt.Errorf("%s in %s: %w", path, m.Name, err)
+		}
+		mimeTypeCount = mimeTypeItemCount(mimeType)
 	}
 	icon, err := a.readGuestIcon(v, m, guest.Icon)
 	if err != nil {
@@ -166,11 +176,18 @@ func (a *app) appAdd(args []string) error {
 		}
 	}
 	body := renderMenuEntry(menuInput{Machine: m.Name, ID: m.ID, App: app, Guest: guest, Argv: argv, Field: field,
-		Dir: dir, Nsl: a.nslPath(), Icon: iconPath})
+		Dir: dir, Nsl: a.nslPath(), Icon: iconPath, MimeType: mimeType})
 	if err = a.publishMenuEntry(entryPath, body, m, app); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.out, "Added %s (%s) to the menu as %s\n", guest.Name, m.Name, filepath.Base(entryPath))
+	types := ""
+	switch {
+	case mimeTypeCount == 1:
+		types = ", for 1 file type"
+	case mimeTypeCount > 1:
+		types = fmt.Sprintf(", for %d file types", mimeTypeCount)
+	}
+	fmt.Fprintf(a.out, "Added %s (%s) to the menu as %s%s\n", guest.Name, m.Name, filepath.Base(entryPath), types)
 	return nil
 }
 
@@ -259,6 +276,7 @@ func (a *app) appList(args []string) error {
 // menuEntry is one owned host entry, as app list prints it.
 type menuEntry struct {
 	Machine, App, Name string
+	MimeTypes          int
 }
 
 // menuEntries is every entry nsl owns for the machines given, sorted by machine
@@ -284,7 +302,7 @@ func (a *app) menuEntries(machines []*machineRecord) ([]menuEntry, error) {
 				return nil, err
 			}
 			if owned {
-				mine = append(mine, menuEntry{Machine: m.Name, App: entry.App, Name: entry.Name})
+				mine = append(mine, menuEntry{Machine: m.Name, App: entry.App, Name: entry.Name, MimeTypes: mimeTypeItemCount(entry.MimeType)})
 			}
 		}
 		sort.Slice(mine, func(i, j int) bool { return mine[i].App < mine[j].App })
@@ -299,9 +317,13 @@ func printMenuEntries(w io.Writer, entries []menuEntry) error {
 		return nil
 	}
 	t := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(t, "MACHINE\tAPP\tNAME")
+	fmt.Fprintln(t, "MACHINE\tAPP\tNAME\tFILE TYPES")
 	for _, e := range entries {
-		fmt.Fprintf(t, "%s\t%s\t%s\n", e.Machine, e.App, e.Name)
+		count := "-"
+		if e.MimeTypes != 0 {
+			count = fmt.Sprint(e.MimeTypes)
+		}
+		fmt.Fprintf(t, "%s\t%s\t%s\t%s\n", e.Machine, e.App, e.Name, count)
 	}
 	return t.Flush()
 }
@@ -535,6 +557,7 @@ func (a *app) nslPath() string {
 // its string escapes decoded.
 type desktopEntry struct {
 	Name, GenericName, Comment, Icon, Categories, Keywords, StartupWMClass string
+	MimeType                                                               string
 	Exec, Path                                                             string
 	Terminal                                                               bool
 	Machine, MachineID, App                                                string // nsl's markers
@@ -602,7 +625,7 @@ func readDesktopGroup(content []byte) (map[string]string, error) {
 func desktopEntryOf(values map[string]string) *desktopEntry {
 	return &desktopEntry{Name: values["Name"], GenericName: values["GenericName"], Comment: values["Comment"],
 		Icon: values["Icon"], Categories: values["Categories"], Keywords: values["Keywords"],
-		StartupWMClass: values["StartupWMClass"], Exec: values["Exec"], Path: values["Path"],
+		StartupWMClass: values["StartupWMClass"], MimeType: values["MimeType"], Exec: values["Exec"], Path: values["Path"],
 		Terminal: values["Terminal"] == "true", Machine: values["X-Nsl-Machine"],
 		MachineID: values["X-Nsl-Machine-ID"], App: values["X-Nsl-App"]}
 }
@@ -786,6 +809,48 @@ func execArgs(execLine string) ([]string, *execField, error) {
 	return args, field, nil
 }
 
+var mimeTypePartPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$`)
+
+// menuMimeTypes is the host MimeType of `app add --mime-types` (ADR-0022): the
+// guest's media types in order, without empty or repeated items. It refuses an
+// entry with none, an Exec that takes no files, and an item that is not a
+// TYPE/SUBTYPE media type of RFC 6838 restricted names.
+func menuMimeTypes(guest string, field *execField) (string, error) {
+	seen := map[string]bool{}
+	items := []string{}
+	for _, item := range strings.Split(guest, ";") {
+		if item == "" {
+			continue
+		}
+		typ, subtype, _ := strings.Cut(item, "/")
+		if !mimeTypePartPattern.MatchString(typ) || !mimeTypePartPattern.MatchString(subtype) {
+			return "", fmt.Errorf("the MimeType item %q is not a TYPE/SUBTYPE media type", item)
+		}
+		if !seen[item] {
+			seen[item] = true
+			items = append(items, item)
+		}
+	}
+	if len(items) == 0 {
+		return "", errors.New("the guest entry has no MimeType or only empty items")
+	}
+	if field == nil {
+		return "", errors.New("the Exec has no %f, %F, %u or %U that nsl keeps")
+	}
+	return strings.Join(items, ";") + ";", nil
+}
+
+// mimeTypeItemCount counts non-empty MimeType items in a semicolon-separated value.
+func mimeTypeItemCount(value string) int {
+	count := 0
+	for _, item := range strings.Split(value, ";") {
+		if item != "" {
+			count++
+		}
+	}
+	return count
+}
+
 // expandFieldCodes turns %% into % and refuses every other field code.
 func expandFieldCodes(arg string) (string, error) {
 	var b strings.Builder
@@ -833,6 +898,7 @@ func quoteExecArg(arg string) string {
 // menuInput is everything the host entry holds.
 type menuInput struct {
 	Machine, ID, App string
+	MimeType         string
 	Guest            *desktopEntry
 	Argv             []string // the guest Exec, split and with the first file field code
 	Field            *execField
@@ -860,6 +926,9 @@ func renderMenuEntry(in menuInput) []byte {
 		if kv[1] != "" {
 			writeDesktopKey(&b, kv[0], kv[1])
 		}
+	}
+	if in.MimeType != "" {
+		writeDesktopKey(&b, "MimeType", in.MimeType)
 	}
 	writeDesktopKey(&b, "X-Nsl-Machine", in.Machine)
 	writeDesktopKey(&b, "X-Nsl-Machine-ID", in.ID)

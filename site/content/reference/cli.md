@@ -35,9 +35,9 @@ Run `nsl help` for a quick command summary. For commands that take a machine nam
 | [`nsl ports [NAME]`](../guides/ports.md) | Forwarded ports and conflicts, for one machine or all. |
 | [`nsl ssh-config NAME`](../guides/editors.md) | Start the machine if needed and print an SSH host alias, `nsl-NAME`, for remote editors. |
 | [`nsl logs [NAME]`](../guides/storage.md#logs) | Without NAME: every VM, its forwarder and desktop sessions. With NAME: that machine's desktop session; isolated machines also include their own VM and forwarder. Prints a hint for the machine's own journal. |
-| [`nsl app add [-m NAME] APP`](../guides/desktop.md#add-an-application-to-the-menu) | Add the machine's application APP to the host's menu, with its icon, or refresh the entry nsl wrote before. |
+| [`nsl app add [-m NAME] [--mime-types] APP`](../guides/desktop.md#add-an-application-to-the-menu) | Add the machine's application APP to the host's menu, with its icon, and optionally copy its file types with `--mime-types`, or refresh the entry nsl wrote before. |
 | [`nsl app remove [-m NAME] APP`](../guides/desktop.md#add-an-application-to-the-menu) | Remove that menu entry and its icon. |
-| [`nsl app list [-m NAME]`](../guides/desktop.md#add-an-application-to-the-menu) | The menu entries nsl owns, for one machine or for all. |
+| [`nsl app list [-m NAME]`](../guides/desktop.md#add-an-application-to-the-menu) | The menu entries nsl owns, for one machine or for all, with each entry's file-type count. |
 
 ## Images
 
