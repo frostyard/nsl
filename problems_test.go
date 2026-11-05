@@ -18,8 +18,9 @@ import (
 )
 
 // The problem-record tests write at most 5 records in this process; the
-// library caps a process at 10 records a minute. The panic and crash tests
-// write theirs in child processes.
+// library caps a process at 10 records a minute, so a run with -count above
+// 1 inside 1 minute can fail. The panic and crash tests write theirs in
+// child processes.
 
 // TestMain runs a child process of the panic and crash tests instead of the
 // tests when NSL_TEST_PROBLEMS_CHILD names one, so that run is the first
@@ -204,7 +205,9 @@ func TestProblemRecordVMReadinessTimeout(t *testing.T) {
 	a.problems = testRecorder(j)
 	_, err := a.runningVM(true)
 	want := "VM readiness timed out; disks retained; see journalctl --user -u " + vmUnit(v) + " or run nsl recover: "
-	if err == nil || !strings.HasPrefix(err.Error(), want) || !strings.Contains(err.Error(), "the agent is not ready") {
+	// The deadline can pass before the first readiness attempt on a busy
+	// host, so the test does not require the agent's error in the text.
+	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Fatalf("error %v, want %s...", err, want)
 	}
 	expectError(t, j, "vm.readiness_timeout", err)

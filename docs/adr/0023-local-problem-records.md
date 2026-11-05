@@ -32,10 +32,11 @@ agent runs inside the VM, whose journal is not the host's.
   component `daemon` for the internal helper commands (arguments that start
   with `_`) or `cli` for the others.
 - `main` makes 1 recorder. It turns on the crash output (a crash file under
-  `$XDG_STATE_HOME`, else `~/.local/state`, in
-  `frostyard-problems/org.frostyard.nsl`), so that the next start records a
-  crash that no `recover` saw, and it records a panic and panics again: the
-  output and exit status 2 of a panic stay as they were. Each long-lived
+  `$STATE_DIRECTORY`, else `$XDG_STATE_HOME`, else `~/.local/state`, in
+  `frostyard-problems/org.frostyard.nsl`; after a crash it holds Go's raw
+  crash report), so that the next start records a crash that no `recover`
+  saw and removes the file. It records a panic and panics again: a panic
+  still exits 2, and Go's panic output adds `[recovered, repanicked]`. Each long-lived
   goroutine of the host CLI (the desktop session's and the `nsl-open`
   broker's) records its own panic the same way.
 - nsl records exactly 4 coded errors, at the point where it returns them,

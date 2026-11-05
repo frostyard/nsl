@@ -53,9 +53,9 @@ A release build of nsl writes 1 entry to your local systemd journal when it pani
 | `vm.exited_on_start` | The VM's unit ended while nsl started it. |
 | `vm.readiness_timeout` | A started VM did not become ready in time. |
 
-The entry holds nsl's app ID (`org.frostyard.nsl`), its version, the error code or the panic's function names, and the error or panic message. Function names carry no source file paths, line numbers or arguments. nsl prints, and exits with, exactly what it would without the entry, and a panic still exits 2.
+The entry holds nsl's app ID (`org.frostyard.nsl`), its version, the error code or the panic's function names, and the error or panic message. Function names carry no source file paths, line numbers or arguments. The entry changes no command output and no exit status. A panic still exits 2 with Go's panic output, which now also shows `[recovered, repanicked]`.
 
-nsl sends nothing over the network. [chairlift](https://github.com/frostyard/chairlift)'s Problems page can show the entries, and only chairlift sends a report, after you turn reporting on there. To catch a crash that no panic handler sees, nsl keeps a small crash file in `~/.local/state/frostyard-problems/org.frostyard.nsl` (under `$XDG_STATE_HOME` when it is set) and records a crash at its next start. With no journal, nothing happens. Builds from source with `make` record nothing.
+nsl sends nothing over the network. [chairlift](https://github.com/frostyard/chairlift)'s Problems page can show the entries, and only chairlift sends a report, after you turn reporting on there. To catch a crash that no panic handler sees, each nsl process keeps a small crash file in `frostyard-problems/org.frostyard.nsl` under `$STATE_DIRECTORY` (set for systemd services), else `$XDG_STATE_HOME`, else `~/.local/state`. After a crash the file holds Go's full crash report as printed on stderr; the next start turns it into 1 filtered entry and removes the file. With no journal, nsl drops each entry silently; the crash file is still kept. Builds from source with `make` record nothing.
 
 To read the entries: `journalctl --user MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e FROSTYARD_APP_ID=org.frostyard.nsl`.
 

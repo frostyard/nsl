@@ -73,7 +73,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - Argv MUST be preserved literally. Binary streams, separate stdout/stderr, exit status and signals MUST survive execution. A command killed by signal N MUST exit 128+N.
 - `--root` MUST select guest root and never host root.
 - Host commands MUST run as the normal user, without implicit sudo or host configuration changes.
-- A panic of the host CLI MUST still exit 2 with Go's panic output. Release builds write 1 problem record to the local journal for a panic, for a crash at the next start, and for the 4 coded internal errors of [ADR-0023](../adr/0023-local-problem-records.md); the record MUST NOT change any output or exit status, and nsl MUST NOT send it anywhere.
+- A panic of the host CLI MUST still exit 2 with Go's panic output (which adds `[recovered, repanicked]`). Release builds write 1 problem record to the local journal for a panic, for a crash at the next start, and for the 4 coded internal errors of [ADR-0023](../adr/0023-local-problem-records.md); the record MUST NOT change command output or exit status, and nsl MUST NOT send it anywhere.
 
 ### Desktop and host actions
 
