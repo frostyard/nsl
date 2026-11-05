@@ -48,6 +48,9 @@ pins every archive by checksum.
   GitHub release artifacts have already been uploaded.
 - A downloaded archive's file name does not show its version; the release tag
   and `nsl version` do.
+- Both workflows pin one exact GoReleaser Pro version, and release-config renders
+  the cask in snapshot mode and checks it for Homebrew's `Cask/ZapNotRequired` cop.
+  Bump the pin in both workflows together.
 
 ## Alternatives considered
 
