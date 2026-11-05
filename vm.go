@@ -450,6 +450,9 @@ func copyData(out, in *os.File, size int64) error {
 	return nil
 }
 
+// vmReadyTimeout bounds the wait for a starting VM's authenticated readiness.
+var vmReadyTimeout = 90 * time.Second
+
 // startVM launches the VM if needed and waits for authenticated readiness. A
 // VM that powers off while idle is started again. autostart lets the VM start
 // every machine; commands that only manage machines start it without.
@@ -462,7 +465,7 @@ func (a *app) startVM(v *vmRecord, autostart bool) error {
 		return err
 	}
 	launched := false
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(vmReadyTimeout)
 	var readiness error
 	for {
 		state, err := a.vmState(v)
@@ -472,18 +475,22 @@ func (a *app) startVM(v *vmRecord, autostart bool) error {
 		switch {
 		case state == "running":
 		case launched:
-			return errors.New("the VM exited; see journalctl --user -u " + vmUnit(v) + ", then run nsl recover")
+			err = errors.New("the VM exited; see journalctl --user -u " + vmUnit(v) + ", then run nsl recover")
+			a.problems.Error(codeVMExitedOnStart, err)
+			return err
 		case state == "stopping":
 			// An idle VM powering itself off: wait, then start it again.
 		default:
 			if err = a.launchVM(v, state, autostart); err != nil {
 				return err
 			}
-			launched, deadline = true, time.Now().Add(90*time.Second)
+			launched, deadline = true, time.Now().Add(vmReadyTimeout)
 			continue
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("VM readiness timed out; disks retained; see journalctl --user -u %s or run nsl recover: %w", vmUnit(v), readiness)
+			err = fmt.Errorf("VM readiness timed out; disks retained; see journalctl --user -u %s or run nsl recover: %w", vmUnit(v), readiness)
+			a.problems.Error(codeVMReadinessTimeout, err)
+			return err
 		}
 		if state == "running" {
 			var d *vmDescriptor

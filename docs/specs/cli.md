@@ -73,6 +73,7 @@ Machine names start with a lowercase ASCII letter, then lowercase letters, digit
 - Argv MUST be preserved literally. Binary streams, separate stdout/stderr, exit status and signals MUST survive execution. A command killed by signal N MUST exit 128+N.
 - `--root` MUST select guest root and never host root.
 - Host commands MUST run as the normal user, without implicit sudo or host configuration changes.
+- A panic of the host CLI MUST still exit 2 with Go's panic output. Release builds write 1 problem record to the local journal for a panic, for a crash at the next start, and for the 4 coded internal errors of [ADR-0023](../adr/0023-local-problem-records.md); the record MUST NOT change any output or exit status, and nsl MUST NOT send it anywhere.
 
 ### Desktop and host actions
 
@@ -266,6 +267,6 @@ Unit tests use fake tools and local processes and need neither root nor a VM. In
 
 ## References
 
-- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md), [ADR-0022](../adr/0022-desktop-menu-entries.md).
+- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md), [ADR-0022](../adr/0022-desktop-menu-entries.md), [ADR-0023](../adr/0023-local-problem-records.md).
 - Contracts: [agent](agent.md), [VM image](vm-image.md), [machine images](machine-images.md), [image delivery](image-delivery.md), [provisioning](provisioning.md) (deferred).
 - Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](../plans/shared-vm-implementation.md).

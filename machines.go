@@ -53,12 +53,15 @@ func (a *app) readMachine(path, name string) (*machineRecord, error) {
 	}
 	var m machineRecord
 	if err = protocol.DecodeStrict(b, &m); err != nil {
-		return nil, fmt.Errorf("machine record %s: %w", name, err)
-	}
-	if m.Schema != 1 || m.Name != name || !protocol.ValidID(m.ID) || (m.Tier != "shared" && m.Tier != "isolated") || !protocol.ValidAccount(m.User) ||
+		err = fmt.Errorf("machine record %s: %w", name, err)
+	} else if m.Schema != 1 || m.Name != name || !protocol.ValidID(m.ID) || (m.Tier != "shared" && m.Tier != "isolated") || !protocol.ValidAccount(m.User) ||
 		!protocol.ValidAccount(m.Group) || m.UID != a.uid || m.GID != a.gid || (m.Image != "" && !protocol.ValidDigest("sha256:"+m.Image)) ||
 		(m.BuildID != "" && !protocol.ValidBuildID(m.BuildID)) {
-		return nil, fmt.Errorf("unsupported machine record or identity mismatch: %s", name)
+		err = fmt.Errorf("unsupported machine record or identity mismatch: %s", name)
+	}
+	if err != nil {
+		a.problems.Error(codeMachineRecordInvalid, err)
+		return nil, err
 	}
 	return &m, nil
 }

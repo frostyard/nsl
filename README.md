@@ -19,6 +19,7 @@ Keep your development tools separate from your Linux host. You may need somewher
 - **Isolation when you need it.** `--isolated` puts a machine in a VM of its own, with no host files, desktop or host actions, for software you do not trust. [Isolated machines →](https://frostyard.github.io/nsl/guides/isolated/)
 - **Backups and moves.** Export a stopped machine to an archive, and import it later or on another host. [Export and import →](https://frostyard.github.io/nsl/guides/export-import/)
 - **A host left alone.** nsl runs as your user, with no daemon of its own. It installs no host packages and changes no device permissions, groups or sudoers.
+- **Problems stay local.** On a panic or 1 of 4 internal errors, a release build of nsl writes 1 entry to your local systemd journal: its app ID, its version, the error code or the panic's function names (no source file paths and no arguments), and the error or panic message. nsl sends nothing over the network; chairlift's Problems page can show the entries. It keeps a small crash file in `~/.local/state/frostyard-problems/org.frostyard.nsl`, and with no journal nothing happens. [Problem records →](https://frostyard.github.io/nsl/reference/limits/#problem-records)
 
 ## How it works
 

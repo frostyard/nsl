@@ -189,13 +189,14 @@ func (a *app) loadVMAt(dir string) (*vmRecord, error) {
 	}
 	v := &vmRecord{dir: dir}
 	if err = protocol.DecodeStrict(b, v); err != nil {
-		return nil, fmt.Errorf("VM record: %w", err)
+		err = fmt.Errorf("VM record: %w", err)
+	} else if err = v.validate(a.uid, a.gid); err == nil &&
+		((v.Role == "shared") != (dir == a.vmDir()) || v.Machine != nil && dir != a.isolatedVMDir(v.Machine.Name)) {
+		err = errors.New("VM record in the wrong place: " + dir)
 	}
-	if err = v.validate(a.uid, a.gid); err != nil {
+	if err != nil {
+		a.problems.Error(codeVMRecordInvalid, err)
 		return nil, err
-	}
-	if (v.Role == "shared") != (dir == a.vmDir()) || v.Machine != nil && dir != a.isolatedVMDir(v.Machine.Name) {
-		return nil, errors.New("VM record in the wrong place: " + dir)
 	}
 	return v, nil
 }
