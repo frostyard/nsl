@@ -25,6 +25,11 @@ The release workflow uses GoReleaser Pro to publish the Linux archives and
 generate `Casks/nsl.rb` in
 [`frostyard/homebrew-tap` ↗](https://github.com/frostyard/homebrew-tap).
 Snapshots and prerelease tags do not update the stable cask.
+Both workflows pin GoReleaser Pro to one exact version. The
+release-config job renders the cask in snapshot mode, and
+`scripts/check-cask.py` refuses a cask that Homebrew's
+`Cask/ZapNotRequired` cop refuses. Bump the exact pin in both
+workflows together.
 
 The workflow needs `GORELEASER_KEY` and the Frostyard `ORG_PAT` secret available
 to nsl. `ORG_PAT` must have Contents write access to the tap; the workflow's

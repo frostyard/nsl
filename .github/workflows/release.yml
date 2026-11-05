@@ -41,7 +41,9 @@ jobs:
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser-pro
-          version: '~> v2'
+          # Exact pin: v2.20.0 renders `zap :not_required`. The range resolved to v2.19.0,
+          # whose comment Homebrew refuses. Keep the release-config pin in test.yml in sync; bump both together.
+          version: v2.20.0
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
