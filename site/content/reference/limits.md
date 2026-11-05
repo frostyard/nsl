@@ -42,6 +42,23 @@ A new setting has no effect
 `nsl` reports `Failed to connect to bus`
 :   nsl runs each VM as a user systemd unit, so the shell it runs in must reach your user systemd manager. A shell from `su`, `sudo -u` or a plain `ssh` without a login session can lack `XDG_RUNTIME_DIR`. Log in as that user, or set `XDG_RUNTIME_DIR=/run/user/$(id -u)` in the shell. When `XDG_RUNTIME_DIR` is set but nsl finds no `bus` or `systemd/private` socket in it, check that it is `/run/user/$(id -u)`. If the path is correct, your user systemd manager may be stopped: log in to start it, or run `loginctl enable-linger` to keep it running.
 
+## Problem records
+
+A release build of nsl writes 1 entry to your local systemd journal when it panics, and when it meets 1 of 4 internal errors, states its own code should never reach:
+
+| Code | When |
+| --- | --- |
+| `state.vm_record_invalid` | A VM record does not decode, does not validate, or is in the wrong place. |
+| `state.machine_record_invalid` | A machine record does not decode, or does not match its name and your identity. |
+| `vm.exited_on_start` | The VM's unit ended while nsl started it. |
+| `vm.readiness_timeout` | A started VM did not become ready in time. |
+
+The entry holds nsl's app ID (`org.frostyard.nsl`), its version, the error code or the panic's function names, and the error or panic message. Function names carry no source file paths, line numbers or arguments. The entry changes no command output and no exit status. A panic still exits 2 with Go's panic output, which now also shows `[recovered, repanicked]`.
+
+nsl sends nothing over the network. [chairlift](https://github.com/frostyard/chairlift)'s Problems page can show the entries, and only chairlift sends a report, after you turn reporting on there. To catch a crash that no panic handler sees, each nsl process keeps a small crash file in `frostyard-problems/org.frostyard.nsl` under `$STATE_DIRECTORY` (set for systemd services), else `$XDG_STATE_HOME`, else `~/.local/state`. After a crash the file holds Go's full crash report as printed on stderr; the next start turns it into 1 filtered entry and removes the file. With no journal, nsl drops each entry silently; the crash file is still kept. Builds from source with `make` record nothing.
+
+To read the entries: `journalctl --user MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e FROSTYARD_APP_ID=org.frostyard.nsl`.
+
 ## Report a problem
 
 If you're still stuck, open an issue at [github.com/frostyard/nsl ↗](https://github.com/frostyard/nsl/issues). Include what you tried and the output of `nsl version` and `nsl doctor`. Add `nsl logs` when it helps explain the failure.

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/frostyard/std/problems"
 )
 
 var version = "vmspawn-dev"
@@ -39,9 +41,10 @@ type app struct {
 	in                                      io.Reader
 	out, err                                io.Writer
 	imageService                            *imageClient
-	host                                    *hostFacts // nil reads the real host
-	hostRoot                                string     // "/" outside tests; where shared trees are found
-	dataHome                                string     // the user's XDG data directory; menu entries live there
+	host                                    *hostFacts         // nil reads the real host
+	hostRoot                                string             // "/" outside tests; where shared trees are found
+	dataHome                                string             // the user's XDG data directory; menu entries live there
+	problems                                *problems.Recorder // local journal records of panics and internal errors; nil records nothing
 }
 
 func newApp() (*app, error) {
@@ -267,13 +270,28 @@ func writeJSON(w io.Writer, v any) error {
 }
 
 func main() {
+	args := os.Args[1:]
+	if code := run(problems.New(appID, version, component(args)), args, newApp); code != 0 {
+		os.Exit(code)
+	}
+}
+
+// run executes one nsl command and returns its exit status. The recorder
+// writes a panic, and at the next start a crash, to the local journal
+// (ADR-0023); a panic still ends the process with status 2.
+func run(rec *problems.Recorder, args []string, newApp func() (*app, error)) int {
+	// A dev build or a host with no state folder records nothing, silently.
+	_ = rec.CrashOutput()
+	defer rec.RecoverPanic()
 	a, err := newApp()
 	if err == nil {
-		err = a.execute(os.Args[1:])
+		a.problems = rec
+		err = a.execute(args)
 	}
 	if err != nil {
-		os.Exit(exitStatus(err, os.Stderr))
+		return exitStatus(err, os.Stderr)
 	}
+	return 0
 }
 
 // exitStatus turns a command's error into nsl's exit status. A bare

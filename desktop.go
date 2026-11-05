@@ -122,6 +122,7 @@ func (a *app) desktop(args []string) error {
 		return fmt.Errorf("%s: %w", what, err)
 	}
 	go func() {
+		defer a.problems.RecoverPanic()
 		ended <- finished("the Waypipe client", a.r.run(ctx, nil, io.Discard, a.err, os.Environ(), a.waypipe, "--no-gpu", "--socket", transport, "client"))
 	}()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
@@ -146,6 +147,7 @@ func (a *app) desktop(args []string) error {
 	defer hold.Close()
 	reports, output := io.Pipe()
 	go func() {
+		defer a.problems.RecoverPanic()
 		lines := bufio.NewScanner(reports)
 		for lines.Scan() {
 			if lines.Text() == "ready" {
@@ -156,6 +158,7 @@ func (a *app) desktop(args []string) error {
 		}
 	}()
 	go func() {
+		defer a.problems.RecoverPanic()
 		err := a.r.run(ctx, session, output, a.err, os.Environ(), "ssh", "-F", filepath.Join(v.dir, "ssh.config"),
 			"-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ExitOnForwardFailure=yes",
 			"-R", "/run/nsl/waypipe-"+m.Name+".sock:"+transport, "-R", "/run/nsl/desktop/"+m.Name+"/open.sock:"+broker, "-T", "vm", request)
@@ -166,6 +169,7 @@ func (a *app) desktop(args []string) error {
 }
 
 func (a *app) serveBroker(l net.Listener, machine string, shares []protocol.Share) {
+	defer a.problems.RecoverPanic()
 	for {
 		c, err := l.Accept()
 		if err != nil {
@@ -186,6 +190,7 @@ type varlinkCall struct {
 
 // broker answers one Varlink call from a machine's nsl-open.
 func (a *app) broker(c net.Conn, machine string, shares []protocol.Share) {
+	defer a.problems.RecoverPanic()
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
 	reply := func(v any) {
