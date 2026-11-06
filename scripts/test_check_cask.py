@@ -118,7 +118,9 @@ class CheckCask(unittest.TestCase):
         cask = yaml_block(text, "homebrew_casks")
         self.assertIn("skip_upload: auto", [line.strip() for line in cask])
         repository = yaml_block("\n".join(cask), "repository")
-        fields = [line.strip() for line in repository]
+        # Only the direct fields: pull_request.base also has owner and name.
+        depth = min(len(line) - len(line.lstrip()) for line in repository if line.strip())
+        fields = [line.strip() for line in repository if line.strip() and len(line) - len(line.lstrip()) == depth]
         for expected in (
             "owner: frostyard",
             "name: homebrew-tap",
