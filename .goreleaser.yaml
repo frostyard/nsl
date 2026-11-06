@@ -39,10 +39,33 @@ homebrew_casks:
       - nsl
     directory: Casks
     skip_upload: auto
+    commit_msg_template: "fix(cask): bump nsl to {{ .Tag }}"
+    # The tap's main branch accepts changes only through a reviewed pull
+    # request, so each stable release pushes a branch of its own and opens a
+    # pull request into main (ADR-0020).
     repository:
       owner: frostyard
       name: homebrew-tap
-      token: "{{ .Env.ORG_PAT }}"
+      branch: "bump/nsl-{{ .Version }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          owner: frostyard
+          name: homebrew-tap
+          branch: main
+        body: |
+          Updates `Casks/nsl.rb` to the nsl release in the title.
+
+          The release workflow of [frostyard/nsl](https://github.com/frostyard/nsl/releases)
+          generated this cask with GoReleaser from the release's own archives
+          ([ADR-0020](https://github.com/frostyard/nsl/blob/main/docs/adr/0020-homebrew-tap-publication.md)).
+          Change nsl's release configuration instead of this file: the next
+          release overwrites it.
+
+          Risk path: `Casks/**` matches `Casks/nsl.rb`. The change is safe to
+          merge when the URLs name the release's tag and each sha256 equals the
+          archive's line in that release's `checksums.txt`.
     caveats: |
       nsl requires an x86-64 Linux host with KVM, systemd-vmspawn, QEMU,
       UEFI firmware, virtiofsd and membership in the kvm group.
