@@ -12,9 +12,12 @@ repository:
 - every file that boots a machine, verifies an image, holds an identity or
   changes machine state is listed.
 
-The glob semantics here are the list's documented ones: `**` matches any
+The glob semantics here are a subset of core's matcher (scripts/lib/risk-paths.mjs):
+`**/` matches zero or more whole directories, `**` elsewhere matches any
 characters including `/`, `*` matches any characters except `/`, and every other
-character is literal. The last test checks the translation itself.
+character is literal. A glob with `?`, `[` or `{` is refused, so a list entry
+that needs more than the subset fails here instead of matching differently. The
+last tests check the translation itself.
 """
 
 import json
@@ -72,8 +75,14 @@ def glob_regex(glob):
     """Translate a risk-path glob to a compiled regular expression."""
     parts = ["^"]
     index = 0
+    unsupported = sorted(set(glob) & set("?[{"))
+    if unsupported:
+        raise ValueError(f"{glob}: unsupported glob characters {''.join(unsupported)}")
     while index < len(glob):
-        if glob.startswith("**", index):
+        if glob.startswith("**/", index):
+            parts.append("(?:.*/)?")
+            index += 3
+        elif glob.startswith("**", index):
             parts.append(".*")
             index += 2
         elif glob[index] == "*":
@@ -193,6 +202,9 @@ class RiskPaths(unittest.TestCase):
             ("image/**", "image/snapshots/apparmor.txt", True),
             (".github/workflows/**", ".github/workflows/ci.yml", True),
             (".github/workflows/**", ".github/workflows", False),
+            ("scripts/**/probe-vm.py", "scripts/probe-vm.py", True),
+            ("scripts/**/probe-vm.py", "scripts/a/b/probe-vm.py", True),
+            ("scripts/**/probe-vm.py", "scripts/xprobe-vm.py", False),
         ]
         problems = [
             f"{glob} must {'match' if expected else 'not match'} {path}, but it "
@@ -202,6 +214,11 @@ class RiskPaths(unittest.TestCase):
         ]
         print(f"checked {len(cases)} glob translations")
         self.assertEqual(problems, [], "; ".join(problems))
+
+    def test_unsupported_glob_is_refused(self):
+        for glob in ("scripts/probe-?.py", "scripts/[ab].py", "scripts/{a,b}.py"):
+            with self.assertRaises(ValueError, msg=glob):
+                glob_regex(glob)
 
 
 if __name__ == "__main__":

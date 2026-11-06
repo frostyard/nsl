@@ -12,6 +12,7 @@ Open work with a plan of its own: [Azure Linux 4.0, Phase 2](azure-linux.md) and
 ## Phase 2 — Daily-work reliability
 
 - Accept the shared VM and an isolated machine across a host reboot and a suspend and resume, network changes (VPN up and down, split DNS, a new network), a full data disk, an interrupted image download or `update`, and a killed VM or agent. The prototype's roadmap named these gates; the shared-VM design has not run them.
+- Accept nsl on other atomic hosts: Fedora Atomic first, then the openSUSE atomic desktops. The tested host is Snow Linux 13.
 - **Done when:** each case has a recorded result, and each failure has an issue or a fix.
 
 ## Later / ideas
@@ -33,7 +34,9 @@ Host integration:
 - Host menu entries ([ADR-0022](../adr/0022-desktop-menu-entries.md)): icon themes beyond `hicolor`, translation of `%f` and `%U` so that a menu entry can pass files and URLs, and terminal integration through OSC 3008 context markers.
 - Desktop: clipboard, input methods, scaling and multiple monitors; X11 applications through Xwayland; audio, with a transport made for the protocol (a raw PipeWire socket tunnel is not enough) and the microphone as a separate grant.
 - Through the host broker: notifications and file choosers. Full portal coverage, drag-and-drop, screen sharing, global shortcuts and accessibility.
-- GPU rendering (virtio-gpu with virglrenderer or rutabaga), apart from window forwarding; Vulkan, video codecs and USB device forwarding.
+- GPU rendering (virtio-gpu with virglrenderer or rutabaga), apart from window forwarding; Vulkan, video codecs, vendor-specific compute (NVIDIA and CUDA stay uncommitted) and USB device forwarding.
+- Automatic discovery of machine applications for the host menu; `nsl app` adds entries only on request.
+- Nested hardware virtualization and cross-architecture emulation, for workloads that need them.
 - Private user namespaces with idmapped virtiofs mounts, if trusted machines ever need isolation from each other.
 
 Images:
@@ -42,7 +45,14 @@ Images:
 - SUSE Linux Enterprise as a separate track, with its access and redistribution terms ([ADR-0009](../adr/0009-distribution-neutral-guest-contract.md)).
 - A development branch (Debian testing, Fedora Rawhide) that fails acceptance blocks the whole catalogue until its profile is fixed; `operation=refresh` keeps the current catalogue alive meanwhile. If that happens often, the publisher could carry the last accepted image forward for that branch.
 - arm64 VM and machine images: a separate image and hardware gate.
+- Track each release's upstream end of life, and remove a release from the catalogue when its distro stops support.
 - Delivery: delta downloads, once measured against their complexity and recovery cost; mirrors, other registries and private authentication; offline bundles that carry enough metadata and signatures for the offline trust policy ([ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md)).
+
+Retired with the prototype, because the shared-VM design replaced their cause:
+
+- Custom guest kernels, and newer-kernel upgrade tests for each distro: machines are containers on the VM's kernel, and `update` replaces the VM image as a unit ([ADR-0017](../adr/0017-shared-vm-and-machine-images.md)).
+- Versioned guest-integration updates for existing disks: the agent ships in the VM image, and a protocol mismatch is rejected, never negotiated ([agent](../specs/agent.md)).
+- A shared utility VM: [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopted it.
 
 ## Open questions
 
