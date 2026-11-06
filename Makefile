@@ -5,8 +5,9 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 
 # golangci-lint's release, read from mise.toml, the single source of tool pins
 # (frostyard/core ADR-0043): `mise install` provisions it, and CI installs the
-# same mise.lock-verified release. It must be built with a Go no older than
-# go.mod's, or its gofmt and type checker disagree with the toolchain.
+# same mise.lock-verified release. The Go patch level is not compared: release
+# binaries are built with the current Go patch, and it does not change gofmt
+# output or the type checker's major/minor language version.
 GOLANGCI_LINT_VERSION := $(strip $(shell sed -n 's/^golangci-lint = "\(.*\)"/\1/p' mise.toml))
 GO_VERSION := $(strip $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod))
 # The major version of the Node on PATH (mise.toml pins it), checked by
@@ -41,7 +42,9 @@ lint-version-check:
 		echo "expected golangci-lint $(GOLANGCI_LINT_VERSION), found $$installed (install with: mise install)"; exit 1; \
 	fi; \
 	built="$$(golangci-lint version 2>/dev/null | sed -n 's/.*built with go\([0-9.]*\).*/\1/p')"; \
-	if [ -n "$$built" ] && [ "$$(printf '%s\n%s\n' "$(GO_VERSION)" "$$built" | sort -V | head -1)" != "$(GO_VERSION)" ]; then \
+	built_minor="$$(printf '%s\n' "$$built" | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')"; \
+	go_minor="$$(printf '%s\n' "$(GO_VERSION)" | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')"; \
+	if [ -n "$$built_minor" ] && [ -n "$$go_minor" ] && [ "$$(printf '%s\n%s\n' "$$go_minor" "$$built_minor" | sort -V | head -1)" != "$$go_minor" ]; then \
 		echo "golangci-lint $(GOLANGCI_LINT_VERSION) was built with go$$built, older than go.mod's go$(GO_VERSION)"; exit 1; \
 	fi
 

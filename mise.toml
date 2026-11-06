@@ -7,9 +7,9 @@ lockfile = true
 
 [tools]
 # Explicit selection avoids mise's deprecated use of go.mod's minimum version.
-go = "1.26.10"
+go = "1.27.3"
 # make lint, and so make verify and make ci; the Makefile checks this release.
-golangci-lint = "2.13.1"
+golangci-lint = "2.15.0"
 # make bump: the next version from conventional commits, per .svu.yml.
 svu = "3.4.1"
 # The template gate (make verify) runs scripts/check-template.mjs and the Node
