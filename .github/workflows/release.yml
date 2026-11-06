@@ -19,12 +19,14 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # GoReleaser pushes the cask to a branch of frostyard/homebrew-tap and opens
+      # a pull request into its main branch (ADR-0020).
       - name: Require Homebrew tap token
         env:
-          ORG_PAT: ${{ secrets.ORG_PAT }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          if [ -z "$ORG_PAT" ]; then
-            echo "::error::ORG_PAT must be available to nsl with Contents write access to frostyard/homebrew-tap."
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN must be available to nsl with Contents and Pull requests write access to frostyard/homebrew-tap."
             exit 1
           fi
       # mise.toml and mise.lock pin every tool the gates run beyond Go (frostyard/core
@@ -48,7 +50,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-          ORG_PAT: ${{ secrets.ORG_PAT }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
