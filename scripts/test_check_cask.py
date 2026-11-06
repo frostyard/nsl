@@ -111,6 +111,54 @@ class CheckCask(unittest.TestCase):
         self.assertIn("python3 scripts/check-cask.py dist/homebrew/Casks/nsl.rb", test)
         self.assertIn("release --snapshot --clean", test)
 
+    def test_cask_publishes_by_tap_pull_request(self):
+        # The tap's main branch accepts changes only through a pull request
+        # (ADR-0020): the cask goes to a release branch and a pull request.
+        text = (ROOT / ".goreleaser.yaml").read_text(encoding="utf-8")
+        cask = yaml_block(text, "homebrew_casks")
+        self.assertIn("skip_upload: auto", [line.strip() for line in cask])
+        repository = yaml_block("\n".join(cask), "repository")
+        # Only the direct fields: pull_request.base also has owner and name.
+        depth = min(len(line) - len(line.lstrip()) for line in repository if line.strip())
+        fields = [line.strip() for line in repository if line.strip() and len(line) - len(line.lstrip()) == depth]
+        for expected in (
+            "owner: frostyard",
+            "name: homebrew-tap",
+            'branch: "bump/nsl-{{ .Version }}"',
+            'token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"',
+        ):
+            self.assertIn(expected, fields)
+        pull_request = yaml_block("\n".join(repository), "pull_request")
+        self.assertIn("enabled: true", [line.strip() for line in pull_request])
+        base = [line.strip() for line in yaml_block("\n".join(pull_request), "base")]
+        self.assertEqual(base, ["owner: frostyard", "name: homebrew-tap", "branch: main"])
+        self.assertNotIn("ORG_PAT", text)
+
+    def test_release_requires_tap_token_before_goreleaser(self):
+        text = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertNotIn("ORG_PAT", text)
+        require = text.index("if [ -z \"$HOMEBREW_TAP_TOKEN\" ]; then")
+        release = text.index("uses: goreleaser/goreleaser-action@")
+        self.assertLess(require, release)
+        self.assertIn("HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}", text[release:])
+
+
+def yaml_block(text, key):
+    """Return the lines nested under the first `key:` line of a YAML text."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(\s*)(?:- )?" + re.escape(key) + r":\s*$", line)
+        if not match:
+            continue
+        indent = len(match.group(1))
+        block = []
+        for nested in lines[index + 1:]:
+            if nested.strip() and len(nested) - len(nested.lstrip()) <= indent:
+                break
+            block.append(nested)
+        return block
+    raise AssertionError(f"no {key}: block")
+
 
 if __name__ == "__main__":
     unittest.main()

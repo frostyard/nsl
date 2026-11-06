@@ -1,6 +1,6 @@
 module github.com/frostyard/nsl
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/frostyard/std v0.4.0
