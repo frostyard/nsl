@@ -52,7 +52,11 @@ func (a *agent) export(req *protocol.Request) error {
 	default:
 		// The validator refused the stream while tar was still writing it.
 		reader.CloseWithError(io.ErrClosedPipe)
-		<-archived
+		// Tar then fails on the closed pipe. The refusal is the error to report;
+		// tar's error counts only when there is no refusal.
+		if tail := <-archived; tail != nil && invalid == nil {
+			failed = tail
+		}
 	}
 	if failed != nil {
 		return fmt.Errorf("archiving %s: %v: %s", req.Machine, failed, strings.TrimSpace(stderr.String()))
