@@ -43,92 +43,129 @@ def permission_is_write(value):
     return any(re.fullmatch(r"write(?:-all)?", item) for item in value.split())
 
 
+def normalize_yaml_line(line):
+    """Remove a trailing YAML comment, without treating quoted # characters as comments."""
+    quote = None
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote == '"':
+            escaped = True
+            continue
+        if char in ("'", '"'):
+            if quote is None:
+                quote = char
+            elif quote == char:
+                if char == "'" and index + 1 < len(line) and line[index + 1] == "'":
+                    continue
+                quote = None
+            continue
+        if char == "#" and quote is None:
+            if index == 0 or line[index - 1].isspace():
+                line = line[:index]
+                break
+    return line.rstrip()
+
+
+def normalized_yaml_lines(workflow_text):
+    lines = []
+    for line in workflow_text.splitlines():
+        normalized = normalize_yaml_line(line)
+        if normalized.strip():
+            lines.append(normalized)
+    return lines
+
+
 def check_workflow_caches(workflow_text):
     """Check one workflow text and return problems plus write-job/step counts."""
-    lines = workflow_text.splitlines()
+    lines = normalized_yaml_lines(workflow_text)
     jobs_start = None
-    jobs_end = len(lines)
+    jobs_indent = 0
 
     for index, line in enumerate(lines):
-        if indentation(line) == 0 and line.strip() == "jobs:":
+        match = re.match(r"^jobs:\s*$", line.strip())
+        if indentation(line) == 0 and match:
             jobs_start = index + 1
+            jobs_indent = indentation(line)
             break
     if jobs_start is None:
         return CheckResult(["workflow has no jobs: block"], 0, 0)
 
+    jobs_end = len(lines)
     for index in range(jobs_start, len(lines)):
-        if indentation(lines[index]) == 0 and lines[index].strip():
+        if lines[index].strip() and indentation(lines[index]) <= jobs_indent:
             jobs_end = index
             break
 
     workflow_permission = None
     workflow_permission_found = False
     for index, line in enumerate(lines[:jobs_start]):
-        if indentation(line) != 0:
-            continue
         match = re.match(r"^permissions:\s*(.*)$", line.strip())
-        if match:
+        if indentation(line) == 0 and match:
             workflow_permission_found = True
             workflow_permission = match.group(1).strip()
-            workflow_permission_end = len(lines)
-            for later in range(index + 1, len(lines)):
-                if indentation(lines[later]) == 0 and lines[later].strip():
-                    workflow_permission_end = later
-                    break
-            if workflow_permission:
-                workflow_permission = workflow_permission.split("#", 1)[0].strip()
-            else:
-                mapping_values = []
-                for later in range(index + 1, workflow_permission_end):
-                    if indentation(lines[later]) == 2:
-                        value_match = re.match(r"^\s*[A-Za-z0-9_-]+:\s*[\"']?([^\s#\"']+)", lines[later].strip())
-                        if value_match:
-                            mapping_values.append(value_match.group(1))
-                workflow_permission = " " .join(mapping_values)
+            if not workflow_permission:
+                values = []
+                for later in range(index + 1, jobs_start):
+                    if lines[later].strip() and indentation(lines[later]) == 0:
+                        break
+                    value_match = re.match(r"^[A-Za-z0-9_-]+:\s*[\"']?([^\s\"'#]+)", lines[later].strip())
+                    if value_match:
+                        values.append(value_match.group(1))
+                workflow_permission = " ".join(values)
             break
 
     job_ranges = []
     job_name = None
+    job_indent = None
     job_start = None
     for index in range(jobs_start, jobs_end):
         line = lines[index]
-        if indentation(line) == 2:
-            match = re.match(r"^  ([A-Za-z0-9_-]+):(?:\s*(?:#.*)?$)", line)
+        current_indent = indentation(line)
+        if not line.strip():
+            continue
+        if job_indent is None and current_indent > jobs_indent:
+            job_indent = current_indent
+        if job_indent is not None and current_indent == job_indent:
+            match = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line.strip())
             if match:
                 if job_name is not None:
-                    job_ranges.append((job_name, job_start, index))
+                    job_ranges.append((job_name, job_start, index, job_indent))
                 job_name = match.group(1)
                 job_start = index + 1
     if job_name is not None:
-        job_ranges.append((job_name, job_start, jobs_end))
+        job_ranges.append((job_name, job_start, jobs_end, job_indent))
 
     problems = []
     jobs_checked = 0
     steps_checked = 0
 
-    for name, start, end in job_ranges:
-        write_permission = False
+    for name, start, end, indent in job_ranges:
         job_permission_found = False
         job_permission = None
+        job_permission_indent = indent + 2
+        reusable_workflow = False
 
         for index in range(start, end):
             line = lines[index]
             stripped = line.strip()
-            match = re.match(r"^permissions:\s*(.*)$", stripped)
-            if indentation(line) == 4 and match:
-                job_permission_found = True
-                job_permission = match.group(1).strip().split("#", 1)[0].strip()
-                if job_permission:
+            if indentation(line) == job_permission_indent:
+                permission_match = re.match(r"^permissions:\s*(.*)$", stripped)
+                if permission_match:
+                    job_permission_found = True
+                    job_permission = permission_match.group(1).strip()
+                    if not job_permission:
+                        values = []
+                        for later in range(index + 1, end):
+                            if indentation(lines[later]) <= job_permission_indent and lines[later].strip():
+                                break
+                            value_match = re.match(r"^[A-Za-z0-9_-]+:\s*[\"']?([^\s\"'#]+)", lines[later].strip())
+                            if value_match:
+                                values.append(value_match.group(1))
+                        job_permission = " ".join(values)
                     break
-                mapping_values = []
-                for later in range(index + 1, end):
-                    if indentation(lines[later]) <= 4 and lines[later].strip():
-                        break
-                    value_match = re.match(r"^[A-Za-z0-9_-]+:\s*[\"']?([^\s#\"']+)", lines[later].strip())
-                    if value_match:
-                        mapping_values.append(value_match.group(1))
-                job_permission = " ".join(mapping_values)
-                break
 
         if job_permission_found:
             write_permission = permission_is_write(job_permission)
@@ -141,22 +178,41 @@ def check_workflow_caches(workflow_text):
             continue
 
         jobs_checked += 1
-        steps_key = None
-        steps_indent = None
+
         for index in range(start, end):
             line = lines[index]
-            if line.strip() == "steps:":
-                steps_key = index
-                steps_indent = indentation(line)
-                break
+            if indentation(line) == job_permission_indent:
+                uses_match = re.match(r"^uses:\s*([^\s]+)", line.strip())
+                if uses_match:
+                    reusable_workflow = True
+                    break
+
+        steps_key = None
+        steps_indent = None
+        steps_value = None
+        for index in range(start, end):
+            line = lines[index]
+            if indentation(line) == job_permission_indent:
+                steps_match = re.match(r"^steps:\s*(.*)$", line.strip())
+                if steps_match:
+                    steps_key = index
+                    steps_indent = indentation(line)
+                    steps_value = steps_match.group(1).strip()
+                    break
+
+        if reusable_workflow:
+            continue
         if steps_key is None:
+            problems.append(f"job {name}: could not find steps")
+            continue
+        if re.fullmatch(r"\[\]", steps_value or ""):
             continue
 
         item_indent = None
         for index in range(steps_key + 1, end):
             line = lines[index]
             stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
                 continue
             if indentation(line) >= steps_indent and stripped.startswith("-"):
                 item_indent = indentation(line)
@@ -172,7 +228,7 @@ def check_workflow_caches(workflow_text):
         for index in range(steps_key + 1, end):
             line = lines[index]
             stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
                 continue
             current_indent = indentation(line)
             if current_indent < item_indent:
@@ -196,9 +252,10 @@ def check_workflow_caches(workflow_text):
                 stripped = line.strip()
                 if stripped.startswith("-"):
                     stripped = stripped[1:].strip()
-                match = re.match(r"^uses:\s*([^\s#]+)", stripped)
+                match = re.match(r"^uses:\s*([^\s]+)", stripped)
                 if match:
-                    uses = match.group(1)
+                    # A quoted value is the same action: compare it without its quotes.
+                    uses = match.group(1).strip("\"'")
                     break
 
             if uses is None:
@@ -218,22 +275,20 @@ def check_workflow_caches(workflow_text):
             cache_value = None
             for line in step_lines:
                 stripped = line.strip()
-                if stripped.startswith("-"):
-                    inline = stripped[1:].strip()
-                    if re.match(r"^with:\s*(?:#.*)?$", inline):
-                        with_indent = item_indent
-                    stripped = inline
-                else:
-                    if re.match(r"^with:\s*(?:#.*)?$", stripped):
-                        with_indent = indentation(line)
-                    elif with_indent is not None:
-                        current_indent = indentation(line)
-                        if current_indent <= with_indent:
-                            with_indent = None
-                        else:
-                            match = re.match(r"^cache:\s*[\"']?([^\s#\"']+)[\"']?", stripped)
-                            if match:
-                                cache_value = match.group(1)
+                inline = stripped[1:].strip() if stripped.startswith("-") else stripped
+                if re.match(r"^with:\s*(.*)$", inline):
+                    with_indent = indentation(line) if not stripped.startswith("-") else item_indent
+                    continue
+                if with_indent is not None:
+                    current_indent = indentation(line)
+                    if stripped.startswith("-"):
+                        current_indent = item_indent + 2
+                    if current_indent > with_indent:
+                        match = re.match(r"^cache:\s*[\"']?([^\s\"'#]+)", inline)
+                        if match:
+                            cache_value = match.group(1)
+                    else:
+                        with_indent = None
 
             if cache_value is None:
                 problems.append(f"job {name}: {uses} has no cache key under with")
@@ -396,6 +451,81 @@ jobs:
 """
         result = check_workflow_caches(sample)
         self.assertIn("could not parse steps", "; ".join(result.problems))
+
+    def test_steps_trailing_comment_fails(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps: # publication
+      - uses: jdx/mise-action@abc
+        with:
+          cache: true
+"""
+        result = check_workflow_caches(sample)
+        self.assertTrue(result.problems)
+
+    def test_permissions_trailing_comment_fails(self):
+        sample = """jobs:
+  release:
+    permissions: # write
+      contents: write
+    steps:
+      - uses: actions/setup-go@abc
+        with:
+          go-version-file: go.mod
+"""
+        result = check_workflow_caches(sample)
+        self.assertTrue(result.problems)
+
+    def test_with_trailing_comment_fails(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps:
+      - uses: jdx/mise-action@abc
+        with: # inputs
+          cache: true
+"""
+        result = check_workflow_caches(sample)
+        self.assertTrue(result.problems)
+
+    def test_unknown_layout_fails_closed(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    stepz:
+      - uses: jdx/mise-action@abc
+"""
+        result = check_workflow_caches(sample)
+        self.assertIn("could not find steps", "; ".join(result.problems))
+
+    def test_reusable_workflow_write_job_passes(self):
+        sample = """jobs:
+  call:
+    permissions:
+      contents: write
+    uses: org/repo/.github/workflows/x.yml@sha
+"""
+        result = check_workflow_caches(sample)
+        self.assertEqual(result.problems, [])
+
+    def test_quoted_uses_value_fails(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps:
+      - uses: "jdx/mise-action@abc"
+        with:
+          cache: true
+      - uses: 'actions/setup-go@abc'
+"""
+        result = check_workflow_caches(sample)
+        self.assertEqual(result.steps_checked, 2)
+        self.assertEqual(len(result.problems), 2)
 
 
 if __name__ == "__main__":
