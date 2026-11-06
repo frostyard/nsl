@@ -28,7 +28,7 @@ jobs:
       # ADR-0043): this installs the locked golangci-lint and Node that make ci
       # runs, checksum-verified. Go still comes from setup-go (go.mod).
       - name: Install pinned tools
-        uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4.2.5
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install: true
           install_args: golangci-lint node
@@ -69,7 +69,7 @@ jobs:
         if: env.HAS_GORELEASER_KEY == 'true'
         with:
           go-version-file: go.mod
-      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         if: env.HAS_GORELEASER_KEY == 'true'
         with:
           distribution: goreleaser-pro
@@ -78,7 +78,7 @@ jobs:
         env:
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
       - name: Render the Homebrew cask
-        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         if: env.HAS_GORELEASER_KEY == 'true'
         with:
           distribution: goreleaser-pro
