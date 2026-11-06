@@ -121,7 +121,7 @@ Each item was found by a failing check in the shared-VM experiment and carried t
 | Machine images apply presets on first boot; integration units ship presets | [Machine images](../specs/machine-images.md) |
 | Nesting: a fully visible procfs, `keyring = false`, `default_sysctls = []` | [Machine images](../specs/machine-images.md) |
 | No enabled networkd or resolved; bind the VM's resolver | [Machine images](../specs/machine-images.md), [VM image](../specs/vm-image.md) |
-| Link the host zone before anything runs in a tree; `Timezone=off`, including offline nspawn runs | [VM image](../specs/vm-image.md), [agent](../specs/agent.md) |
+| Link the host zone before anything runs in a tree; `Timezone=off`, including offline nspawn runs | [Machine images](../specs/machine-images.md#per-machine-data), [VM image](../specs/vm-image.md) |
 | One `nsl` PAM service; no per-distro PAM mapping in the CLI | [Machine images](../specs/machine-images.md), [agent](../specs/agent.md) |
 | Literal argv, 128+N signal status, PTY without title or color escapes | [Agent](../specs/agent.md) |
 | Directory translation by device and inode, plus `/mnt/host` aliases | [CLI](../specs/cli.md) |

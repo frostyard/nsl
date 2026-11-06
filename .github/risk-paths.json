@@ -82,6 +82,18 @@
       "why": "publication: builds the published images on the image builder"
     },
     {
+      "glob": "scripts/probe-vm.py",
+      "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
+    },
+    {
+      "glob": "scripts/probe-machines.py",
+      "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
+    },
+    {
+      "glob": "scripts/measure-machines.py",
+      "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
+    },
+    {
       "glob": "scripts/refresh-sigstore-root.go",
       "why": "signing and keys: the Sigstore trust root that verifies images"
     },
