@@ -141,38 +141,62 @@ def check_workflow_caches(workflow_text):
             continue
 
         jobs_checked += 1
+        steps_key = None
         steps_indent = None
-        steps_start = end
-        steps_end = end
         for index in range(start, end):
             line = lines[index]
-            if indentation(line) == 4 and line.strip() == "steps:":
+            if line.strip() == "steps:":
+                steps_key = index
                 steps_indent = indentation(line)
-                steps_start = index + 1
                 break
-        if steps_indent is not None:
-            for index in range(steps_start, end):
-                line = lines[index]
-                if line.strip() and indentation(line) <= steps_indent:
-                    steps_end = index
-                    break
-            else:
-                steps_end = end
-        else:
+        if steps_key is None:
+            continue
+
+        item_indent = None
+        for index in range(steps_key + 1, end):
+            line = lines[index]
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if indentation(line) >= steps_indent and stripped.startswith("-"):
+                item_indent = indentation(line)
+                break
+            break
+
+        if item_indent is None:
+            problems.append(f"job {name}: could not parse steps")
             continue
 
         step_starts = []
-        for index in range(steps_start, steps_end):
+        steps_end = end
+        for index in range(steps_key + 1, end):
             line = lines[index]
-            if indentation(line) == 6 and line.lstrip().startswith("-"):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            current_indent = indentation(line)
+            if current_indent < item_indent:
+                steps_end = index
+                break
+            if current_indent == item_indent:
+                if not stripped.startswith("-"):
+                    steps_end = index
+                    break
                 step_starts.append(index)
+
+        if not step_starts:
+            problems.append(f"job {name}: could not parse steps")
+            continue
 
         for offset, step_start in enumerate(step_starts):
             step_end = step_starts[offset + 1] if offset + 1 < len(step_starts) else steps_end
             step_lines = lines[step_start:step_end]
             uses = None
             for line in step_lines:
-                match = re.search(r"(?:^|\s)uses:\s*([^\s#]+)", line.strip())
+                stripped = line.strip()
+                if stripped.startswith("-"):
+                    stripped = stripped[1:].strip()
+                match = re.match(r"^uses:\s*([^\s#]+)", stripped)
                 if match:
                     uses = match.group(1)
                     break
@@ -191,21 +215,25 @@ def check_workflow_caches(workflow_text):
                 continue
 
             with_indent = None
-            with_end = step_end
             cache_value = None
-            for relative_index, line in enumerate(step_lines):
-                absolute_index = step_start + relative_index
+            for line in step_lines:
                 stripped = line.strip()
-                if with_indent is None and re.match(r"^with:\s*(?:#.*)?$", stripped):
-                    with_indent = indentation(line)
-                elif with_indent is not None:
-                    current_indent = indentation(line)
-                    if current_indent <= with_indent and stripped:
-                        with_end = absolute_index
-                        break
-                    match = re.match(r"^cache:\s*[\"']?([^\s#\"']+)[\"']?", stripped)
-                    if match:
-                        cache_value = match.group(1)
+                if stripped.startswith("-"):
+                    inline = stripped[1:].strip()
+                    if re.match(r"^with:\s*(?:#.*)?$", inline):
+                        with_indent = item_indent
+                    stripped = inline
+                else:
+                    if re.match(r"^with:\s*(?:#.*)?$", stripped):
+                        with_indent = indentation(line)
+                    elif with_indent is not None:
+                        current_indent = indentation(line)
+                        if current_indent <= with_indent:
+                            with_indent = None
+                        else:
+                            match = re.match(r"^cache:\s*[\"']?([^\s#\"']+)[\"']?", stripped)
+                            if match:
+                                cache_value = match.group(1)
 
             if cache_value is None:
                 problems.append(f"job {name}: {uses} has no cache key under with")
@@ -227,6 +255,7 @@ class WorkflowCaches(unittest.TestCase):
             problems.extend(f"{path.relative_to(ROOT)}: {problem}" for problem in result.problems)
         print(f"checked {total_jobs} write-permission jobs and {total_steps} cache-sensitive steps")
         self.assertGreater(total_jobs, 0, "the repository guard checked 0 write-permission jobs")
+        self.assertGreater(total_steps, 0, "the repository guard checked 0 cache-sensitive steps")
         self.assertEqual(problems, [], "\n".join(problems))
 
     def test_mise_cache_true_fails(self):
@@ -316,6 +345,57 @@ jobs:
 """
         result = check_workflow_caches(sample)
         self.assertEqual(result.problems, [])
+
+    def test_same_indentation_mise_cache_true_fails(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps:
+    - uses: jdx/mise-action@abc
+      with:
+        cache: true
+"""
+        result = check_workflow_caches(sample)
+        self.assertTrue(result.problems)
+
+    def test_same_indentation_setup_go_missing_cache_fails(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/setup-go@abc
+      with:
+        go-version-file: go.mod
+"""
+        result = check_workflow_caches(sample)
+        self.assertTrue(result.problems)
+
+    def test_later_line_mise_cache_true_fails(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps:
+      - name: x
+        uses: jdx/mise-action@abc
+        with:
+          cache: true
+"""
+        result = check_workflow_caches(sample)
+        self.assertTrue(result.problems)
+
+    def test_unparseable_steps_fail_closed(self):
+        sample = """jobs:
+  release:
+    permissions:
+      contents: write
+    steps:
+      not-a-step: true
+"""
+        result = check_workflow_caches(sample)
+        self.assertIn("could not parse steps", "; ".join(result.problems))
 
 
 if __name__ == "__main__":
