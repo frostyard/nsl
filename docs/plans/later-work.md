@@ -11,7 +11,7 @@ Open work with a plan of its own: [Azure Linux 4.0, Phase 2](azure-linux.md) and
 
 ## Phase 2 — Daily-work reliability
 
-- Accept the shared VM and an isolated machine across a host reboot and a suspend and resume, network changes (VPN up and down, split DNS, a new network), a full data disk, an interrupted image download or `update`, and a killed VM or agent. The prototype's roadmap named these gates; the shared-VM design has not run them.
+- Accept the shared VM and an isolated machine across a host reboot and a suspend and resume, network changes (VPN up and down, split DNS, a new network), a full data disk, an interrupted image download or `update`, a killed VM or agent, and a host power loss during storage operations (unit tests model the interruption points only). The prototype's roadmap named these gates; the shared-VM design has not run them.
 - Accept nsl on other atomic hosts: Fedora Atomic first, then the openSUSE atomic desktops. The tested host is Snow Linux 13.
 - **Done when:** each case has a recorded result, and each failure has an issue or a fix.
 
@@ -37,6 +37,13 @@ Host integration:
 - GPU rendering (virtio-gpu with virglrenderer or rutabaga), apart from window forwarding; Vulkan, video codecs, vendor-specific compute (NVIDIA and CUDA stay uncommitted) and USB device forwarding.
 - Automatic discovery of machine applications for the host menu; `nsl app` adds entries only on request.
 - Nested hardware virtualization and cross-architecture emulation, for workloads that need them.
+- The desktop matrix beyond GNOME on Wayland: KDE and other compositors.
+- Networking: mirrored networking, UDP discovery and LAN broadcast parity with WSL. Ports bind on host `127.0.0.1` only; LAN exposure would need an explicit setting.
+- File watchers on `/mnt/host`: measure the polling modes of real tools (Vite, webpack, watchfiles) and the cost of polling a large tree. [ADR-0016](../adr/0016-wsl-style-machines.md) keeps watched builds in the guest home, so this only improves the documented fallback.
+
+Archives:
+
+- Import on a host with a different UID or GID, through account and ownership remapping ([ADR-0006](../adr/0006-stopped-vm-backups.md) names it as later work). A clone with a fresh identity is in the [cloud-init plan](cloud-init-provisioning.md).
 - Private user namespaces with idmapped virtiofs mounts, if trusted machines ever need isolation from each other.
 
 Images:
@@ -53,6 +60,9 @@ Retired with the prototype, because the shared-VM design replaced their cause:
 - Custom guest kernels, and newer-kernel upgrade tests for each distro: machines are containers on the VM's kernel, and `update` replaces the VM image as a unit ([ADR-0017](../adr/0017-shared-vm-and-machine-images.md)).
 - Versioned guest-integration updates for existing disks: the agent ships in the VM image, and a protocol mismatch is rejected, never negotiated ([agent](../specs/agent.md)).
 - A shared utility VM: [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) adopted it.
+- The prototype's provisional latency and memory goals (cold shell, warm no-op and GUI launch percentiles, one idle VM at 512 MiB): the measured gates in the [requirements that must not regress](../design/lifecycle.md#requirements-that-must-not-regress) replace them.
+- Host and image capability negotiation: the image descriptor's declared capabilities, which publication checks against acceptance, and its protocol versions, which must match, replace it ([machine images](../specs/machine-images.md)).
+- Everything else in the deleted plans is done, or belongs to the prototype's runtime (Lima, 1 VM per environment, per-distro kernels, boot chains and root growth), which the shared-VM design removed.
 
 ## Open questions
 
