@@ -1,7 +1,7 @@
 # 0020 — Publish a Linux cask to the Frostyard Homebrew tap
 
 - **Status:** Accepted
-- **Date:** 2026-09-30
+- **Date:** 2026-09-30; revised 2026-11-06 (tap pull requests)
 
 ## Context
 
@@ -18,8 +18,17 @@ the release archives and publish it to `frostyard/homebrew-tap`. Publish only
 stable tags; snapshots and prerelease tags must not replace the stable cask.
 Keep the existing Linux-only build matrix and install only the `nsl` binary.
 
-The release workflow supplies the existing Frostyard `ORG_PAT` secret as the
-tap repository token. It needs Contents write access to the tap, and must be
+The tap's `main` branch accepts changes only through a reviewed pull request.
+GoReleaser therefore commits the cask to a branch `bump/nsl-VERSION` of the
+tap, the scheme the tap's own bump workflow uses, and opens a pull request into
+`main` with the commit message `fix(cask): bump nsl to vVERSION` as its title.
+A person reviews and merges it; the release does not change `main`. A second
+run for the same tag updates the same branch, and GoReleaser leaves an open
+pull request in place.
+
+The release workflow supplies the `HOMEBREW_TAP_TOKEN` secret as the tap
+repository token: a fine-grained token of the Frostyard machine account,
+limited to the tap, with Contents and Pull requests write access. It must be
 available to this repository. GitHub's repository-scoped `GITHUB_TOKEN`
 continues to publish nsl's release and provenance; it cannot write to the tap.
 Fail before releasing if the tap token is missing.
@@ -39,7 +48,13 @@ pins every archive by checksum.
 
 - The next stable tagged release creates the cask; merging the integration
   alone does not make nsl installable from the tap.
-- Later stable releases update the cask's URLs and checksums automatically.
+- Each later stable release opens a tap pull request that updates the cask's
+  URLs and checksums. Users get the release from the tap only after a person
+  merges that pull request; until then, `brew upgrade` installs the previous
+  release.
+- A green release job does not prove that the tap pull request exists:
+  GoReleaser logs every refusal of the pull request (HTTP 422) as a warning.
+  After each release, check the tap for the `bump/nsl-VERSION` pull request.
 - Homebrew manages the CLI binary, not the host's systemd, KVM, QEMU, firmware
   or virtiofsd. Users still run `nsl doctor` and provision prerequisites with
   their host's tools.
@@ -56,6 +71,9 @@ pins every archive by checksum.
 
 - **Handwritten cask or separate bump workflow:** duplicates versions,
   archive names and checksums that GoReleaser already knows.
+- **Push the cask straight to the tap's `main`:** needs a token that bypasses
+  the tap's pull-request rule, and puts a release's cask in front of users with
+  no review.
 - **GoReleaser `brews` formula integration:** deprecated in favor of
   `homebrew_casks`; Linux casks also match the existing Frostyard tap.
 - **Homebrew dependencies for host tools:** cannot satisfy the host's systemd,

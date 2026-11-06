@@ -22,19 +22,24 @@ You can run the unit tests without root or a VM. They use fake tools and local p
 
 `make bump` tags the next stable version from a clean, verified `main`.
 The release workflow uses GoReleaser Pro to publish the Linux archives and
-generate `Casks/nsl.rb` in
+generate `Casks/nsl.rb` for
 [`frostyard/homebrew-tap` ↗](https://github.com/frostyard/homebrew-tap).
-Snapshots and prerelease tags do not update the stable cask.
+GoReleaser commits the cask to a `bump/nsl-VERSION` branch of the tap and opens
+a pull request into the tap's `main`; the tap serves the new release once a
+maintainer merges it. GoReleaser only warns when GitHub refuses the pull request,
+so check the tap for it after each release. Snapshots and prerelease tags do not
+update the stable cask.
 Both workflows pin GoReleaser Pro to one exact version. The
 release-config job renders the cask in snapshot mode, and
 `scripts/check-cask.py` refuses a cask that Homebrew's
 `Cask/ZapNotRequired` cop refuses. Bump the exact pin in both
 workflows together.
 
-The workflow needs `GORELEASER_KEY` and the Frostyard `ORG_PAT` secret available
-to nsl. `ORG_PAT` must have Contents write access to the tap; the workflow's
-`GITHUB_TOKEN` only publishes this repository's release and provenance.
-Missing tap credentials fail the workflow before publication.
+The workflow needs the `GORELEASER_KEY` and `HOMEBREW_TAP_TOKEN` secrets.
+`HOMEBREW_TAP_TOKEN` is a fine-grained token for the tap only, with Contents and
+Pull requests write access; the workflow's `GITHUB_TOKEN` only publishes this
+repository's release and provenance. Missing tap credentials fail the workflow
+before publication.
 
 Archive names carry no version, such as `nsl_linux_amd64.tar.gz`, because the
 [install guide](../getting-started/install.md#download-a-release) downloads
