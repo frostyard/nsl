@@ -168,6 +168,9 @@ func (a *agent) display(req *protocol.Request, binding *protocol.Binding) error 
 		return &protocol.Error{Code: protocol.CodeFailed, Message: fmt.Sprintf("the Waypipe server exited: %v", err)}
 	}
 	cancel()
-	<-server
+	// Cancel kills the Waypipe server, so its exit error is expected: wait for
+	// the server to end and ignore the error.
+	err = <-server
+	_ = err
 	return nil
 }
