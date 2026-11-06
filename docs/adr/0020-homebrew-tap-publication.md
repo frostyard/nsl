@@ -52,6 +52,9 @@ pins every archive by checksum.
   URLs and checksums. Users get the release from the tap only after a person
   merges that pull request; until then, `brew upgrade` installs the previous
   release.
+- A green release job does not prove that the tap pull request exists:
+  GoReleaser logs every refusal of the pull request (HTTP 422) as a warning.
+  After each release, check the tap for the `bump/nsl-VERSION` pull request.
 - Homebrew manages the CLI binary, not the host's systemd, KVM, QEMU, firmware
   or virtiofsd. Users still run `nsl doctor` and provision prerequisites with
   their host's tools.

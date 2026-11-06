@@ -26,7 +26,9 @@ generate `Casks/nsl.rb` for
 [`frostyard/homebrew-tap` ↗](https://github.com/frostyard/homebrew-tap).
 GoReleaser commits the cask to a `bump/nsl-VERSION` branch of the tap and opens
 a pull request into the tap's `main`; the tap serves the new release once a
-maintainer merges it. Snapshots and prerelease tags do not update the stable cask.
+maintainer merges it. GoReleaser only warns when GitHub refuses the pull request,
+so check the tap for it after each release. Snapshots and prerelease tags do not
+update the stable cask.
 Both workflows pin GoReleaser Pro to one exact version. The
 release-config job renders the cask in snapshot mode, and
 `scripts/check-cask.py` refuses a cask that Homebrew's
