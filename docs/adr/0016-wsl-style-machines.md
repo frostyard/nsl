@@ -35,7 +35,7 @@ The project is one day old and has no users or compatibility obligations. The pr
 
 **Lifecycle.** Commands start machines lazily. A machine with no nsl sessions or connected GUI clients stops after an idle timeout; `nsl shutdown` stops all machines. Export and import move whole machines. The trust tier is chosen at import, defaulting as for creation, and is never read from an archive.
 
-**Topology is separate.** This decision holds whether machines are separate VMs or containers in one shared VM. [ADR-0017](0017-shared-vm-and-machine-images.md) chose the shared VM, with a VM of its own for each isolated machine, from the [shared-VM experiment](../plans/shared-vm-experiment.md)'s evidence.
+**Topology is separate.** This decision holds whether machines are separate VMs or containers in one shared VM. [ADR-0017](0017-shared-vm-and-machine-images.md) chose the shared VM, with a VM of its own for each isolated machine, from the [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md)'s evidence.
 
 This supersedes the explicit capability-grant posture of [ADR-0004](0004-managed-development-vms.md) and [ADR-0005](0005-vmspawn-and-nspawn-images.md), and the project and desktop restore grants of [ADR-0006](0006-stopped-vm-backups.md). Their other decisions stand.
 
@@ -60,7 +60,7 @@ This supersedes the explicit capability-grant posture of [ADR-0004](0004-managed
 
 ## References
 
-- Interface: [CLI contract](../specs/cli.md). Topology: [ADR-0017](0017-shared-vm-and-machine-images.md), [shared-VM experiment](../plans/shared-vm-experiment.md).
+- Interface: [CLI contract](../specs/cli.md). Topology: [ADR-0017](0017-shared-vm-and-machine-images.md), [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md).
 - Mechanisms and images: [lifecycle](../design/lifecycle.md), [machine-image contract](../specs/machine-images.md).
-- Prior decisions: [ADR-0004](0004-managed-development-vms.md), [ADR-0005](0005-vmspawn-and-nspawn-images.md), [ADR-0006](0006-stopped-vm-backups.md), [ADR-0013](0013-optional-cloud-init-provisioning.md). Research: [WSL2 roadmap](../plans/wsl2-equivalent.md).
+- Prior decisions: [ADR-0004](0004-managed-development-vms.md), [ADR-0005](0005-vmspawn-and-nspawn-images.md), [ADR-0006](0006-stopped-vm-backups.md), [ADR-0013](0013-optional-cloud-init-provisioning.md). Research: [WSL2 roadmap](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/wsl2-equivalent.md).
 - [WSL file systems](https://learn.microsoft.com/en-us/windows/wsl/filesystems), [WSL commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands).

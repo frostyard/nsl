@@ -25,4 +25,4 @@ Growth runs on every boot and is harmless when the sizes already match. Resize a
 ## References
 
 - [VM image](../specs/vm-image.md#data-disk), [ADR-0008](0008-offline-storage-management.md).
-- History: [storage validation](../plans/storage-management.md).
+- History: [storage validation](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/storage-management.md).

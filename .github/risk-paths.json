@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "paths": [
+    {
+      "glob": ".github/risk-paths.json",
+      "why": "governance: the high-risk path list"
+    },
+    {
+      "glob": ".github/workflows/**",
+      "why": "governance: CI, the risk-paths caller and token permissions"
+    },
+    {
+      "glob": "Makefile",
+      "why": "governance: the verify gate"
+    },
+    {
+      "glob": "scripts/check-template.mjs",
+      "why": "governance: the template verification gate"
+    },
+    {
+      "glob": "scripts/check-corrections.mjs",
+      "why": "governance: the corrections validation gate"
+    },
+    {
+      "glob": "scripts/lib/**",
+      "why": "governance: the vendored risk-path validator and matcher"
+    },
+    {
+      "glob": "mise.toml",
+      "why": "update verification: the tool pins that CI installs, checked against mise.lock"
+    },
+    {
+      "glob": "mise.lock",
+      "why": "update verification: the checksums of the tools that CI installs"
+    },
+    {
+      "glob": ".svu.yml",
+      "why": "publication: the version configuration for release tags"
+    },
+    {
+      "glob": ".goreleaser.yaml",
+      "why": "publication: the release build, archives and the Homebrew cask"
+    },
+    {
+      "glob": "scripts/check-cask.py",
+      "why": "publication: the check of the rendered Homebrew cask"
+    },
+    {
+      "glob": "scripts/publish-images.py",
+      "why": "publication: signs and publishes the images and the catalogue"
+    },
+    {
+      "glob": "scripts/bootstrap-publisher.py",
+      "why": "publication: downloads the checksum-pinned tools that sign and publish the images"
+    },
+    {
+      "glob": "scripts/zstd-image.go",
+      "why": "publication: compresses the image artifacts that are signed and published"
+    },
+    {
+      "glob": "scripts/build-image.sh",
+      "why": "publication: builds the published images on the image builder"
+    },
+    {
+      "glob": "scripts/compose-image.py",
+      "why": "publication: builds the published images on the image builder"
+    },
+    {
+      "glob": "scripts/prepare-builder.sh",
+      "why": "publication: builds the published images on the image builder"
+    },
+    {
+      "glob": "scripts/builder-esp-prune",
+      "why": "publication: builds the published images on the image builder"
+    },
+    {
+      "glob": "scripts/builder-mkosi-retry",
+      "why": "publication: builds the published images on the image builder"
+    },
+    {
+      "glob": "scripts/bootstrap-poc.sh",
+      "why": "publication: builds the published images on the image builder"
+    },
+    {
+      "glob": "scripts/probe-vm.py",
+      "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
+    },
+    {
+      "glob": "scripts/probe-machines.py",
+      "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
+    },
+    {
+      "glob": "scripts/measure-machines.py",
+      "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
+    },
+    {
+      "glob": "scripts/refresh-sigstore-root.go",
+      "why": "signing and keys: the Sigstore trust root that verifies images"
+    },
+    {
+      "glob": "trust/**",
+      "why": "signing and keys: the Sigstore trust root that verifies images"
+    },
+    {
+      "glob": "image_verify.go",
+      "why": "update verification: catalogue and image signature, freshness and digest checks"
+    },
+    {
+      "glob": "image_registry.go",
+      "why": "update verification: catalogue and image signature, freshness and digest checks"
+    },
+    {
+      "glob": "image_cache.go",
+      "why": "update verification: catalogue and image signature, freshness and digest checks"
+    },
+    {
+      "glob": "image_contract.go",
+      "why": "update verification: catalogue and image signature, freshness and digest checks"
+    },
+    {
+      "glob": "image/**",
+      "why": "boot chain: the VM image and machine images that users boot"
+    },
+    {
+      "glob": "cmd/nsl-agent/**",
+      "why": "auth: the root VM agent behind the forced SSH command, and its request validation"
+    },
+    {
+      "glob": "internal/protocol/**",
+      "why": "auth: the root VM agent behind the forced SSH command, and its request validation"
+    },
+    {
+      "glob": "state.go",
+      "why": "secrets and credentials: the SSH identities of the VM and the machines"
+    },
+    {
+      "glob": "remote.go",
+      "why": "secrets and credentials: the SSH identities of the VM and the machines"
+    },
+    {
+      "glob": "vm.go",
+      "why": "boot chain: launches the VM and replaces its root in recover"
+    },
+    {
+      "glob": "machines.go",
+      "why": "destructive operations: machine removal, including an isolated machine's VM"
+    },
+    {
+      "glob": "storage.go",
+      "why": "destructive operations: data-disk growth and VM image replacement (update)"
+    },
+    {
+      "glob": "archive.go",
+      "why": "destructive operations: machine export and import"
+    },
+    {
+      "glob": "desktop.go",
+      "why": "auth: the nsl-open broker that does host actions for machines"
+    }
+  ]
+}

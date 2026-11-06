@@ -1,6 +1,6 @@
 # Plan: Optional cloud-init provisioning
 
-**Status: deferred until cloud-init is re-validated inside machines.** Deliver reusable machine bootstrap, such as toolchains and dotfiles, without weakening nsl's account, identity or readiness. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md) records the decision; the [provisioning contract](../specs/provisioning.md) defines flags, states and persistence. Start after Phase 7 of the [shared-VM implementation](shared-vm-implementation.md), when machines, exports and imports work through the CLI.
+**Status: deferred until cloud-init is re-validated inside machines.** Deliver reusable machine bootstrap, such as toolchains and dotfiles, without weakening nsl's account, identity or readiness. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md) records the decision; the [provisioning contract](../specs/provisioning.md) defines flags, states and persistence. Start after Phase 7 of the [shared-VM implementation](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md), when machines, exports and imports work through the CLI.
 
 ## Phase 0 — Re-validate cloud-init in machines
 
@@ -48,5 +48,5 @@ Run on Debian and Fedora, then on each family that advertises the capability:
 ## References
 
 - Implements: [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md), [provisioning contract](../specs/provisioning.md).
-- Related: [machine images](../specs/machine-images.md), [agent](../specs/agent.md), [shared-VM implementation](shared-vm-implementation.md).
+- Related: [machine images](../specs/machine-images.md), [agent](../specs/agent.md), [shared-VM implementation](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md).
 - [NoCloud](https://docs.cloud-init.io/en/latest/reference/datasources/nocloud.html), [module reference](https://cloudinit.readthedocs.io/en/latest/reference/modules.html), [cloud-init status](https://cloudinit.readthedocs.io/en/24.1/howto/status.html).

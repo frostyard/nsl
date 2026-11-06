@@ -28,13 +28,13 @@ jobs:
             exit 1
           fi
       # mise.toml and mise.lock pin every tool the gates run beyond Go (frostyard/core
-      # ADR-0043): this installs the locked golangci-lint that make ci runs,
-      # checksum-verified. Go still comes from setup-go (go.mod).
+      # ADR-0043): this installs the locked golangci-lint and Node that make ci
+      # runs, checksum-verified. Go still comes from setup-go (go.mod).
       - name: Install pinned tools
         uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4.2.5
         with:
           install: true
-          install_args: golangci-lint
+          install_args: golangci-lint node
           cache: true
       - name: Verify tagged source
         run: make ci
@@ -42,7 +42,7 @@ jobs:
         with:
           distribution: goreleaser-pro
           # Exact pin: v2.20.0 renders `zap :not_required`. The range resolved to v2.19.0,
-          # whose comment Homebrew refuses. Keep the release-config pin in test.yml in sync; bump both together.
+          # whose comment Homebrew refuses. Keep the release-config pin in ci.yml in sync; bump both together.
           version: v2.20.0
           args: release --clean
         env:

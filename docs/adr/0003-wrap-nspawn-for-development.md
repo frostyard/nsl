@@ -17,4 +17,4 @@ No second daemon or host package installation. Switching mount contexts requires
 - Separate per-project environments: deferred; shared toolchain in one machine is simpler initially.
 
 ## References
-- Built in [v0.1.0 plan](../plans/v0.1.0.md); mechanisms in [lifecycle design](../design/lifecycle.md); commands in [CLI spec](../specs/cli.md).
+- Built in [v0.1.0 plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/v0.1.0.md); mechanisms in [lifecycle design](../design/lifecycle.md); commands in [CLI spec](../specs/cli.md).

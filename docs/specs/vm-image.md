@@ -136,4 +136,4 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 ## References
 
 - Rationale: [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0010](../adr/0010-explicit-guest-root-growth.md), [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md), [ADR-0007](../adr/0007-maintainable-guest-boot.md).
-- Evidence: Phase 1 of the [shared-VM experiment](../plans/shared-vm-experiment.md#phase-1--shared-vm-baseline). Implementation: Phase 3 of the [implementation plan](../plans/shared-vm-implementation.md).
+- Evidence: Phase 1 of the [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md#phase-1--shared-vm-baseline). Implementation: Phase 3 of the [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md).

@@ -12,3 +12,6 @@ go = "1.26.10"
 golangci-lint = "2.13.1"
 # make bump: the next version from conventional commits, per .svu.yml.
 svu = "3.4.1"
+# The template gate (make verify) runs scripts/check-template.mjs and the Node
+# tests. Node 24 LTS.
+node = "24.22.2"

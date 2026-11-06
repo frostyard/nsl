@@ -27,4 +27,4 @@ The kernel is part of a tested, signed VM image, and every VM gets it at its nex
 ## References
 
 - [VM image](../specs/vm-image.md), [image build](../../image/README.md), [ADR-0017](0017-shared-vm-and-machine-images.md).
-- History: [backup/reliability validation](../plans/backup-and-reliability.md). [systemd kernel-install](https://www.freedesktop.org/software/systemd/man/latest/kernel-install.html).
+- History: [backup/reliability validation](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/backup-and-reliability.md). [systemd kernel-install](https://www.freedesktop.org/software/systemd/man/latest/kernel-install.html).

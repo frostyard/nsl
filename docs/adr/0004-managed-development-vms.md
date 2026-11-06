@@ -7,7 +7,7 @@
 
 The product goal is the WSL2 user experience on atomic Linux: persistent Linux environments with native command, file, network and desktop integration, backed by real VMs. The current nspawn.org wrapper follows [ADR-0003](0003-wrap-nspawn-for-development.md), but is a two-hour-old proof of concept with no users. It creates no compatibility or migration obligation.
 
-WSL2's shared utility VM is one way to provide that experience. Reproducing its container topology is optional. nspawn.org's runtime manages containers, while its separate image recipe repository already includes a bootable disk profile. The [research and roadmap](../plans/wsl2-equivalent.md) distinguish image reuse, runtime reuse and launcher selection.
+WSL2's shared utility VM is one way to provide that experience. Reproducing its container topology is optional. nspawn.org's runtime manages containers, while its separate image recipe repository already includes a bootable disk profile. The [research and roadmap](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/wsl2-equivalent.md) distinguish image reuse, runtime reuse and launcher selection.
 
 ## Decision
 
@@ -23,7 +23,7 @@ Replace the proof-of-concept CLI and implementation where useful. Do not build c
 
 The user explicitly authorizes a complete rewrite, including language and dependency changes. Select Go, Rust or another implementation according to demonstrated reuse and maintenance cost. Prefer established transport/display implementations over recreating their protocols. Update canonical instructions, builds and release tooling to reflect the selected implementation; no compatibility exception is needed to replace the current Go CLI.
 
-This supersedes ADR-0003. The current design and CLI contract describe the new implementation. The [experiment report](../plans/vm-proof-of-concept.md) records evidence and open gates; acceptance here does not declare desktop parity or production readiness.
+This supersedes ADR-0003. The current design and CLI contract describe the new implementation. The [experiment report](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/vm-proof-of-concept.md) records evidence and open gates; acceptance here does not declare desktop parity or production readiness.
 
 ## Consequences
 
@@ -44,7 +44,7 @@ This supersedes ADR-0003. The current design and CLI contract describe the new i
 
 ## References
 
-- Measured implementation: [VM proof of concept](../plans/vm-proof-of-concept.md).
-- Research, source links, alternatives and delivery gates: [WSL2-equivalent roadmap](../plans/wsl2-equivalent.md).
+- Measured implementation: [VM proof of concept](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/vm-proof-of-concept.md).
+- Research, source links, alternatives and delivery gates: [WSL2-equivalent roadmap](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/wsl2-equivalent.md).
 - Current proof of concept: [lifecycle design](../design/lifecycle.md), [CLI contract](../specs/cli.md).
 - Existing decision: [ADR-0003](0003-wrap-nspawn-for-development.md).

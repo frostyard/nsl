@@ -168,5 +168,5 @@ Phase 6 turns these into the agent's acceptance matrix, run through the CLI on e
 
 ## References
 
-- Rationale: [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). Evidence: the entry-method comparison in the [shared-VM experiment](../plans/shared-vm-experiment.md#phase-2--machines-as-containers).
+- Rationale: [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). Evidence: the entry-method comparison in the [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md#phase-2--machines-as-containers).
 - [org.freedesktop.systemd1](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html), [org.freedesktop.machine1](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.machine1.html), [sshd forced commands](https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT).

@@ -5,7 +5,7 @@
 
 ## Context
 
-[ADR-0016](0016-wsl-style-machines.md) made nsl a set of WSL-style machines trusted as the user, and left the topology to the [shared-VM experiment](../plans/shared-vm-experiment.md). The experiment compared [ADR-0005](0005-vmspawn-and-nspawn-images.md)'s one VM per machine with WSL2's shape: one VM whose distributions are containers.
+[ADR-0016](0016-wsl-style-machines.md) made nsl a set of WSL-style machines trusted as the user, and left the topology to the [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md). The experiment compared [ADR-0005](0005-vmspawn-and-nspawn-images.md)'s one VM per machine with WSL2's shape: one VM whose distributions are containers.
 
 Measured on Snow 13, with an 8 GiB guest-memory ceiling on both sides:
 
@@ -102,7 +102,7 @@ The project has no users; nothing needs migration.
 - [ADR-0006](0006-stopped-vm-backups.md)'s qcow2 archive gives way to machine archives.
 - This supersedes ADR-0005's one VM per environment and per-distro bootable images.
 
-The environment CLI, its state and the per-distro images are replaced in place by the [machine CLI](../specs/cli.md), with no compatibility, migration or transition period. The [implementation plan](../plans/shared-vm-implementation.md) phases the work.
+The environment CLI, its state and the per-distro images are replaced in place by the [machine CLI](../specs/cli.md), with no compatibility, migration or transition period. The [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md) phases the work.
 
 ## Consequences
 
@@ -130,7 +130,7 @@ The environment CLI, its state and the per-distro images are replaced in place b
 
 ## References
 
-- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md), including the image tally. The experiment code lived in `experiments/shared-vm/` until the implementation replaced it; commit `2d4ff7c` holds its last version.
+- Evidence: [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md), including the image tally. The experiment code lived in `experiments/shared-vm/` until the implementation replaced it; commit `2d4ff7c` holds its last version.
 - Interface: [CLI contract](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md). Identity and trust: [ADR-0016](0016-wsl-style-machines.md).
 - Superseded or narrowed: [ADR-0005](0005-vmspawn-and-nspawn-images.md), [ADR-0006](0006-stopped-vm-backups.md), [ADR-0007](0007-maintainable-guest-boot.md), [ADR-0008](0008-offline-storage-management.md), [ADR-0009](0009-distribution-neutral-guest-contract.md), [ADR-0010](0010-explicit-guest-root-growth.md), [ADR-0011](0011-image-profiles-and-portable-vsock.md).
 - Unchanged and extended: [ADR-0012](0012-signed-image-distribution.md), [ADR-0013](0013-optional-cloud-init-provisioning.md), [ADR-0015](0015-image-verification-and-catalogue-policy.md).

@@ -83,7 +83,7 @@ class CheckCask(unittest.TestCase):
 
     def test_workflows_pin_exact_same_goreleaser_version(self):
         versions = {}
-        counts = {"release.yml": 1, "test.yml": 2}
+        counts = {"release.yml": 1, "ci.yml": 2}
         for name, expected_count in counts.items():
             path = ROOT / ".github/workflows" / name
             text = path.read_text(encoding="utf-8")
@@ -101,13 +101,13 @@ class CheckCask(unittest.TestCase):
             for version in found:
                 self.assertRegex(version, r"^v\d+\.\d+\.\d+$")
             versions[name] = found
-        all_versions = versions["release.yml"] + versions["test.yml"]
+        all_versions = versions["release.yml"] + versions["ci.yml"]
         self.assertEqual(len(set(all_versions)), 1)
         version_tuple = tuple(int(part) for part in all_versions[0][1:].split("."))
         self.assertGreaterEqual(version_tuple, (2, 20, 0))
 
     def test_workflows_render_and_check_cask(self):
-        test = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+        test = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn("python3 scripts/check-cask.py dist/homebrew/Casks/nsl.rb", test)
         self.assertIn("release --snapshot --clean", test)
 

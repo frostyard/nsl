@@ -9,7 +9,7 @@ GUI applications in a machine that is not isolated open their windows on the
 host desktop through the machine's Waypipe session
 ([ADR-0016](0016-wsl-style-machines.md)). The user must still start each one
 from a terminal: `nsl run galculator`. WSLg puts the Linux applications of a
-distribution in the Windows Start menu; the [WSL2 plan](../plans/wsl2-equivalent.md)
+distribution in the Windows Start menu; the [WSL2 plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/wsl2-equivalent.md)
 asks for the same on Linux hosts, and the [CLI spec](../specs/cli.md) already
 requires that launcher entries are user-scoped, nsl-prefixed, removed with
 their machine, and never overwrite unrelated files.
@@ -215,6 +215,6 @@ under the machine lock and rechecks the machine's ID, so it cannot race
 - Contract: [CLI spec](../specs/cli.md#desktop-and-host-actions).
 - Rationale: [ADR-0016](0016-wsl-style-machines.md) (desktop integration and
   host-file ownership), [ADR-0017](0017-shared-vm-and-machine-images.md).
-- Plans: [WSL2 equivalent](../plans/wsl2-equivalent.md),
-  [implementation plan](../plans/shared-vm-implementation.md).
+- Plans: [WSL2 equivalent](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/wsl2-equivalent.md),
+  [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md).
 - User guide: [Desktop applications](../../site/content/guides/desktop.md#add-an-application-to-the-menu).

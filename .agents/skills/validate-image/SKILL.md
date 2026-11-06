@@ -5,7 +5,7 @@ description: Build and validate the nsl VM image, and machine images once they e
 
 # Validate an nsl image
 
-Work from the repository root. Read [the VM image contract](../../../docs/specs/vm-image.md), [the machine-image contract](../../../docs/specs/machine-images.md), [image build instructions](../../../image/README.md) and the current phase of [the implementation plan](../../../docs/plans/shared-vm-implementation.md).
+Work from the repository root. Read [the VM image contract](../../../docs/specs/vm-image.md), [the machine-image contract](../../../docs/specs/machine-images.md), [image build instructions](../../../image/README.md), and the open plan in [docs/plans/](../../../docs/plans/) that the change belongs to, if there is one.
 
 ## The VM image
 
@@ -22,7 +22,7 @@ Work from the repository root. Read [the VM image contract](../../../docs/specs/
 4. Inspect every check's `pass` field. A booting image or one passing check is not acceptance. Record the raw SHA256, the descriptor's build ID and the host versions from the evidence.
 5. When a check fails, read the VM's console through `journalctl --user -u nsl-UID-vm-ID.service`. Look inside a running VM through the agent's `vm` operation; the host has no other shell into it.
 6. Fix the image source and validate a fresh build. A hand-repaired VM is evidence for a fix, not acceptance of an image.
-7. Run `make ci` and record the build and results in the implementation plan. Follow the user's commit and publication scope; do not infer authorization to tag or publish.
+7. Run `make ci` and record the build and results in the open plan of the change, or in the pull request when no plan covers it. Follow the user's commit and publication scope; do not infer authorization to tag or publish.
 
 ## Machine images
 
