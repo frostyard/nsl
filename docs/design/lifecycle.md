@@ -1,6 +1,6 @@
 # Machine lifecycle and host integration
 
-Living document for the design that [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) set. Contract: the [CLI spec](../specs/cli.md). The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live; the binary runs the VM; machines arrive with Phases 6 and 7.
+Living document for the design that [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md) set. Contract: the [CLI spec](../specs/cli.md). Everything below is live. The [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md), now in git history, records how each part was built and proved.
 
 ## Overview
 
@@ -111,8 +111,26 @@ Each machine that is not isolated gets one persistent desktop session when a com
 
 `images`, `pull`, `create --distro` and `update` follow the [signed delivery contract](../specs/image-delivery.md). The CLI verifies the catalogue and each descriptor against the embedded Sigstore root and the exact Frostyard workflow identity. It downloads by immutable digest, validates resumed bytes, and bounds decompression before publishing into the cache. Offline use requires fresh metadata and a complete verified cache.
 
+## Requirements that must not regress
+
+Each item was found by a failing check in the shared-VM experiment and carried through the implementation. The specs hold the exact rules; this list says where a change must not go back.
+
+| Requirement | Where |
+| --- | --- |
+| Blank-disk formatting only; refuse any existing signature | [VM image](../specs/vm-image.md) |
+| Machine images apply presets on first boot; integration units ship presets | [Machine images](../specs/machine-images.md) |
+| Nesting: a fully visible procfs, `keyring = false`, `default_sysctls = []` | [Machine images](../specs/machine-images.md) |
+| No enabled networkd or resolved; bind the VM's resolver | [Machine images](../specs/machine-images.md), [VM image](../specs/vm-image.md) |
+| Link the host zone before anything runs in a tree; `Timezone=off`, including offline nspawn runs | [VM image](../specs/vm-image.md), [agent](../specs/agent.md) |
+| One `nsl` PAM service; no per-distro PAM mapping in the CLI | [Machine images](../specs/machine-images.md), [agent](../specs/agent.md) |
+| Literal argv, 128+N signal status, PTY without title or color escapes | [Agent](../specs/agent.md) |
+| Directory translation by device and inode, plus `/mnt/host` aliases | [CLI](../specs/cli.md) |
+| Waypipe `--display` socket bound into the running machine | [Desktop and host actions](#desktop-and-host-actions) |
+| Creation cleans up after failure | [CLI](../specs/cli.md) |
+| Four idle machines at or below 1,200 MiB; an additional machine at p95 ≤ 2 s (`scripts/measure-machines.py`) | [Image publication](image-publication.md) |
+
 ## References
 
 - Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0005](../adr/0005-vmspawn-and-nspawn-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md).
 - Contracts: [CLI](../specs/cli.md), [agent](../specs/agent.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md), [image delivery](../specs/image-delivery.md).
-- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md).
+- Evidence: [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md).

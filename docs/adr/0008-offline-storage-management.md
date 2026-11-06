@@ -41,4 +41,4 @@ Deletion is explicit and resumable. Growth keeps the VM's identity and every mac
 ## References
 
 - [CLI contract](../specs/cli.md#storage), [lifecycle](../design/lifecycle.md#storage), [VM image](../specs/vm-image.md#data-disk).
-- History: [storage milestone](../plans/storage-management.md).
+- History: [storage milestone](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/storage-management.md).

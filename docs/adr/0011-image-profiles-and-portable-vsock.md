@@ -20,4 +20,4 @@ Host lifecycle, storage and export code remain distro-independent. Package names
 ## References
 
 - [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md), [image build](../../image/README.md).
-- History: [image profiles and Ubuntu](../plans/image-profiles-and-ubuntu.md).
+- History: [image profiles and Ubuntu](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/image-profiles-and-ubuntu.md).

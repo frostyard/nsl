@@ -9,14 +9,15 @@
 
 ## Current state
 
-nsl is becoming WSL-style machines on atomic Linux. [ADR-0016](adr/0016-wsl-style-machines.md) defines machines trusted as the user, with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs them as systemd-nspawn containers in one shared VM, from signed Frostyard machine images, as the [shared-VM experiment](plans/shared-vm-experiment.md) supported. The specs below describe that target system; the [implementation plan](plans/shared-vm-implementation.md) phases the work and records what is live.
+nsl is WSL-style machines on atomic Linux. [ADR-0016](adr/0016-wsl-style-machines.md) defines machines trusted as the user, with a default machine and host storage at `/mnt/host`. [ADR-0017](adr/0017-shared-vm-and-machine-images.md) runs them as systemd-nspawn containers in one shared VM, from signed Frostyard machine images, as the [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md) supported. The specs below describe that system; the [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md) records how it was built and what each phase proved.
 
-The binary implements the whole CLI contract: machines in the shared VM or, isolated, in VMs of their own; export and import; idle stop; forwarded ports, Waypipe windows, host menu entries, `nsl-open` and `ssh-config`; and the signed catalogue client. The [publication workflow](design/image-publication.md) publishes the VM image and eleven machine images weekly: Debian 13 and testing, Ubuntu 26.04 LTS and 24.04 LTS, Fedora 44 and Rawhide, CentOS Stream 10, Arch, openSUSE Tumbleweed and Leap 16.0, and the Azure Linux 4.0 beta. Catalogue sequence 6, on 2026-09-28, was the first, with four machine images; sequence 7, the same day, added the three of the [second plan](plans/more-machine-images.md); sequence 9 opens Electron applications on Wayland and falls back to `C.UTF-8` for host locales a machine lacks; sequence 12 is the first from the dedicated `nsl-builder` runner ([ADR-0019](adr/0019-persistent-publication-runner.md)); sequence 16 added the Azure Linux 4.0 beta ([plan](plans/azure-linux.md)); and sequence 18 added Debian testing, Fedora Rawhide and Ubuntu 24.04 LTS ([plan](plans/more-releases.md)). The earlier one-VM-per-environment prototype, with seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](plans/public-image-delivery.md)), has been removed from the code; its reports remain as history.
+The binary implements the whole CLI contract: machines in the shared VM or, isolated, in VMs of their own; export and import; idle stop; forwarded ports, Waypipe windows, host menu entries, `nsl-open` and `ssh-config`; and the signed catalogue client. The [publication workflow](design/image-publication.md) publishes the VM image and eleven machine images weekly: Debian 13 and testing, Ubuntu 26.04 LTS and 24.04 LTS, Fedora 44 and Rawhide, CentOS Stream 10, Arch, openSUSE Tumbleweed and Leap 16.0, and the Azure Linux 4.0 beta. Catalogue sequence 6, on 2026-09-28, was the first, with four machine images; sequence 7, the same day, added the three of the [second plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-machine-images.md); sequence 9 opens Electron applications on Wayland and falls back to `C.UTF-8` for host locales a machine lacks; sequence 12 is the first from the dedicated `nsl-builder` runner ([ADR-0019](adr/0019-persistent-publication-runner.md)); sequence 16 added the Azure Linux 4.0 beta ([plan](plans/azure-linux.md)); and sequence 18 added Debian testing, Fedora Rawhide and Ubuntu 24.04 LTS ([plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-releases.md)). The earlier one-VM-per-environment prototype, with seven signed bootable images ([v0.3.0](https://github.com/frostyard/nsl/releases/tag/v0.3.0), [publication results](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/public-image-delivery.md)), has been removed from the code. Its reports and the finished plans of the shared-VM design are in git history at [`e617966`](https://github.com/frostyard/nsl/tree/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans).
 
 ## Index
 
 ### Decisions
 
+- [0024 — Adopt the frostyard repository baseline](adr/0024-adopt-the-repository-baseline.md)
 - [0023 — Local problem records](adr/0023-local-problem-records.md)
 - [0022 — Desktop menu entries for machine applications](adr/0022-desktop-menu-entries.md)
 - [0021 — Machine-readable output with `--json`](adr/0021-machine-readable-output.md)
@@ -56,28 +57,14 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 
 ### Plans
 
-- [Machines in a shared VM](plans/shared-vm-implementation.md) — implementation of ADR-0016 and ADR-0017; start here for new work.
-- [Ubuntu, CentOS Stream and openSUSE Leap machine images](plans/more-machine-images.md) — three more machine images, accepted and published.
-- [Azure Linux 4.0 machine image](plans/azure-linux.md) — Microsoft's Fedora-based beta in the rpm family.
-- [Debian testing, Fedora Rawhide and Ubuntu 24.04 machine images](plans/more-releases.md) — two development branches and the previous Ubuntu LTS, accepted and published.
-- [Shared-VM experiment](plans/shared-vm-experiment.md) — machines as containers in one VM; evidence for ADR-0017.
+Only open work. A finished plan is deleted; git history keeps it.
+
+- [Azure Linux 4.0 machine image](plans/azure-linux.md) — Phase 2 waits for a clean-host check.
 - [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — deferred until cloud-init is re-validated in machines.
+- [Unscheduled work after the shared VM](plans/later-work.md) — missing evidence and the ideas that the finished plans left open.
 
-Historical reports for the one-VM-per-environment design:
+### Org-wide decisions
 
-- [Public image delivery results](plans/public-image-delivery.md) — exact v0.3.0 artifacts and release acceptance.
-- [Signed prebuilt image delivery](plans/image-distribution.md) — client and publication workflow.
-- [v0.2.0 and v0.3.0 release gates](plans/v0.2-v0.3-release.md)
-- [SUSE and Arch validation](plans/suse-and-arch.md)
-- [Fedora and CentOS Stream guests](plans/rpm-guests.md)
-- [Image profiles and Ubuntu](plans/image-profiles-and-ubuntu.md)
-- [Broad distribution support](plans/distribution-support.md)
-- [Safe removal and disk growth](plans/storage-management.md)
-- [Backup/restore and daily-work reliability](plans/backup-and-reliability.md)
-- [vmspawn Go implementation and validation](plans/vmspawn-implementation.md)
-- [nspawn-derived image and vmspawn comparison](plans/vmspawn-comparison.md)
-- [VM proof of concept — experiment and results](plans/vm-proof-of-concept.md)
-- [v0.1.0 retrospective](plans/v0.1.0.md)
-- [WSL2-like environments on atomic Linux — research and roadmap](plans/wsl2-equivalent.md)
+- [Core ADRs that bind nsl](org-adrs.md) — the frostyard/core decisions this repository follows, with where each applies.
 
 User guides live in the [documentation site](../site/content/), published at [frostyard.github.io/nsl](https://frostyard.github.io/nsl/) ([ADR-0018](adr/0018-user-documentation-site.md)). New docs start from each category's `TEMPLATE.md`. While nsl is pre-release, ADRs, specs and plans are rewritten in place when decisions change ([ADR-0001](adr/0001-record-architecture-decisions.md)). Design docs evolve with implementation; specs evolve with code. Cross-link related documents in both directions. Canonical instructions: [AGENTS.md](../AGENTS.md).

@@ -28,7 +28,7 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 
 Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
-Other distros and releases join after they pass acceptance ([plan](../plans/more-machine-images.md), [Azure Linux](../plans/azure-linux.md), [more releases](../plans/more-releases.md)).
+Other distros and releases join after they pass acceptance ([plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-machine-images.md), [Azure Linux](../plans/azure-linux.md), [more releases](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-releases.md)).
 
 ### Machine layer
 
@@ -114,7 +114,7 @@ Workload checks:
 
 Azure Linux 4.0 packages no `wayland-info`. On it, the probe lists the compositor's globals with a Python client of the Wayland protocol instead.
 
-Checks that an image does not repeat the [hub image tally](../plans/shared-vm-experiment.md#image-source-tally-hubnspawnorg-or-our-own):
+Checks that an image does not repeat the [hub image tally](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md#image-source-tally-hubnspawnorg-or-our-own):
 
 | Check | Expected |
 | --- | --- |
@@ -131,5 +131,5 @@ Checks that an image does not repeat the [hub image tally](../plans/shared-vm-ex
 ## References
 
 - Rationale: [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md), [ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md).
-- Evidence: Phases 2 and 3 and the image tally of the [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: Phase 4 of the [implementation plan](../plans/shared-vm-implementation.md).
+- Evidence: Phases 2 and 3 and the image tally of the [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md). Implementation: Phase 4 of the [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md).
 - Related: [VM image](vm-image.md), [agent](agent.md), [CLI](cli.md), [image build](../../image/README.md).

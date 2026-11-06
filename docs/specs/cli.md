@@ -1,6 +1,6 @@
 # Spec: nsl CLI
 
-Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The [implementation plan](../plans/shared-vm-implementation.md) records which parts are live and what each phase proved.
+Contract for the `nsl` binary and its tests under [ADR-0016](../adr/0016-wsl-style-machines.md) and [ADR-0017](../adr/0017-shared-vm-and-machine-images.md). nsl manages named machines: systemd-nspawn containers in one shared VM, or, for isolated machines, each in a VM of its own. The binary implements the whole contract; the [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md), now in git history, records what each phase proved.
 
 Mechanisms: [lifecycle](../design/lifecycle.md). Related contracts: the [agent protocol](agent.md), the [VM image](vm-image.md), [machine images](machine-images.md) and [image delivery](image-delivery.md).
 
@@ -258,15 +258,15 @@ Rules:
 
 ### Open interface questions
 
-- Whether to translate absolute host symlinks that point into shared trees; see the [experiment plan](../plans/shared-vm-experiment.md).
+- Whether to translate absolute host symlinks that point into shared trees; see the [experiment plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md).
 - Whether to trigger host automounts for guest access. virtiofs lookups do not trigger them, so an unmounted autofs point appears empty until the host mounts it.
 
 ## Validation boundaries
 
-Unit tests use fake tools and local processes and need neither root nor a VM. Integration evidence comes from disposable real VMs and is recorded in the [implementation plan](../plans/shared-vm-implementation.md) as each phase completes.
+Unit tests use fake tools and local processes and need neither root nor a VM. Integration evidence comes from disposable real VMs and is recorded in the open plan of the change, or in its pull request when no plan covers it.
 
 ## References
 
 - Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md), [ADR-0022](../adr/0022-desktop-menu-entries.md), [ADR-0023](../adr/0023-local-problem-records.md).
 - Contracts: [agent](agent.md), [VM image](vm-image.md), [machine images](machine-images.md), [image delivery](image-delivery.md), [provisioning](provisioning.md) (deferred).
-- Evidence: [shared-VM experiment](../plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](../plans/shared-vm-implementation.md).
+- Evidence: [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md).

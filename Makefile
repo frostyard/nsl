@@ -1,4 +1,4 @@
-.PHONY: build agent test fmt lint lint-version-check verify check ci clean release-check bump site site-serve
+.PHONY: build agent test fmt lint lint-version-check verify-template corrections-base verify check ci clean release-check bump site site-serve
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -9,6 +9,9 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 # go.mod's, or its gofmt and type checker disagree with the toolchain.
 GOLANGCI_LINT_VERSION := $(strip $(shell sed -n 's/^golangci-lint = "\(.*\)"/\1/p' mise.toml))
 GO_VERSION := $(strip $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod))
+# The major version of the Node on PATH (mise.toml pins it), checked by
+# make verify-template so the template gate needs no package install.
+NODE_MAJOR := $(shell node -p "process.versions.node.split('.')[0]" 2>/dev/null)
 
 # The repository's Go files, tracked or new, so gofmt skips ignored local
 # scratch such as build/.
@@ -51,14 +54,43 @@ verify:
 	go vet ./...
 	test -z "$$(gofmt -l $(GO_FILES))"
 	$(MAKE) --no-print-directory lint
+	$(MAKE) --no-print-directory verify-template
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go test ./...
 
 check: fmt verify
 
+# Check the agent surfaces, docs index, risk paths, corrections and vendored
+# copies (needs Node.js 22 or later, from mise.toml)
+verify-template:
+	@if ! command -v node >/dev/null 2>&1; then echo "FAIL: verify-template requires Node.js 22 or later (run: mise install)"; exit 1; fi
+	@if [ "$(NODE_MAJOR)" = "" ] || [ "$(NODE_MAJOR)" -lt 22 ]; then echo "FAIL: verify-template requires Node.js 22 or later (found: $$(node --version 2>/dev/null || echo missing)); run: mise install"; exit 1; fi
+	node scripts/check-template.mjs
+	node --test test/*.test.mjs
+
+# The corrections check compares .memory/corrections.jsonl with BASE: lines
+# are append-only (only an empty promoted_to may be filled in). The contract
+# starts with the gate: a BASE that does not hold
+# scripts/check-corrections.mjs had no such rule, so the comparison is skipped
+# with a notice. Every BASE after the adoption holds the script.
+#
+# A BASE that does not resolve to a commit is an error, never an old base: a
+# typo or an unfetched ref must not turn the comparison into a silent pass.
+corrections-base:
+	@if [ -z "$(BASE)" ]; then exit 0; fi; \
+	if ! git rev-parse --verify --quiet "$(BASE)^{commit}" >/dev/null; then \
+		echo "FAIL: BASE $(BASE) does not resolve to a commit (fetch it first)"; \
+		exit 1; \
+	fi; \
+	if git cat-file -e "$(BASE):scripts/check-corrections.mjs" 2>/dev/null; then \
+		node scripts/check-corrections.mjs --base "$(BASE)"; \
+	else \
+		echo "==> corrections: BASE $(BASE) predates the corrections gate; append-only comparison skipped"; \
+	fi
+
 # verify runs the tests under the caller's umask and ci runs the race tests
 # under a strict one, so no test depends on the umask of the machine that runs it.
-ci: verify
+ci: verify corrections-base
 	mkdir -p build
 	umask 0077 && go test -race -coverprofile=build/coverage.out ./...
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o build/nsl-linux-amd64 .

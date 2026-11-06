@@ -6,13 +6,13 @@ description: Build nsl and its images from source, run the tests, and edit this 
 
 ## The CLI
 
-You'll need Go 1.26.10 or newer to build nsl. To run the checks, install the golangci-lint version pinned in `mise.toml`. [mise ↗](https://mise.jdx.dev) installs it and verifies it against `mise.lock`.
+You'll need Go 1.26.10 or newer to build nsl. To run the checks, install the golangci-lint version pinned in `mise.toml`. [mise ↗](https://mise.jdx.dev) installs it and verifies it against `mise.lock`. It also installs the pinned Node, which `make verify` needs for the template gate.
 
 ```sh
-mise install  # the pinned golangci-lint and svu
+mise install  # the pinned golangci-lint, svu and Node
 make build    # build/nsl
 make check    # format, then verify
-make verify   # tidiness, license notices, vet, formatting, lint and tests; changes nothing
+make verify   # tidiness, license notices, vet, formatting, lint, the template gate and tests; changes nothing
 make ci       # what CI runs: verify, race-enabled tests with coverage, cross builds
 ```
 

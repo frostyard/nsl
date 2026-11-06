@@ -28,11 +28,11 @@ Users obtain images without local build tools or a registry login. The project t
 
 - **Require local image builds:** a useful developer path, but a burden for ordinary installation.
 - **Release attachments only:** a possible mirror; an OCI registry gives a standard artifact transport and digest model.
-- **Use hub.nspawn.org images directly:** they fail [ADR-0015](0015-image-verification-and-catalogue-policy.md) and ship unsafe defaults; see the [image tally](../plans/shared-vm-experiment.md#image-source-tally-hubnspawnorg-or-our-own).
+- **Use hub.nspawn.org images directly:** they fail [ADR-0015](0015-image-verification-and-catalogue-policy.md) and ship unsafe defaults; see the [image tally](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md#image-source-tally-hubnspawnorg-or-our-own).
 - **A custom image service:** infrastructure before volume or operations justify it.
 
 ## References
 
 - [Image delivery](../specs/image-delivery.md), [VM image](../specs/vm-image.md), [machine images](../specs/machine-images.md), [publication](../design/image-publication.md).
-- [Distribution boundary](0009-distribution-neutral-guest-contract.md), [image profiles](0011-image-profiles-and-portable-vsock.md). History: [image delivery plan](../plans/image-distribution.md).
+- [Distribution boundary](0009-distribution-neutral-guest-contract.md), [image profiles](0011-image-profiles-and-portable-vsock.md). History: [image delivery plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/image-distribution.md).
 - [ORAS: artifacts on GHCR](https://oras.land/docs/1.2/how_to_guides/remote_registries/), [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry), [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/).

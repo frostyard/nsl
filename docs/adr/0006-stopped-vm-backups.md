@@ -40,4 +40,4 @@ Users can keep and restore customized machines independently of image availabili
 ## References
 
 - [CLI contract](../specs/cli.md#export-and-import), [agent](../specs/agent.md), [lifecycle](../design/lifecycle.md#export-and-import).
-- [ADR-0017](0017-shared-vm-and-machine-images.md), [ADR-0016](0016-wsl-style-machines.md). History: [backup and reliability plan](../plans/backup-and-reliability.md).
+- [ADR-0017](0017-shared-vm-and-machine-images.md), [ADR-0016](0016-wsl-style-machines.md). History: [backup and reliability plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/backup-and-reliability.md).

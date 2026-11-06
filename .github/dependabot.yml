@@ -1,0 +1,25 @@
+# Dependabot (frostyard/core ADR-0071 row B13). nsl has 2 ecosystems with a
+# manifest: Go modules in go.mod and the actions the workflows pin.
+# site/requirements.txt needs no entry (it is installed with --require-hashes
+# from a pinned file), and there is no Dockerfile or package.json.
+version: 2
+updates:
+  # The Go modules of go.mod.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
+
+  # The actions the workflows pin.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"

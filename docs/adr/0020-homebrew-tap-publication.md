@@ -71,5 +71,5 @@ pins every archive by checksum.
 - [Release configuration](../../.goreleaser.yaml)
 - [Release workflow](../../.github/workflows/release.yml)
 - [Install guide](../../site/content/getting-started/install.md)
-- [Implementation plan, Phase 10](../plans/shared-vm-implementation.md#phase-10--publication-and-release)
+- [Implementation plan, Phase 10](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md#phase-10--publication-and-release)
 - [ADR-0005 — systemd-vmspawn](0005-vmspawn-and-nspawn-images.md)

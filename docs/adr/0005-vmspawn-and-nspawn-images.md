@@ -5,7 +5,7 @@
 
 ## Context
 
-The [vmspawn comparison](../plans/vmspawn-comparison.md) established a complete workflow on Snow with systemd-vmspawn and QEMU: rootless KVM and vsock, commands, localhost forwarding and Waypipe. It passed 20 restart trials, started faster than the Lima prototype, and returned freed anonymous memory to the host.
+The [vmspawn comparison](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/vmspawn-comparison.md) established a complete workflow on Snow with systemd-vmspawn and QEMU: rootless KVM and vsock, commands, localhost forwarding and Waypipe. It passed 20 restart trials, started faster than the Lima prototype, and returned freed anonymous memory to the host.
 
 vmspawn's flags change between systemd releases. qcow2 disks (`--image-format`, a format in `--extra-drive`) and `--user` arrived in 260; `--firmware=describe` and a disk type in `--extra-drive` arrived in 261. Fedora 44 and Ubuntu 26.04 LTS ship systemd 259 and Debian 13 ships 257; no stable distribution ships 260 ([#54](https://github.com/frostyard/nsl/issues/54)).
 
@@ -45,4 +45,4 @@ Run every nsl VM with systemd-vmspawn and QEMU under a systemd user unit. Lima r
 ## References
 
 - [Lifecycle design](../design/lifecycle.md), [CLI contract](../specs/cli.md), [VM image](../specs/vm-image.md).
-- [Comparison and evidence](../plans/vmspawn-comparison.md), [roadmap](../plans/wsl2-equivalent.md).
+- [Comparison and evidence](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/vmspawn-comparison.md), [roadmap](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/wsl2-equivalent.md).

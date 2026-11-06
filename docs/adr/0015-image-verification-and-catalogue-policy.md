@@ -32,5 +32,5 @@ The project must refresh catalogues before expiry and retain referenced immutabl
 
 ## References
 
-- [Image delivery contract](../specs/image-delivery.md), [implementation plan](../plans/image-distribution.md), [machine-image contract](../specs/machine-images.md).
+- [Image delivery contract](../specs/image-delivery.md), [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/image-distribution.md), [machine-image contract](../specs/machine-images.md).
 - [sigstore-go](https://github.com/sigstore/sigstore-go), [Sigstore bundle verification](https://docs.sigstore.dev/cosign/verifying/verify/).

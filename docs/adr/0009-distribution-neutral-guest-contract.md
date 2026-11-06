@@ -37,5 +37,5 @@ The CLI and agent cannot assume apt, a PAM service name or a filesystem layout i
 
 ## References
 
-- [Machine images](../specs/machine-images.md), [ADR-0017](0017-shared-vm-and-machine-images.md), [shared-VM experiment](../plans/shared-vm-experiment.md).
-- History: [distribution plan](../plans/distribution-support.md).
+- [Machine images](../specs/machine-images.md), [ADR-0017](0017-shared-vm-and-machine-images.md), [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md).
+- History: [distribution plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/distribution-support.md).
