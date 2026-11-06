@@ -40,11 +40,11 @@ Host integration:
 - The desktop matrix beyond GNOME on Wayland: KDE and other compositors.
 - Networking: mirrored networking, UDP discovery and LAN broadcast parity with WSL. Ports bind on host `127.0.0.1` only; LAN exposure would need an explicit setting.
 - File watchers on `/mnt/host`: measure the polling modes of real tools (Vite, webpack, watchfiles) and the cost of polling a large tree. [ADR-0016](../adr/0016-wsl-style-machines.md) keeps watched builds in the guest home, so this only improves the documented fallback.
+- Private user namespaces with idmapped virtiofs mounts, if trusted machines ever need isolation from each other.
 
 Archives:
 
 - Import on a host with a different UID or GID, through account and ownership remapping ([ADR-0006](../adr/0006-stopped-vm-backups.md) names it as later work). A clone with a fresh identity is in the [cloud-init plan](cloud-init-provisioning.md).
-- Private user namespaces with idmapped virtiofs mounts, if trusted machines ever need isolation from each other.
 
 Images:
 
