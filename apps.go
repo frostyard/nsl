@@ -441,7 +441,8 @@ func (a *app) publishMenuEntry(path string, body []byte, m *machineRecord, app s
 	return syncDir(dir)
 }
 
-// guestRun sends one bounded run request to the machine.
+// guestRun sends one bounded run request to the machine. The buffer is nil
+// only when the request was not sent.
 func (a *app) guestRun(v *vmRecord, m *machineRecord, argv []string, limit int) (*boundedBuffer, error) {
 	idle, err := a.idleTimeout()
 	if err != nil {
@@ -1026,12 +1027,12 @@ func (a *app) readGuestIconCandidate(v *vmRecord, m *machineRecord, candidate ic
 func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIcon, error) {
 	candidates := iconCandidates(icon)
 	for _, candidate := range candidates {
-		icon, err := a.readGuestIconCandidate(v, m, candidate)
+		found, err := a.readGuestIconCandidate(v, m, candidate)
 		if err != nil {
 			return nil, err
 		}
-		if icon != nil {
-			return icon, nil
+		if found != nil {
+			return found, nil
 		}
 	}
 	if strings.HasPrefix(icon, "/") || !iconNamePattern.MatchString(icon) {
@@ -1083,12 +1084,12 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 			if !foundPaths[candidate.path] {
 				continue
 			}
-			icon, err := a.readGuestIconCandidate(v, m, candidate)
+			found, err := a.readGuestIconCandidate(v, m, candidate)
 			if err != nil {
 				return nil, err
 			}
-			if icon != nil {
-				return icon, nil
+			if found != nil {
+				return found, nil
 			}
 		}
 		start = end
