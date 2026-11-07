@@ -447,22 +447,32 @@ func (a *app) publishMenuEntry(path string, body []byte, m *machineRecord, app s
 	return syncDir(dir)
 }
 
+// guestRun sends one bounded run request to the machine. The buffer is nil
+// only when the request was not sent.
+func (a *app) guestRun(v *vmRecord, m *machineRecord, argv []string, limit int) (*boundedBuffer, error) {
+	idle, err := a.idleTimeout()
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := protocol.Encode(protocol.Request{Protocol: protocol.Version, Op: "run", Machine: m.Name, ID: m.ID,
+		Argv: argv, Directory: "/", IdleTimeout: idle})
+	if err != nil {
+		return nil, err
+	}
+	out := &boundedBuffer{limit: limit + 1}
+	err = a.r.run(context.Background(), nil, out, io.Discard, os.Environ(), "ssh", append(a.sshArgs(v, false), encoded)...)
+	return out, err
+}
+
 // guestFile reads PATH in the machine with cat through the agent's run
 // operation. found is false when cat's exit status is 1, which is how cat
 // reports a missing file; every other failure stops the command.
 func (a *app) guestFile(v *vmRecord, m *machineRecord, path string, limit int) ([]byte, bool, error) {
-	idle, err := a.idleTimeout()
+	out, err := a.guestRun(v, m, []string{"cat", "--", path}, limit)
 	if err != nil {
-		return nil, false, err
-	}
-	encoded, err := protocol.Encode(protocol.Request{Protocol: protocol.Version, Op: "run", Machine: m.Name, ID: m.ID,
-		Argv: []string{"cat", "--", path}, Directory: "/", IdleTimeout: idle})
-	if err != nil {
-		return nil, false, err
-	}
-	out := &boundedBuffer{limit: limit + 1}
-	err = a.r.run(context.Background(), nil, out, io.Discard, os.Environ(), "ssh", append(a.sshArgs(v, false), encoded)...)
-	if err != nil {
+		if out == nil {
+			return nil, false, err
+		}
 		var exit interface{ ExitCode() int }
 		if errors.As(err, &exit) && exit.ExitCode() == 1 {
 			return nil, false, nil
@@ -481,18 +491,11 @@ func (a *app) guestFile(v *vmRecord, m *machineRecord, path string, limit int) (
 // guestListing runs an argv-only guest listing. Exit statuses 0, 1 and 2 are
 // listings, as ls reports a usable directory or missing entries.
 func (a *app) guestListing(v *vmRecord, m *machineRecord, argv []string, limit int) ([]byte, error) {
-	idle, err := a.idleTimeout()
+	out, err := a.guestRun(v, m, argv, limit)
 	if err != nil {
-		return nil, err
-	}
-	encoded, err := protocol.Encode(protocol.Request{Protocol: protocol.Version, Op: "run", Machine: m.Name, ID: m.ID,
-		Argv: argv, Directory: "/", IdleTimeout: idle})
-	if err != nil {
-		return nil, err
-	}
-	out := &boundedBuffer{limit: limit + 1}
-	err = a.r.run(context.Background(), nil, out, io.Discard, os.Environ(), "ssh", append(a.sshArgs(v, false), encoded)...)
-	if err != nil {
+		if out == nil {
+			return nil, err
+		}
 		var exit interface{ ExitCode() int }
 		if errors.As(err, &exit) {
 			switch exit.ExitCode() {
@@ -1010,22 +1013,33 @@ func iconCandidates(icon string) []iconCandidate {
 	return out
 }
 
+// readGuestIconCandidate reads and validates one icon candidate.
+func (a *app) readGuestIconCandidate(v *vmRecord, m *machineRecord, candidate iconCandidate) (*appIcon, error) {
+	content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	if !validIcon(content, candidate.ext) {
+		fmt.Fprintf(a.err, "nsl: %s in %s is not a %s image\n", candidate.path, m.Name, strings.ToUpper(candidate.ext))
+		return nil, nil
+	}
+	return &appIcon{data: content, ext: candidate.ext}, nil
+}
+
 // readGuestIcon finds the machine's icon. A nil icon means none was found.
 func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIcon, error) {
 	candidates := iconCandidates(icon)
 	for _, candidate := range candidates {
-		content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
+		found, err := a.readGuestIconCandidate(v, m, candidate)
 		if err != nil {
 			return nil, err
 		}
-		if !found {
-			continue
+		if found != nil {
+			return found, nil
 		}
-		if !validIcon(content, candidate.ext) {
-			fmt.Fprintf(a.err, "nsl: %s in %s is not a %s image\n", candidate.path, m.Name, strings.ToUpper(candidate.ext))
-			continue
-		}
-		return &appIcon{data: content, ext: candidate.ext}, nil
 	}
 	if strings.HasPrefix(icon, "/") || !iconNamePattern.MatchString(icon) {
 		return nil, nil
@@ -1037,16 +1051,18 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 	if len(fallback) == 0 {
 		return nil, nil
 	}
+	var batchCandidates []iconCandidate
+	for _, candidate := range fallback {
+		if len(candidate.path) <= 4096 {
+			batchCandidates = append(batchCandidates, candidate)
+		}
+	}
 	const iconListingBatchBytes = 32768
-	for start := 0; start < len(fallback); {
+	for start := 0; start < len(batchCandidates); {
 		end := start
 		size := 0
-		for end < len(fallback) {
-			if len(fallback[end].path) > 4096 {
-				end++
-				continue
-			}
-			length := len(fallback[end].path) + 1
+		for end < len(batchCandidates) {
+			length := len(batchCandidates[end].path) + 1
 			if size+length > iconListingBatchBytes && end != start {
 				break
 			}
@@ -1056,18 +1072,7 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 				break
 			}
 		}
-		batch := fallback[start:end]
-		var candidatesInBatch []iconCandidate
-		for _, candidate := range batch {
-			if len(candidate.path) <= 4096 {
-				candidatesInBatch = append(candidatesInBatch, candidate)
-			}
-		}
-		batch = candidatesInBatch
-		if len(batch) == 0 {
-			start = end
-			continue
-		}
+		batch := batchCandidates[start:end]
 		listingArgv := []string{"ls", "-1d", "--"}
 		listingArgv = append(listingArgv, candidatePaths(batch)...)
 		listing, err := a.guestListing(v, m, listingArgv, 64<<10)
@@ -1085,18 +1090,13 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 			if !foundPaths[candidate.path] {
 				continue
 			}
-			content, found, err := a.guestFile(v, m, candidate.path, appIconLimit)
+			found, err := a.readGuestIconCandidate(v, m, candidate)
 			if err != nil {
 				return nil, err
 			}
-			if !found {
-				continue
+			if found != nil {
+				return found, nil
 			}
-			if !validIcon(content, candidate.ext) {
-				fmt.Fprintf(a.err, "nsl: %s in %s is not a %s image\n", candidate.path, m.Name, strings.ToUpper(candidate.ext))
-				continue
-			}
-			return &appIcon{data: content, ext: candidate.ext}, nil
 		}
 		start = end
 	}
@@ -1117,10 +1117,8 @@ var iconThemeDirRegexp = regexp.MustCompile(iconThemeDirPattern)
 
 type themeDirectory struct {
 	name        string
-	themeIndex  int
 	size, scale int
 	scalable    bool
-	contextApp  bool
 }
 
 // otherThemeIconCandidates lists icon candidates from themes other than
@@ -1221,7 +1219,6 @@ func parseIconTheme(content []byte) ([]themeDirectory, bool) {
 		}
 	}
 	var dirs []themeDirectory
-	index := 0
 	for _, name := range names {
 		group, ok := groups[name]
 		if !ok || group["Context"] != "Applications" || !validIconThemeDir(name) {
@@ -1238,9 +1235,8 @@ func parseIconTheme(content []byte) ([]themeDirectory, bool) {
 				continue
 			}
 		}
-		dirs = append(dirs, themeDirectory{name: name, themeIndex: index, size: size, scale: scale,
-			scalable: group["Type"] == "Scalable", contextApp: true})
-		index++
+		dirs = append(dirs, themeDirectory{name: name, size: size, scale: scale,
+			scalable: group["Type"] == "Scalable"})
 	}
 	sort.SliceStable(dirs, func(i, j int) bool {
 		if dirs[i].scalable != dirs[j].scalable {
@@ -1252,7 +1248,7 @@ func parseIconTheme(content []byte) ([]themeDirectory, bool) {
 				return left > right
 			}
 		}
-		return dirs[i].themeIndex < dirs[j].themeIndex
+		return false
 	})
 	return dirs, true
 }
