@@ -759,6 +759,260 @@ func TestAppAddBatchesLargeThemeCandidateLists(t *testing.T) {
 	}
 }
 
+func TestGuestReadsCharacterizeLargeThemeBatches(t *testing.T) {
+	a, f, m := withMachine(t)
+	icon := strings.Repeat("x", 3900)
+
+	oversizeDir := func(letter byte) string {
+		component := strings.Repeat(string([]byte{letter}), 255)
+		return strings.Join([]string{component, component, component, component}, "/")
+	}
+	startDir := oversizeDir('a')
+	insideDir := oversizeDir('b')
+	endDir := oversizeDir('c')
+
+	var names []string
+	var dirs strings.Builder
+	dirs.WriteString("[Icon Theme]\nDirectories=")
+	addDir := func(name string) {
+		if len(names) != 0 {
+			dirs.WriteByte(',')
+		}
+		names = append(names, name)
+		dirs.WriteString(name)
+	}
+	addDir(startDir)
+	for i := 0; i < 80; i++ {
+		addDir(fmt.Sprintf("apps/before-%04d", i))
+	}
+	addDir(insideDir)
+	for i := 0; i < 80; i++ {
+		addDir(fmt.Sprintf("apps/after-%04d", i))
+	}
+	addDir(endDir)
+
+	var theme strings.Builder
+	theme.WriteString(dirs.String())
+	theme.WriteByte('\n')
+	for _, name := range names {
+		fmt.Fprintf(&theme, "[%s]\nContext=Applications\nType=Fixed\nSize=48\n", name)
+	}
+	guestFiles(f, map[string]string{
+		"/usr/share/icons/CharacterizedTheme/index.theme": theme.String(),
+	})
+
+	var fallback []iconCandidate
+	for _, name := range names {
+		base := "/usr/share/icons/CharacterizedTheme/" + name + "/" + icon
+		fallback = append(fallback, iconCandidate{base + ".svg", "svg"}, iconCandidate{base + ".png", "png"})
+	}
+	fallback = append(fallback,
+		iconCandidate{"/usr/share/pixmaps/" + icon + ".svg", "svg"},
+		iconCandidate{"/usr/share/pixmaps/" + icon + ".png", "png"},
+	)
+
+	startBase := "/usr/share/icons/CharacterizedTheme/" + startDir + "/" + icon
+	insideBase := "/usr/share/icons/CharacterizedTheme/" + insideDir + "/" + icon
+	endBase := "/usr/share/icons/CharacterizedTheme/" + endDir + "/" + icon
+	for _, path := range []string{startBase + ".svg", insideBase + ".png", endBase + ".svg"} {
+		if len(path) <= 4096 {
+			t.Fatalf("characterization candidate is only %d bytes: %q", len(path), path)
+		}
+	}
+
+	var remaining []iconCandidate
+	for _, candidate := range fallback {
+		if len(candidate.path) <= 4096 {
+			remaining = append(remaining, candidate)
+		}
+	}
+	var want [][]string
+	const batchLimit = 32768
+	for start := 0; start < len(remaining); {
+		end, size := start, 0
+		for end < len(remaining) {
+			length := len(remaining[end].path) + 1
+			if size+length > batchLimit && end != start {
+				break
+			}
+			size += length
+			end++
+			if size >= batchLimit {
+				break
+			}
+		}
+		argv := []string{"ls", "-1d", "--"}
+		argv = append(argv, candidatePaths(remaining[start:end])...)
+		want = append(want, argv)
+		start = end
+	}
+
+	v, err := a.startMachine(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if icon, err := a.readGuestIcon(v, m, icon); err != nil || icon != nil {
+		t.Fatalf("icon=%+v err=%v", icon, err)
+	}
+
+	var got [][]string
+	for _, req := range f.requests {
+		if req.Op == "run" && len(req.Argv) >= 3 && req.Argv[0] == "ls" && req.Argv[1] == "-1d" {
+			got = append(got, append([]string{}, req.Argv...))
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ls -1d batches differ\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestReadGuestIconFallbackContinuesAfterInvalidIcon(t *testing.T) {
+	a, f, m := withMachine(t)
+	guestFiles(f, map[string]string{
+		"/usr/share/icons/Adwaita/index.theme": `[Icon Theme]
+Directories=scalable/apps,apps/48
+[scalable/apps]
+Context=Applications
+Type=Scalable
+Size=64
+[apps/48]
+Context=Applications
+Type=Fixed
+Size=48
+`,
+		"/usr/share/icons/Adwaita/scalable/apps/sample-icon.svg": "not an svg",
+		"/usr/share/icons/Adwaita/apps/48/sample-icon.png":       pngIcon,
+	})
+
+	v, err := a.startMachine(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	a.err = &stderr
+	icon, err := a.readGuestIcon(v, m, "sample-icon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if icon == nil || icon.ext != "png" || !bytes.Equal(icon.data, []byte(pngIcon)) {
+		t.Fatalf("did not continue to the next valid candidate: %+v", icon)
+	}
+	want := "nsl: /usr/share/icons/Adwaita/scalable/apps/sample-icon.svg in debian is not a SVG image\n"
+	if stderr.String() != want {
+		t.Fatalf("stderr got %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestGuestFileSuccessOversizeText(t *testing.T) {
+	a, f, m := withMachine(t)
+	v, err := a.startMachine(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const limit = 10
+	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+		if req.Op == "run" {
+			_, _ = io.WriteString(stdout, strings.Repeat("x", limit+1))
+			return errAnswered
+		}
+		return nil
+	}
+	_, found, err := a.guestFile(v, m, "/tmp/oversize", limit)
+	if found {
+		t.Fatal("oversized guest file was found")
+	}
+	want := "/tmp/oversize in debian is larger than 10 bytes"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error got %v, want %q", err, want)
+	}
+}
+
+func TestGuestListingExitAndOversizeText(t *testing.T) {
+	a, f, m := withMachine(t)
+	v, err := a.startMachine(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, code := range []int{0, 1, 2} {
+		f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+			if req.Op == "run" {
+				_, _ = io.WriteString(stdout, "one\ntwo\n")
+				return commandExit(code)
+			}
+			return nil
+		}
+		listing, err := a.guestListing(v, m, []string{"ls", "-1", "--", "/tmp"}, 64)
+		if err != nil || string(listing) != "one\ntwo\n" {
+			t.Fatalf("exit %d: listing=%q err=%v", code, listing, err)
+		}
+	}
+
+	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+		if req.Op == "run" {
+			return commandExit(3)
+		}
+		return nil
+	}
+	if _, err := a.guestListing(v, m, []string{"ls", "-1", "--", "/tmp"}, 64); err == nil || err.Error() != "listing in debian: exit status 3" {
+		t.Fatalf("other exit error got %v", err)
+	}
+
+	const limit = 10
+	f.agent = func(req *protocol.Request, stdin io.Reader, stdout io.Writer) error {
+		if req.Op == "run" {
+			if _, err := io.WriteString(stdout, strings.Repeat("x", limit+2)); err != nil {
+				return err
+			}
+			return errAnswered
+		}
+		return nil
+	}
+	if _, err := a.guestListing(v, m, []string{"ls", "-1", "--", "/tmp"}, limit); err == nil || err.Error() != "listing -- /tmp in debian is larger than 10 bytes" {
+		t.Fatalf("oversize listing error got %v", err)
+	}
+}
+
+func TestParseIconThemeCharacterizesDirectoryOrder(t *testing.T) {
+	content := []byte(`[Icon Theme]
+Directories=equal-a,scalable-b,equal-b,scalable-a,equal-c
+[equal-a]
+Context=Applications
+Type=Fixed
+Size=48
+[equal-b]
+Context=Applications
+Type=Fixed
+Size=24
+Scale=2
+[equal-c]
+Context=Applications
+Type=Fixed
+Size=48
+Scale=1
+[scalable-b]
+Context=Applications
+Type=Scalable
+Size=32
+[scalable-a]
+Context=Applications
+Type=Scalable
+Size=128
+`)
+	dirs, ok := parseIconTheme(content)
+	if !ok {
+		t.Fatal("parseIconTheme refused the theme")
+	}
+	var got []string
+	for _, dir := range dirs {
+		got = append(got, dir.name)
+	}
+	want := []string{"scalable-b", "scalable-a", "equal-a", "equal-b", "equal-c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("directory order got %v, want %v", got, want)
+	}
+}
+
 func TestAppAddPrefersTheAccountsOwnEntry(t *testing.T) {
 	a, f, _ := withMachine(t)
 	files := map[string]string{
