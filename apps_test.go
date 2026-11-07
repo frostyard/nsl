@@ -1465,3 +1465,150 @@ func TestRemovePreviewReportsAMenuEntryFailure(t *testing.T) {
 		t.Fatal("the preview changed the machine:", err)
 	}
 }
+
+func TestRemoveMenuEntriesCharacterization(t *testing.T) {
+	a, f, m := withMachine(t)
+	guestFiles(f, map[string]string{
+		"/usr/share/applications/org.gnome.Calculator.desktop": guestApp("Calculator"),
+		"/usr/share/applications/galculator.desktop":           guestApp("Galculator"),
+	})
+	owned := []string{
+		addedEntry(t, a, f, "org.gnome.Calculator"),
+		addedEntry(t, a, f, "galculator"),
+	}
+
+	unmarked := writeHostFile(t, a, "nsl-debian-unmarked.desktop", "[Desktop Entry]\nType=Application\nName=Unmarked\nExec=unmarked\n")
+	wrongID := writeHostFile(t, a, "nsl-debian-wrong-id.desktop", "[Desktop Entry]\nType=Application\nName=Wrong ID\nX-Nsl-Machine=debian\nX-Nsl-Machine-ID=wrong\nX-Nsl-App=wrong-id\n")
+	outside := filepath.Join(t.TempDir(), "link-target")
+	if err := os.WriteFile(outside, []byte("keep"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(a.applicationsDir(), "nsl-debian-link.desktop")
+	if err := os.MkdirAll(a.applicationsDir(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	noSuffix := writeHostFile(t, a, "nsl-debian-nosuffix", "[Desktop Entry]\nType=Application\nName=No Suffix\nX-Nsl-Machine=debian\nX-Nsl-Machine-ID="+m.ID+"\nX-Nsl-App=no-suffix\n")
+
+	if err := a.create(append([]string{"debian-2"}, machineImage(t, "second rootfs")...)); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := a.machine("debian-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPrefix := writeHostFile(t, a, "nsl-debian-2-other.desktop", "[Desktop Entry]\nType=Application\nName=Other Machine\nX-Nsl-Machine=debian-2\nX-Nsl-Machine-ID="+m2.ID+"\nX-Nsl-App=other\n")
+
+	appsDir := a.appsDir("debian")
+	if err := os.MkdirAll(appsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appsDir, "kept-by-remove-all.tmp"), []byte("icon"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.removeMenuEntries(m); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range owned {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("kept owned entry %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{unmarked, wrongID, link, noSuffix, otherPrefix} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("removed foreign or non-entry %s: %v", path, err)
+		}
+	}
+	if _, err := os.Lstat(appsDir); !os.IsNotExist(err) {
+		t.Fatalf("kept the machine .apps directory: %v", err)
+	}
+}
+
+func TestRemoveMenuEntriesWithoutApplicationsDir(t *testing.T) {
+	a, _, m := withMachine(t)
+	appsDir := a.appsDir(m.Name)
+	if err := os.MkdirAll(appsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appsDir, "icon.svg"), []byte(svgIcon), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.removeMenuEntries(m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(appsDir); !os.IsNotExist(err) {
+		t.Fatalf("kept the machine .apps directory: %v", err)
+	}
+}
+
+func TestMenuEntriesCharacterization(t *testing.T) {
+	t.Run("two machines and foreign files", func(t *testing.T) {
+		a, f, m := withMachine(t)
+		if err := a.create(append([]string{"debian-2"}, machineImage(t, "second rootfs")...)); err != nil {
+			t.Fatal(err)
+		}
+		m2, err := a.machine("debian-2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		guestFiles(f, map[string]string{
+			"/usr/share/applications/zeta.desktop":  guestApp("Zeta"),
+			"/usr/share/applications/alpha.desktop": guestApp("Alpha"),
+		})
+		for _, args := range [][]string{
+			{"app", "add", "zeta"},
+			{"app", "add", "alpha"},
+			{"app", "add", "-m", "debian-2", "zeta"},
+			{"app", "add", "-m", "debian-2", "alpha"},
+		} {
+			if err := a.execute(args); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeHostFile(t, a, "nsl-debian-foreign.desktop", "[Desktop Entry]\nType=Application\nName=Foreign\nExec=foreign\n")
+		writeHostFile(t, a, "nsl-debian-2-foreign.desktop", "[Desktop Entry]\nType=Application\nName=Foreign 2\nX-Nsl-Machine=debian-2\nX-Nsl-Machine-ID=wrong\nX-Nsl-App=foreign-2\n")
+
+		entries, err := a.menuEntries([]*machineRecord{m2, m})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := make([][2]string, len(entries))
+		for i, entry := range entries {
+			got[i] = [2]string{entry.Machine, entry.App}
+		}
+		want := [][2]string{{"debian-2", "alpha"}, {"debian-2", "zeta"}, {"debian", "alpha"}, {"debian", "zeta"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("menu entries: got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("absent directory", func(t *testing.T) {
+		a, _, m := withMachine(t)
+		entries, err := a.menuEntries([]*machineRecord{m})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entries == nil || len(entries) != 0 {
+			t.Fatalf("absent applications directory: got %#v", entries)
+		}
+	})
+}
+
+func TestMenuScanReadDirErrors(t *testing.T) {
+	a, _, m := withMachine(t)
+	if err := os.MkdirAll(a.dataHome, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.applicationsDir(), []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.menuEntries([]*machineRecord{m}); err == nil {
+		t.Fatal("menuEntries ignored a ReadDir error")
+	}
+	if err := a.removeMenuEntries(m); err == nil {
+		t.Fatal("removeMenuEntries ignored a ReadDir error")
+	}
+}
