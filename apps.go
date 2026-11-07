@@ -470,12 +470,12 @@ func (a *app) guestFile(v *vmRecord, m *machineRecord, path string, limit int) (
 		if errors.As(err, &exit) && exit.ExitCode() == 1 {
 			return nil, false, nil
 		}
-		if errors.Is(err, io.ErrShortBuffer) || (out != nil && out.buffer.Len() > limit) {
+		if errors.Is(err, io.ErrShortBuffer) || out.buffer.Len() > limit {
 			return nil, false, fmt.Errorf("%s in %s is larger than %d bytes", path, m.Name, limit)
 		}
 		return nil, false, fmt.Errorf("reading %s in %s: %w", path, m.Name, err)
 	}
-	if out != nil && out.buffer.Len() > limit {
+	if out.buffer.Len() > limit {
 		return nil, false, fmt.Errorf("%s in %s is larger than %d bytes", path, m.Name, limit)
 	}
 	return out.buffer.Bytes(), true, nil
@@ -496,7 +496,7 @@ func (a *app) guestListing(v *vmRecord, m *machineRecord, argv []string, limit i
 				return boundedListing(out, limit)
 			}
 		}
-		if errors.Is(err, io.ErrShortBuffer) || (out != nil && out.buffer.Len() > limit) {
+		if errors.Is(err, io.ErrShortBuffer) || out.buffer.Len() > limit {
 			return nil, fmt.Errorf("listing %s in %s is larger than %d bytes", strings.Join(argv[2:], " "), m.Name, limit)
 		}
 		return nil, fmt.Errorf("listing in %s: %w", m.Name, err)
@@ -1066,10 +1066,6 @@ func (a *app) readGuestIcon(v *vmRecord, m *machineRecord, icon string) (*appIco
 			}
 		}
 		batch := batchCandidates[start:end]
-		if len(batch) == 0 {
-			start = end
-			continue
-		}
 		listingArgv := []string{"ls", "-1d", "--"}
 		listingArgv = append(listingArgv, candidatePaths(batch)...)
 		listing, err := a.guestListing(v, m, listingArgv, 64<<10)
