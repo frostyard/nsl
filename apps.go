@@ -292,23 +292,38 @@ func (a *app) menuEntries(machines []*machineRecord) ([]menuEntry, error) {
 	}
 	for _, m := range machines {
 		var mine []menuEntry
-		for _, f := range files {
-			file := f.Name()
-			if !strings.HasPrefix(file, "nsl-"+m.Name+"-") || !strings.HasSuffix(file, ".desktop") {
-				continue
-			}
-			entry, owned, err := a.ownedEntry(filepath.Join(a.applicationsDir(), file), m, "")
-			if err != nil {
-				return nil, err
-			}
-			if owned {
-				mine = append(mine, menuEntry{Machine: m.Name, App: entry.App, Name: entry.Name, MimeTypes: mimeTypeItemCount(entry.MimeType)})
-			}
+		if err := a.scanMenuEntries(files, m, func(_ string, entry *desktopEntry) error {
+			mine = append(mine, menuEntry{Machine: m.Name, App: entry.App, Name: entry.Name, MimeTypes: mimeTypeItemCount(entry.MimeType)})
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 		sort.Slice(mine, func(i, j int) bool { return mine[i].App < mine[j].App })
 		entries = append(entries, mine...)
 	}
 	return entries, nil
+}
+
+// scanMenuEntries applies visit to entries nsl owns under the machine's name
+// prefix, in directory order.
+func (a *app) scanMenuEntries(files []os.DirEntry, m *machineRecord, visit func(string, *desktopEntry) error) error {
+	for _, f := range files {
+		file := f.Name()
+		if !strings.HasPrefix(file, "nsl-"+m.Name+"-") || !strings.HasSuffix(file, ".desktop") {
+			continue
+		}
+		path := filepath.Join(a.applicationsDir(), file)
+		entry, owned, err := a.ownedEntry(path, m, "")
+		if err != nil {
+			return err
+		}
+		if owned {
+			if err := visit(path, entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func printMenuEntries(w io.Writer, entries []menuEntry) error {
@@ -336,22 +351,13 @@ func (a *app) removeMenuEntries(m *machineRecord) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	for _, f := range files {
-		file := f.Name()
-		if !strings.HasPrefix(file, "nsl-"+m.Name+"-") || !strings.HasSuffix(file, ".desktop") {
-			continue
-		}
-		path := filepath.Join(a.applicationsDir(), file)
-		_, owned, err := a.ownedEntry(path, m, "")
-		if err != nil {
+	if err := a.scanMenuEntries(files, m, func(path string, _ *desktopEntry) error {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if !owned {
-			continue
-		}
-		if err = os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	return os.RemoveAll(a.appsDir(m.Name))
 }
