@@ -2,6 +2,9 @@
 # manifest: Go modules in go.mod and the actions the workflows pin.
 # site/requirements.txt needs no entry (it is installed with --require-hashes
 # from a pinned file), and there is no Dockerfile or package.json.
+# Each entry has 1 group with `patterns: ["*"]`, so it opens at most 1
+# version-update PR for each run (frostyard/core ADR-0075). Security
+# updates stay ungrouped.
 version: 2
 updates:
   # The Go modules of go.mod.
@@ -13,6 +16,9 @@ updates:
     commit-message:
       prefix: "build"
       include: "scope"
+    groups:
+      gomod:
+        patterns: ["*"]
 
   # The actions the workflows pin.
   - package-ecosystem: "github-actions"
@@ -23,3 +29,6 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+    groups:
+      actions:
+        patterns: ["*"]
