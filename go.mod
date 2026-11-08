@@ -3,7 +3,7 @@ module github.com/frostyard/nsl
 go 1.27.3
 
 require (
-	github.com/frostyard/std v0.4.0
+	github.com/frostyard/std v0.5.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/klauspost/compress v1.20.3
 	github.com/sigstore/sigstore-go v1.4.0
