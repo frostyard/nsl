@@ -28,13 +28,22 @@ Procedures belong in [.agents/skills/](.agents/skills/). Add a skill based on it
 
 The repository follows frostyard/core's [repository baseline](https://github.com/frostyard/core/blob/main/docs/specs/repository-baseline.md) ([ADR-0024](docs/adr/0024-adopt-the-repository-baseline.md)); [docs/org-adrs.md](docs/org-adrs.md) lists the core ADRs that bind it.
 
-- A pull request declares its risk tier in the template's `Risk tier` section. One that touches a path in `.github/risk-paths.json` gets the `risk:high` label from the caller workflow; its body names each matched path and why the change is safe. A new release, publication, signing, verification, agent or destructive path gets an entry in the same change, with a `why` that starts with a category of core's [risk-paths spec](https://github.com/frostyard/core/blob/main/docs/specs/risk-paths.md).
+- A pull request declares its risk tier in the template's `Risk tier` section. A change made for a security advisory, a dependency bump included, is tier 3 even when nsl does not call the affected code. One that touches a path in `.github/risk-paths.json` gets the `risk:high` label from the caller workflow; its body names each matched path and why the change is safe. A new release, publication, signing, verification, agent or destructive path gets an entry in the same change, with a `why` that starts with a category of core's [risk-paths spec](https://github.com/frostyard/core/blob/main/docs/specs/risk-paths.md).
 - When a review finds a blocking point, the fix adds a guard: a test that fails without the fix, or a rule here when no test can catch it, and 1 line in `.memory/corrections.jsonl` ([.memory/README.md](.memory/README.md)). The file is append-only.
 - `README.md` is a `tool` README under core's [README spec](https://github.com/frostyard/core/blob/main/docs/specs/readme.md); keep guides and reference on the site.
 
 ## Repository boundary
 
 Never commit binaries, `build/`, `dist/`, `site/dist/`, coverage artifacts, local agent state, credentials or a host-specific VM image. The CLI does not install host packages, change device permissions or sudoers, or share D-Bus, GPU or SSH sockets. Host storage is shared only through the `/mnt/host` allowlist in [ADR-0016](docs/adr/0016-wsl-style-machines.md). Releases are built from `v*` tags by `.github/workflows/release.yml` using GoReleaser Pro and GitHub provenance attestations. Tag one with `make bump`: on a clean `main` that matches `origin/main`, it runs `make ci`, tags the version `svu next` derives from conventional commits (`.svu.yml`), and pushes the tag. Conventional commit subjects therefore set the version and make the release changelog readable. Tools are pinned in `mise.toml` with a committed `mise.lock` (frostyard/core ADR-0043); `mise install` provides them. Keep the Go pin aligned with the minimum in `go.mod`, which `setup-go` reads in CI. Use an explicit mise pin because mise no longer treats the `go` directive as a toolchain selection and `go mod tidy` removes an equal `toolchain` directive.
+
+## Releases and dependencies
+
+- Tag format: `v0.13.0` (one `v*` series; `.svu.yml` sets the prefix and keeps `v0`).
+- How a release starts: a `v*` tag push runs `.github/workflows/release.yml` (GoReleaser Pro, provenance attestations, the Homebrew tap pull request).
+- Who tags: a maintainer, with `make bump`. Agents never tag, push tags or release.
+- Version rule: `svu next` from Conventional Commit subjects.
+- Internal dependencies: `github.com/frostyard/std` in `go.mod`.
+- Who uses this repository: frostyard/igloo calls the `nsl` CLI and follows its interface.
 
 ## Documentation
 
