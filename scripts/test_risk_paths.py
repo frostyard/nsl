@@ -1,11 +1,14 @@
 """Check .github/risk-paths.json against the repository it guards.
 
-The core workflow matches a pull request's paths against this list
-(frostyard/core docs/specs/risk-paths.md), so a path that the list misses leaves
-that change below the risk tier it needs. This test holds the list to the
-repository:
+Core's PR triage workflow matches a pull request's paths against this list
+(frostyard/core docs/specs/risk-paths.md, docs/specs/pr-triage.md), so a path
+that the list misses leaves that change below the review level it needs. The
+list is schema version 2: each entry has a `level`, and `default_level` applies
+to a path that no glob matches. A version 1 list stays valid and reads as each
+entry at L1 with a default of L3. This test holds the list to the repository:
 
-- every `why` starts with 1 category of the list's why column;
+- every `why` of an entry at L1 or L2 (rule B) starts with 1 category of the
+  list's why column; an entry at L3 or L4 has free text;
 - every tracked script is listed, except the license-notice renderer and the
   tests beside the scripts;
 - every script that the publication or a workflow names is listed;
@@ -31,7 +34,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent.parent
 LIST_FILE = ROOT / ".github" / "risk-paths.json"
 
-# The why column's categories (frostyard/core docs/specs/risk-paths.md).
+# The why column's categories (frostyard/core docs/specs/risk-paths.md, rule B).
 CATEGORIES = (
     "boot chain",
     "signing and keys",
@@ -43,6 +46,10 @@ CATEGORIES = (
     "destructive operations",
     "governance",
 )
+
+# The levels whose `why` must name a category. An entry with no level is L1, as
+# in a version 1 list; an entry at L3 or L4 has free text.
+CATEGORY_LEVELS = ("L1", "L2")
 
 # Tracked scripts that the list need not carry: the license-notice renderer and
 # the tests beside the scripts.
@@ -119,26 +126,56 @@ def unlisted(paths, files):
     return [path for path in files if not any(matches(entry["glob"], path) for entry in paths)]
 
 
+def needs_category(entry):
+    """Report whether an entry's why must name a category (rule B).
+
+    Only an entry at L1 or L2 does. An entry with no level is L1, as in a
+    version 1 list; an entry at L3 or L4 has free text.
+    """
+    return entry.get("level", "L1") in CATEGORY_LEVELS
+
+
+def category_problems(entries):
+    """Return 1 line for each entry whose why names no required category."""
+    return [
+        f"{entry['glob']}: {entry.get('why', '')}"
+        for entry in entries
+        if needs_category(entry)
+        and not any(entry.get("why", "").startswith(f"{category}:") for category in CATEGORIES)
+    ]
+
+
 def reference_sources():
     workflows = ROOT / ".github" / "workflows"
     return [ROOT / "scripts" / "publish-images.py", *(sorted(workflows.glob("*.yml")))]
 
 
 class RiskPaths(unittest.TestCase):
-    def test_every_why_names_a_category(self):
+    def test_every_level_1_and_2_why_names_a_category(self):
         paths = risk_paths()
-        problems = [
-            f"{entry['glob']}: {entry['why']}"
-            for entry in paths
-            if not any(entry["why"].startswith(f"{category}:") for category in CATEGORIES)
-        ]
-        print(f"checked {len(paths)} risk-path categories")
+        graded = [entry for entry in paths if needs_category(entry)]
+        problems = category_problems(paths)
+        print(f"checked {len(graded)} risk-path categories of {len(paths)} entries")
         self.assertEqual(
             problems,
             [],
-            "every why must start with 1 of these categories and a colon "
+            "the why of an entry at L1 or L2 must start with 1 of these categories and a colon "
             f"({', '.join(CATEGORIES)}): " + "; ".join(problems),
         )
+
+    def test_the_category_rule_follows_the_level(self):
+        free_text = [
+            {"glob": "docs/**", "level": "L3", "why": "how-to documentation"},
+            {"glob": "testdata/**", "level": "L4", "why": "test data"},
+        ]
+        self.assertEqual(category_problems(free_text), [], "the why of an L3 or L4 entry is free text")
+        for entry in (
+            {"glob": "Makefile", "level": "L1", "why": "the verify gate"},
+            {"glob": ".svu.yml", "why": "the release tags"},
+        ):
+            problems = category_problems([entry])
+            self.assertEqual(len(problems), 1, f"{entry} must be refused: {problems}")
+            self.assertIn(entry["glob"], problems[0])
 
     def test_every_tracked_script_is_listed(self):
         paths = risk_paths()

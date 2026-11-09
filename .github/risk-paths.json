@@ -1,160 +1,200 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "default_level": "L3",
   "paths": [
     {
       "glob": ".github/risk-paths.json",
+      "level": "L2",
       "why": "governance: the high-risk path list"
     },
     {
       "glob": ".github/workflows/**",
+      "level": "L2",
       "why": "governance: CI, the risk-paths caller and token permissions"
     },
     {
       "glob": "Makefile",
+      "level": "L2",
       "why": "governance: the verify gate"
     },
     {
       "glob": "scripts/check-template.mjs",
+      "level": "L2",
       "why": "governance: the template verification gate"
     },
     {
       "glob": "scripts/check-corrections.mjs",
+      "level": "L2",
       "why": "governance: the corrections validation gate"
     },
     {
       "glob": "scripts/lib/**",
+      "level": "L2",
       "why": "governance: the vendored risk-path validator and matcher"
     },
     {
       "glob": "mise.toml",
+      "level": "L1",
       "why": "update verification: the tool pins that CI installs, checked against mise.lock"
     },
     {
       "glob": "mise.lock",
+      "level": "L1",
       "why": "update verification: the checksums of the tools that CI installs"
     },
     {
       "glob": ".svu.yml",
+      "level": "L1",
       "why": "publication: the version configuration for release tags"
     },
     {
       "glob": ".goreleaser.yaml",
+      "level": "L1",
       "why": "publication: the release build, archives and the Homebrew cask"
     },
     {
       "glob": "scripts/check-cask.py",
+      "level": "L1",
       "why": "publication: the check of the rendered Homebrew cask"
     },
     {
       "glob": "scripts/publish-images.py",
+      "level": "L1",
       "why": "publication: signs and publishes the images and the catalogue"
     },
     {
       "glob": "scripts/bootstrap-publisher.py",
+      "level": "L1",
       "why": "publication: downloads the checksum-pinned tools that sign and publish the images"
     },
     {
       "glob": "scripts/zstd-image.go",
+      "level": "L1",
       "why": "publication: compresses the image artifacts that are signed and published"
     },
     {
       "glob": "scripts/build-image.sh",
+      "level": "L1",
       "why": "publication: builds the published images on the image builder"
     },
     {
       "glob": "scripts/compose-image.py",
+      "level": "L1",
       "why": "publication: builds the published images on the image builder"
     },
     {
       "glob": "scripts/prepare-builder.sh",
+      "level": "L1",
       "why": "publication: builds the published images on the image builder"
     },
     {
       "glob": "scripts/builder-esp-prune",
+      "level": "L1",
       "why": "publication: builds the published images on the image builder"
     },
     {
       "glob": "scripts/builder-mkosi-retry",
+      "level": "L1",
       "why": "publication: builds the published images on the image builder"
     },
     {
       "glob": "scripts/bootstrap-poc.sh",
+      "level": "L1",
       "why": "publication: builds the published images on the image builder"
     },
     {
       "glob": "scripts/probe-vm.py",
+      "level": "L1",
       "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
     },
     {
       "glob": "scripts/probe-machines.py",
+      "level": "L1",
       "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
     },
     {
       "glob": "scripts/measure-machines.py",
+      "level": "L1",
       "why": "publication: the acceptance checks that gate image signing and catalogue promotion"
     },
     {
       "glob": "scripts/refresh-sigstore-root.go",
+      "level": "L1",
       "why": "signing and keys: the Sigstore trust root that verifies images"
     },
     {
       "glob": "trust/**",
+      "level": "L1",
       "why": "signing and keys: the Sigstore trust root that verifies images"
     },
     {
       "glob": "image_verify.go",
+      "level": "L1",
       "why": "update verification: catalogue and image signature, freshness and digest checks"
     },
     {
       "glob": "image_registry.go",
+      "level": "L1",
       "why": "update verification: catalogue and image signature, freshness and digest checks"
     },
     {
       "glob": "image_cache.go",
+      "level": "L1",
       "why": "update verification: catalogue and image signature, freshness and digest checks"
     },
     {
       "glob": "image_contract.go",
+      "level": "L1",
       "why": "update verification: catalogue and image signature, freshness and digest checks"
     },
     {
       "glob": "image/**",
+      "level": "L1",
       "why": "boot chain: the VM image and machine images that users boot"
     },
     {
       "glob": "cmd/nsl-agent/**",
+      "level": "L1",
       "why": "auth: the root VM agent behind the forced SSH command, and its request validation"
     },
     {
       "glob": "internal/protocol/**",
+      "level": "L1",
       "why": "auth: the root VM agent behind the forced SSH command, and its request validation"
     },
     {
       "glob": "state.go",
+      "level": "L1",
       "why": "secrets and credentials: the SSH identities of the VM and the machines"
     },
     {
       "glob": "remote.go",
+      "level": "L1",
       "why": "secrets and credentials: the SSH identities of the VM and the machines"
     },
     {
       "glob": "vm.go",
+      "level": "L1",
       "why": "boot chain: launches the VM and replaces its root in recover"
     },
     {
       "glob": "machines.go",
+      "level": "L1",
       "why": "destructive operations: machine removal, including an isolated machine's VM"
     },
     {
       "glob": "storage.go",
+      "level": "L1",
       "why": "destructive operations: data-disk growth and VM image replacement (update)"
     },
     {
       "glob": "archive.go",
+      "level": "L1",
       "why": "destructive operations: machine export and import"
     },
     {
       "glob": "desktop.go",
+      "level": "L1",
       "why": "auth: the nsl-open broker that does host actions for machines"
     }
   ]
