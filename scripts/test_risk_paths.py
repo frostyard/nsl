@@ -9,11 +9,15 @@ entry at L1 with a default of L3. This test holds the list to the repository:
 
 - every `why` of an entry at L1 or L2 (rule B) starts with 1 category of the
   list's why column; an entry at L3 or L4 has free text;
-- every tracked script is listed, except the license-notice renderer and the
-  tests beside the scripts;
-- every script that the publication or a workflow names is listed;
+- every tracked script is listed at L1 or L2, except the license-notice renderer
+  and the tests beside the scripts;
+- every script that the publication or a workflow names is listed at L1 or L2;
 - every file that boots a machine, verifies an image, holds an identity or
-  changes machine state is listed.
+  changes machine state is listed at L1 or L2.
+
+A file that only an L3 or L4 glob matches gets no `risk:high` label, so it is
+not covered (core ADR-0078). The strictest matching level wins: a file that 1 L3
+glob and 1 L1 glob match is covered.
 
 The glob semantics here are a subset of core's matcher (scripts/lib/risk-paths.mjs):
 `**/` matches zero or more whole directories, `**` elsewhere matches any
@@ -47,9 +51,10 @@ CATEGORIES = (
     "governance",
 )
 
-# The levels whose `why` must name a category. An entry with no level is L1, as
-# in a version 1 list; an entry at L3 or L4 has free text.
-CATEGORY_LEVELS = ("L1", "L2")
+# The strict levels, L1 and L2: they get the risk:high label, and their `why`
+# must name a category (core ADR-0078, rule B). An entry with no level is L1, as
+# in a version 1 list; an entry at L3 or L4 has free text and no risk:high.
+STRICT_LEVELS = ("L1", "L2")
 
 # Tracked scripts that the list need not carry: the license-notice renderer and
 # the tests beside the scripts.
@@ -122,8 +127,21 @@ def tracked(*paths):
     return [line for line in result.stdout.splitlines() if line]
 
 
+def covered(paths, path):
+    """Report whether a path matches a risk-path glob at L1 or L2.
+
+    Only L1 and L2 get the risk:high label, so a glob at L3 or L4 does not
+    cover a path. The strictest matching level wins, so 1 match at L1 or L2 is
+    enough. An entry with no level is L1, as in a version 1 list.
+    """
+    return any(
+        entry.get("level", "L1") in STRICT_LEVELS and matches(entry["glob"], path)
+        for entry in paths
+    )
+
+
 def unlisted(paths, files):
-    return [path for path in files if not any(matches(entry["glob"], path) for entry in paths)]
+    return [path for path in files if not covered(paths, path)]
 
 
 def needs_category(entry):
@@ -132,7 +150,7 @@ def needs_category(entry):
     Only an entry at L1 or L2 does. An entry with no level is L1, as in a
     version 1 list; an entry at L3 or L4 has free text.
     """
-    return entry.get("level", "L1") in CATEGORY_LEVELS
+    return entry.get("level", "L1") in STRICT_LEVELS
 
 
 def category_problems(entries):
@@ -177,6 +195,32 @@ class RiskPaths(unittest.TestCase):
             self.assertEqual(len(problems), 1, f"{entry} must be refused: {problems}")
             self.assertIn(entry["glob"], problems[0])
 
+    def test_coverage_needs_a_level_1_or_2_glob(self):
+        path = "docs/guide.md"
+        cases = [
+            ([{"glob": "docs/**", "level": "L3", "why": "how-to documentation"}], False),
+            ([{"glob": "docs/**", "level": "L4", "why": "test data"}], False),
+            ([{"glob": "docs/**", "level": "L1", "why": "publication: the docs"}], True),
+            ([{"glob": "docs/**", "level": "L2", "why": "governance: the docs"}], True),
+            ([{"glob": "docs/**", "why": "publication: a version 1 entry"}], True),
+            (
+                [
+                    {"glob": "docs/**", "level": "L3", "why": "how-to documentation"},
+                    {"glob": "docs/*.md", "level": "L1", "why": "publication: the docs"},
+                ],
+                True,
+            ),
+            ([{"glob": "site/**", "level": "L1", "why": "publication: the docs"}], False),
+        ]
+        problems = [
+            f"{entries} must {'cover' if expected else 'not cover'} {path}, but it "
+            f"{'does' if covered(entries, path) else 'does not'}"
+            for entries, expected in cases
+            if covered(entries, path) != expected
+        ]
+        print(f"checked {len(cases)} coverage levels")
+        self.assertEqual(problems, [], "; ".join(problems))
+
     def test_every_tracked_script_is_listed(self):
         paths = risk_paths()
         files = [
@@ -189,7 +233,7 @@ class RiskPaths(unittest.TestCase):
         self.assertEqual(
             missing,
             [],
-            "these tracked scripts match no risk path, so a change to them carries no risk tier: "
+            "these tracked scripts match no risk path at L1 or L2, so a change to them gets no risk:high label: "
             + ", ".join(missing),
         )
 
@@ -205,7 +249,7 @@ class RiskPaths(unittest.TestCase):
         self.assertEqual(
             missing,
             [],
-            "these scripts are named by scripts/publish-images.py or a workflow but match no risk path: "
+            "these scripts are named by scripts/publish-images.py or a workflow but match no risk path at L1 or L2: "
             + ", ".join(missing),
         )
 
@@ -223,7 +267,7 @@ class RiskPaths(unittest.TestCase):
         self.assertEqual(
             missing,
             [],
-            "these Go files boot, verify, hold an identity or change machine state but match no risk path: "
+            "these Go files boot, verify, hold an identity or change machine state but match no risk path at L1 or L2: "
             + ", ".join(missing),
         )
 
