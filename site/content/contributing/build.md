@@ -47,6 +47,8 @@ them through `releases/latest/download/`. Keep them stable.
 
 Run `make release-check` with GoReleaser Pro when editing `.goreleaser.yaml`.
 The release-config CI job runs the same Pro configuration check.
+A Dependabot or fork pull request does not get `GORELEASER_KEY`, so the job
+skips the check there with a notice; the merge-group and main runs check it.
 See [ADR-0020 ↗](https://github.com/frostyard/nsl/blob/main/docs/adr/0020-homebrew-tap-publication.md)
 for the publication decision.
 
