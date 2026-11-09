@@ -36,6 +36,15 @@ The repository follows frostyard/core's [repository baseline](https://github.com
 
 Never commit binaries, `build/`, `dist/`, `site/dist/`, coverage artifacts, local agent state, credentials or a host-specific VM image. The CLI does not install host packages, change device permissions or sudoers, or share D-Bus, GPU or SSH sockets. Host storage is shared only through the `/mnt/host` allowlist in [ADR-0016](docs/adr/0016-wsl-style-machines.md). Releases are built from `v*` tags by `.github/workflows/release.yml` using GoReleaser Pro and GitHub provenance attestations. Tag one with `make bump`: on a clean `main` that matches `origin/main`, it runs `make ci`, tags the version `svu next` derives from conventional commits (`.svu.yml`), and pushes the tag. Conventional commit subjects therefore set the version and make the release changelog readable. Tools are pinned in `mise.toml` with a committed `mise.lock` (frostyard/core ADR-0043); `mise install` provides them. Keep the Go pin aligned with the minimum in `go.mod`, which `setup-go` reads in CI. Use an explicit mise pin because mise no longer treats the `go` directive as a toolchain selection and `go mod tidy` removes an equal `toolchain` directive.
 
+## Releases and dependencies
+
+- Tag format: `v0.13.0` (one `v*` series; `.svu.yml` sets the prefix and keeps `v0`).
+- How a release starts: a `v*` tag push runs `.github/workflows/release.yml` (GoReleaser Pro, provenance attestations, the Homebrew tap pull request).
+- Who tags: a maintainer, with `make bump`. Agents never tag, push tags or release.
+- Version rule: `svu next` from Conventional Commit subjects.
+- Internal dependencies: `github.com/frostyard/std` in `go.mod`.
+- Who uses this repository: frostyard/igloo calls the `nsl` CLI and follows its interface.
+
 ## Documentation
 
 Docs follow [the index](docs/README.md): `adr/` for rationale, `design/` for living mechanisms, `specs/` for testable contracts, `plans/` for open phased work only: delete a plan when it is done, after its lasting facts move into an ADR, a design or a spec, and every item still open (its "Later / ideas", open questions, unrun acceptance and "next" lists) moves into an open plan such as [later-work.md](docs/plans/later-work.md) or is retired with a reason (git history keeps the rest). Start new documents from the category's `TEMPLATE.md`; update the index and link related docs in both directions. User documentation is the site in `site/content/`, published to GitHub Pages ([ADR-0018](docs/adr/0018-user-documentation-site.md)); `README.md` is its short entry. Change site pages in the same change as the behavior they describe, and run `make site` when they change; it builds in strict mode. Record significant decisions in an ADR, new or edited, before changing the related design or spec. nsl is pre-release and has no users. Rewrite ADRs, specs, plans and code in place when decisions change. Keep no compatibility bridges, migrations or version shims for state, schemas, catalogues, archives, CLI grammar or images, and delete what a change replaces in the same change. Security checks are not bridges: keep them.
