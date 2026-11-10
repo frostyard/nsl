@@ -27,7 +27,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 - [0017 — Shared VM and Frostyard machine images](adr/0017-shared-vm-and-machine-images.md)
 - [0016 — WSL-style machines trusted as the user](adr/0016-wsl-style-machines.md)
 - [0015 — Image verification and catalogue policy](adr/0015-image-verification-and-catalogue-policy.md)
-- [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md) — deferred.
+- [0013 — Optional cloud-init provisioning](adr/0013-optional-cloud-init-provisioning.md) — accepted; not implemented.
 - [0012 — Signed image distribution through GHCR](adr/0012-signed-image-distribution.md)
 - [0011 — Image composition and the vsock transport](adr/0011-image-profiles-and-portable-vsock.md)
 - [0010 — Data filesystem growth before readiness](adr/0010-explicit-guest-root-growth.md)
@@ -53,14 +53,14 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 - [VM image](specs/vm-image.md) — boot, data disk, identity, `/mnt/host` and acceptance.
 - [Machine images](specs/machine-images.md) — machine layer, family adapters, descriptor and acceptance.
 - [Signed image delivery](specs/image-delivery.md) — catalogue, artifacts, verification and cache.
-- [Creation-time provisioning](specs/provisioning.md) — deferred cloud-init interface.
+- [Creation-time provisioning](specs/provisioning.md) — proposed cloud-init interface, with the image integration Phase 0 found.
 
 ### Plans
 
 Only open work. A finished plan is deleted; git history keeps it.
 
 - [Azure Linux 4.0 machine image](plans/azure-linux.md) — Phase 2 waits for a clean-host check.
-- [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — deferred until cloud-init is re-validated in machines.
+- [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — Phase 0 complete; Phase 1 next.
 - [Unscheduled work after the shared VM](plans/later-work.md) — missing evidence and the ideas that the finished plans left open.
 
 ### Org-wide decisions

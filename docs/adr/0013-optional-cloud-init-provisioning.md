@@ -1,6 +1,6 @@
 # 0013 — Offer optional cloud-init provisioning at creation
 
-- **Status:** Accepted; deferred until cloud-init is re-validated inside machines ([ADR-0017](0017-shared-vm-and-machine-images.md))
+- **Status:** Accepted; not implemented. Cloud-init was re-validated inside Debian and Fedora machines on 2026-11-10, as [ADR-0017](0017-shared-vm-and-machine-images.md) required ([plan](../plans/cloud-init-provisioning.md), Phase 0)
 - **Date:** 2026-09-26
 
 ## Context
@@ -19,7 +19,7 @@ Add optional `create --cloud-init FILE` for machine images that advertise a test
 
 ## Consequences
 
-The unprovisioned path stays the default. Users gain reusable setup files and observable failures. Machine images need per-distro cloud-init tests and explicit module ownership. The feature waits until cloud-init is shown to work under nspawn in Debian and Fedora machines.
+The unprovisioned path stays the default. Users gain reusable setup files and observable failures. Machine images need per-distro cloud-init tests and explicit module ownership. Phase 0 showed that cloud-init works under nspawn in Debian and Fedora machines. Images must ship it off unless a seed is written, with its conflicting defaults and SSH units disabled, and machine readiness must leave provisioning out ([contract](../specs/provisioning.md#image-integration)).
 
 ## Alternatives considered
 
