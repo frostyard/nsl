@@ -53,7 +53,7 @@ Package names and commands are distro-specific user configuration. nsl does not 
 
 An image that advertises `provisioning.cloud_init` MUST ship cloud-init configured as follows; Phase 0 found each default below in Debian 13 (cloud-init 25.1.4) and Fedora 44 (cloud-init 26.1).
 
-- **Off without a seed.** The image MUST set `datasource_list: [ NoCloud ]` and MUST ship `/etc/cloud/cloud-init.disabled`. cloud-init's `ds-identify` enables a list with a single datasource, `[ NoCloud, None ]` too, without looking for its seed. Without the marker, a machine with no seed runs every cloud-init stage, reports `error`, leaves failed units and starts about 5 s later. With it, cloud-init's generator adds no unit to the boot. The agent removes the marker when it writes a seed, and only then.
+- **Off without a seed.** The image MUST set `datasource_list: [ NoCloud ]` and MUST ship `/etc/cloud/cloud-init.disabled`. cloud-init's `ds-identify` enables a list with a single datasource without looking for its seed. Without the marker, a machine with no seed runs every cloud-init stage, reports `error`, leaves failed units and starts about 5 s later. With it, cloud-init's generator adds no unit to the boot. The agent removes the marker when it writes a seed, and only then.
 - **Modules.** The image MUST set its module lists to the modules of its selectable keys, and `final_message`, only, and MUST set `network: {config: disabled}`, `users: []`, `preserve_hostname: true` and `manage_etc_hosts: false`. With the distributions' defaults, cloud-init creates the distribution's default account with passwordless `sudo`, writes DHCP network configuration and generates SSH host keys.
 
   | Key | Module and stage |
