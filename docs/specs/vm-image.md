@@ -82,6 +82,7 @@ The host launches the VM through the rootless device-descriptor path of [the lif
 - On first boot, the VM MUST record the credential's `id`, `uid`, `gid`, `role` and `machine` in `identity.json`. On later boots, a credential that differs in any of them MUST fail readiness without changing state.
 - A refused data disk or a mismatched credential MUST power the VM off at once, so the host reports the failure instead of waiting for readiness.
 - sshd MUST listen only on the nsl-owned vsock socket ([ADR-0011](../adr/0011-image-profiles-and-portable-vsock.md)). It MUST accept only the credential's key, for `root`, forced to the agent as the [agent protocol](agent.md#transport) specifies.
+- The VM image MUST NOT carry `pam_systemd`. With it, every agent call over SSH would open a logind session and start a user manager.
 - Files that must survive a crash, including the binding and host keys, MUST be flushed to the data disk before sshd starts.
 - The VM runs on UTC; machines show the host's zone.
 - The VM's resolver MUST NOT use LLMNR or mDNS. The user-mode network has no link-local peers, and sshd resolves the vsock peer name for every PTY session; LLMNR made that take seconds.

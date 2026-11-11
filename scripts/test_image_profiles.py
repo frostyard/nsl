@@ -65,6 +65,8 @@ class VMImage(unittest.TestCase):
             config = (destination/'mkosi.local.conf').read_text()
             self.assertIn(f'Output={name}', config)
             self.assertIn('FinalizeScripts=nsl-finalize.chroot', config)
+            # Agent calls over SSH must not open logind sessions.
+            self.assertIn('RemovePackages=dbus-user-session\n               libpam-systemd\n', config)
             self.assertEqual((destination/'overlay/etc/systemd/system-generators/systemd-ssh-generator').readlink(), Path('/dev/null'))
             units = destination/'overlay/etc/systemd/system'
             for unit in ('nsl-data.service', 'nsl-setup.service', 'nsl-machines.service', 'nsl-idle.service', 'nsl-ssh.socket', 'var-lib-nsl.mount', 'var-lib-machines.mount'):
