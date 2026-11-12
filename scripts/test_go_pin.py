@@ -14,13 +14,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def go_mod_directive(text, name):
+    """Return the argument of a single-line go.mod directive, without a // comment."""
+    for line in text.splitlines():
+        fields = line.split("//", 1)[0].split()
+        if len(fields) == 2 and fields[0] == name:
+            return fields[1]
+    return None
+
+
 def go_mod_release(text):
     """Return the Go release go.mod selects: the toolchain line, else the go line."""
-    toolchain = re.search(r"^toolchain go(\S+)\s*$", text, re.MULTILINE)
+    toolchain = go_mod_directive(text, "toolchain")
     if toolchain:
-        return toolchain.group(1)
-    directive = re.search(r"^go (\S+)\s*$", text, re.MULTILINE)
-    return directive.group(1) if directive else None
+        return toolchain.removeprefix("go")
+    return go_mod_directive(text, "go")
+
+
+def is_go_tool(name):
+    """Report whether a mise [tools] key selects Go, with any backend or version suffix."""
+    tool = name.split("@", 1)[0]
+    return tool == "go" or tool.endswith(":go") or tool.endswith("/go")
 
 
 def go_pin_problems(mise_toml, mise_lock, go_mod):
@@ -29,20 +43,22 @@ def go_pin_problems(mise_toml, mise_lock, go_mod):
     config = tomllib.loads(mise_toml)
     tools = config.get("tools", {})
     for name in tools:
-        if name == "go" or name.endswith(":go") or name.endswith("/go"):
+        if is_go_tool(name):
             problems.append(f"mise.toml pins Go as [tools] {name}; go.mod is the only Go pin")
     idiomatic = config.get("settings", {}).get("idiomatic_version_file_enable_tools", [])
     if "go" not in idiomatic:
         problems.append('mise.toml must set [settings] idiomatic_version_file_enable_tools = ["go"]')
 
-    directive = re.search(r"^go (\S+)\s*$", go_mod, re.MULTILINE)
+    directive = go_mod_directive(go_mod, "go")
     if not directive:
         problems.append("go.mod has no go directive")
-    elif not re.fullmatch(r"1\.\d+\.\d+", directive.group(1)):
-        problems.append(f"go.mod's go directive {directive.group(1)} is not a full 1.x.y release")
+    elif not re.fullmatch(r"1\.\d+\.\d+", directive):
+        problems.append(f"go.mod's go directive {directive} is not a full 1.x.y release")
     release = go_mod_release(go_mod)
 
     locked = [entry.get("version") for entry in tomllib.loads(mise_lock).get("tools", {}).get("go", [])]
+    if not locked:
+        problems.append("mise.lock records no Go checksums; run `mise lock`")
     for version in locked:
         if release and version != release:
             problems.append(
@@ -93,6 +109,17 @@ class GoPinProblems(unittest.TestCase):
         problems = go_pin_problems(toml, MISE_LOCK, GO_MOD)
         self.assertTrue(any("pins Go" in problem for problem in problems), problems)
 
+    def test_mise_go_pin_with_version_suffix_fails(self):
+        for key in ('"go@1.27.4"', '"core:go@1.27.4"'):
+            toml = MISE_TOML + f'{key} = "latest"\n'
+            problems = go_pin_problems(toml, MISE_LOCK, GO_MOD)
+            self.assertTrue(any("pins Go" in problem for problem in problems), (key, problems))
+
+    def test_mise_go_table_fails(self):
+        toml = MISE_TOML + '\n[tools.go]\nversion = "1.27.4"\n'
+        problems = go_pin_problems(toml, MISE_LOCK, GO_MOD)
+        self.assertTrue(any("pins Go" in problem for problem in problems), problems)
+
     def test_missing_idiomatic_setting_fails(self):
         toml = MISE_TOML.replace('idiomatic_version_file_enable_tools = ["go"]\n', "")
         problems = go_pin_problems(toml, MISE_LOCK, GO_MOD)
@@ -106,6 +133,20 @@ class GoPinProblems(unittest.TestCase):
         go_mod = GO_MOD.replace("go 1.27.4", "go 1.27.5")
         problems = go_pin_problems(MISE_TOML, MISE_LOCK, go_mod)
         self.assertTrue(any("run `mise lock`" in problem for problem in problems), problems)
+
+    def test_lock_without_go_fails(self):
+        for lock in ("lockfile_version = 1\n", "lockfile_version = 1\n\n[tools]\ngo = []\n"):
+            problems = go_pin_problems(MISE_TOML, lock, GO_MOD)
+            self.assertTrue(any("records no Go" in problem for problem in problems), (lock, problems))
+
+    def test_commented_toolchain_line_is_read(self):
+        go_mod = GO_MOD + "\ntoolchain go1.28.1 // preferred toolchain\n"
+        problems = go_pin_problems(MISE_TOML, MISE_LOCK, go_mod)
+        self.assertTrue(any("go.mod selects 1.28.1" in problem for problem in problems), problems)
+
+    def test_commented_go_directive_is_read(self):
+        go_mod = GO_MOD.replace("go 1.27.4", "go 1.27.4 // minimum")
+        self.assertEqual(go_pin_problems(MISE_TOML, MISE_LOCK, go_mod), [])
 
     def test_lock_follows_toolchain_line(self):
         go_mod = GO_MOD.replace("go 1.27.4", "go 1.27.0\n\ntoolchain go1.27.4")
