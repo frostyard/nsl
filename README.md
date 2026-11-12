@@ -77,7 +77,7 @@ The original [WSL](https://wsl.dev/) is the biggest inspiration. Other notable p
 ## Develop
 
 ```sh
-mise install   # the pinned Go, golangci-lint, Node and svu
+mise install   # Go from go.mod, and the pinned golangci-lint, Node and svu
 make ci        # what CI runs
 ```
 
