@@ -24,9 +24,12 @@ def go_mod_directive(text, name):
 
 
 def go_mod_release(text):
-    """Return the Go release go.mod selects: the toolchain line, else the go line."""
+    """Return the Go release go.mod selects: a toolchain goX line, else the go line.
+
+    `toolchain default` names no release, so the go line selects it then.
+    """
     toolchain = go_mod_directive(text, "toolchain")
-    if toolchain:
+    if toolchain and toolchain.startswith("go"):
         return toolchain.removeprefix("go")
     return go_mod_directive(text, "go")
 
@@ -147,6 +150,11 @@ class GoPinProblems(unittest.TestCase):
     def test_commented_go_directive_is_read(self):
         go_mod = GO_MOD.replace("go 1.27.4", "go 1.27.4 // minimum")
         self.assertEqual(go_pin_problems(MISE_TOML, MISE_LOCK, go_mod), [])
+
+    def test_toolchain_default_uses_go_line(self):
+        for line in ("toolchain default", "toolchain default // the go line"):
+            go_mod = GO_MOD + f"\n{line}\n"
+            self.assertEqual(go_pin_problems(MISE_TOML, MISE_LOCK, go_mod), [], line)
 
     def test_lock_follows_toolchain_line(self):
         go_mod = GO_MOD.replace("go 1.27.4", "go 1.27.0\n\ntoolchain go1.27.4")
