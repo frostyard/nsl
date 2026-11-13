@@ -59,7 +59,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 
 Only open work. A finished plan is deleted; git history keeps it.
 
-- [Azure Linux 4.0 machine image](plans/azure-linux.md) — Phase 2 waits for a clean-host check.
+- [Azure Linux 4.0 machine image](plans/azure-linux.md) — complete, 2026-11-13: a clean host created a machine from `azurelinux:4.0`.
 - [Optional cloud-init provisioning](plans/cloud-init-provisioning.md) — Phase 0 complete; Phase 1 next.
 - [Unscheduled work after the shared VM](plans/later-work.md) — missing evidence and the ideas that the finished plans left open.
 

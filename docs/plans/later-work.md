@@ -2,7 +2,7 @@
 
 The open items that the finished plans of the shared-VM design left behind, in 1 place. Each item becomes a plan of its own, from [TEMPLATE.md](TEMPLATE.md), when someone takes it up. The finished plans are in git history at [`e617966`](https://github.com/frostyard/nsl/tree/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans); the [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md) is the record of how the current design was built and proved.
 
-Open work with a plan of its own: [Azure Linux 4.0, Phase 2](azure-linux.md) and [cloud-init provisioning](cloud-init-provisioning.md).
+Open work with a plan of its own: [cloud-init provisioning](cloud-init-provisioning.md). The [Azure Linux 4.0](azure-linux.md) plan is complete.
 
 ## Phase 1 — Evidence still missing
 
