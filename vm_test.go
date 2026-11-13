@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -393,5 +395,48 @@ func TestVMRecordRejectsInvalidID(t *testing.T) {
 		if err := v.validate(v.Owner, v.GID); err == nil {
 			t.Errorf("validate accepted the ID %q", id)
 		}
+	}
+}
+
+// TestVMSSHConfigProxyExpandsOnlyNumbers guards the variable parts of the VM's
+// ProxyCommand: OpenSSH expands %h to the numeric Hostname and %p to the
+// default port, so nsl writes no other variable part there.
+func TestVMSSHConfigProxyExpandsOnlyNumbers(t *testing.T) {
+	_, _, v := startedVM(t)
+	b, err := os.ReadFile(filepath.Join(v.dir, "ssh.config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if lines[0] != "Host vm" {
+		t.Fatalf("first line is %q, want %q", lines[0], "Host vm")
+	}
+	numeric := regexp.MustCompile(`^    Hostname vsock/([0-9]+)$`)
+	var hostnames []string
+	proxies := 0
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "    Port "):
+			t.Errorf("the config sets a port, so %%p is not the default: %q", line)
+		case strings.HasPrefix(line, "    Host "):
+			t.Errorf("unexpected indented Host line %q", line)
+		case strings.HasPrefix(line, "    ProxyCommand "):
+			proxies++
+			if want := "    ProxyCommand /usr/lib/systemd/systemd-ssh-proxy %h %p"; line != want {
+				t.Errorf("ProxyCommand is %q, want %q", line, want)
+			}
+		}
+		if m := numeric.FindStringSubmatch(line); m != nil {
+			hostnames = append(hostnames, m[1])
+		}
+	}
+	if len(hostnames) != 1 {
+		t.Fatalf("got %d numeric Hostname lines, want 1: %q", len(hostnames), hostnames)
+	}
+	if want := strconv.FormatUint(uint64(cid(v)), 10); hostnames[0] != want {
+		t.Errorf("Hostname is vsock/%s, want vsock/%s", hostnames[0], want)
+	}
+	if proxies != 1 {
+		t.Errorf("got %d ProxyCommand lines, want 1", proxies)
 	}
 }
