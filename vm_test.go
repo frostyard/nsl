@@ -353,3 +353,45 @@ func TestDoctorReportsDeviceAccessFailureForKVMMember(t *testing.T) {
 		})
 	}
 }
+
+// TestInternalLaunchCommandsRejectInvalidID guards the 2 shell scripts that
+// `_devices` and `_launch` build: an ID reaches a script only after
+// protocol.ValidID accepted it. The test requires their own validation error,
+// so a run that fails later, at the account lookup, the device or the VM
+// record, does not pass it. Both checks are the first statement of their
+// function, so this needs no root, no VM and no device, and no app state.
+func TestInternalLaunchCommandsRejectInvalidID(t *testing.T) {
+	a := &app{}
+	valid := "0123456789abcdef0123456789abcdef"
+	for _, args := range [][]string{
+		nil,
+		{""},
+		{"abc; true"},
+		{"a'b"},
+		{"$(id)"},
+		{valid, valid},
+	} {
+		if err := a.devices(args); err == nil || err.Error() != "internal device launch requires a VM" {
+			t.Errorf("devices(%q): got %v, want the internal device launch refusal", args, err)
+		}
+		if err := a.launch(args); err == nil || err.Error() != "internal launch requires a VM" {
+			t.Errorf("launch(%q): got %v, want the internal launch refusal", args, err)
+		}
+	}
+}
+
+// TestVMRecordRejectsInvalidID guards the ID that the `_devices` script of
+// `launchVM` carries: a record accepts only an ID that protocol.ValidID
+// accepts, and validate runs when the record loads, before the script exists.
+func TestVMRecordRejectsInvalidID(t *testing.T) {
+	v := &vmRecord{Schema: 1, ID: randomID(), Owner: os.Getuid(), GID: os.Getgid(), Role: "shared", DataGiB: defaultDataGiB}
+	if err := v.validate(v.Owner, v.GID); err != nil {
+		t.Fatalf("valid record refused: %v", err)
+	}
+	for _, id := range []string{"abc; true", "a'b", "$(id)", ""} {
+		v.ID = id
+		if err := v.validate(v.Owner, v.GID); err == nil {
+			t.Errorf("validate accepted the ID %q", id)
+		}
+	}
+}
