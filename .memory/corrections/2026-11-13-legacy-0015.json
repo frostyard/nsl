@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "AGENTS.md",
+  "correction": "Belief: the shell-line exceptions in the argument-array rule are the sg/newgrp scripts and the login shell. Reality: the OpenSSH ProxyCommand lines (remote.go, state.go) and the agent's forced command (cmd/nsl-agent/boot.go) are shell command strings too; the rule now names them and their quoting",
+  "evidence": "frostyard/nsl#113 cross-review (openai/gpt-6.1-sol) of head d23b645, finding 1",
+  "promoted_to": "AGENTS.md argument-array rule; remote_test.go TestProxyQuote"
+}

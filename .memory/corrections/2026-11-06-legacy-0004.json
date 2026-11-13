@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "gate",
+  "correction": "A new gate target needs a reproducible test that makes it fail on purpose; a recorded manual run is not enough: corrections-base had none until scripts/test_corrections_base.py",
+  "evidence": "frostyard/nsl#81 cross-review F2",
+  "promoted_to": "scripts/test_corrections_base.py"
+}

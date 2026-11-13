@@ -1,17 +1,18 @@
 """Test the corrections-base target of the root Makefile in a temporary repository.
 
-`scripts/check-corrections.mjs --base` reads the working tree's
-`.memory/corrections.jsonl` and compares it line by line with the same file at
-the BASE commit (`git show BASE:./.memory/corrections.jsonl`). Each case here
-commits a BASE and then changes the working tree, so it tests exactly what the
-target promises:
+`scripts/check-corrections.mjs --base` reads the record files in the working
+tree's `.memory/corrections/` and compares them with the same folder at the
+BASE commit (frostyard/core ADR-0081). Each case here commits a BASE and then
+changes the working tree, so it tests exactly what the target promises:
 
 - a BASE that does not resolve to a commit fails, never passes as an old base;
 - a BASE that predates the gate prints a notice and passes;
-- an appended line passes;
-- a changed line fails;
-- a removed line fails;
-- filling an empty promoted_to passes.
+- an added record file passes;
+- a changed record fails;
+- a removed record fails;
+- filling an empty promoted_to passes;
+- the old single corrections file fails when BASE has the folder, beside
+  the folder or in its place.
 
 The target runs in the temporary repository's directory, so its `git rev-parse`,
 `git cat-file` and `node scripts/check-corrections.mjs` all read that repository.
@@ -35,7 +36,7 @@ GIT_CONFIG = ["-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "comm
 # A commit must not pick up the ambient repository.
 GIT_ENVIRONMENT = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
 
-LINES = [
+RECORDS = [
     {
         "date": "2026-11-04",
         "scope": "tests",
@@ -51,7 +52,7 @@ LINES = [
         "promoted_to": "",
     },
 ]
-APPENDED = {
+ADDED = {
     "date": "2026-11-05",
     "scope": "release",
     "correction": "a correction the base does not have",
@@ -59,6 +60,9 @@ APPENDED = {
     "promoted_to": "",
 }
 
+
+# The records at BASE, as (slug, record) pairs: each becomes 1 file.
+BASE_RECORDS = [("legacy-0001", RECORDS[0]), ("legacy-0002", RECORDS[1])]
 
 def environment():
     cleaned = dict(os.environ)
@@ -113,18 +117,27 @@ class CorrectionsBase(unittest.TestCase):
         )
         return result.returncode, result.stdout + result.stderr
 
-    def write_lines(self, lines):
-        path = self.directory / ".memory" / "corrections.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    @staticmethod
+    def record_name(record, slug):
+        return f"{record['date']}-{slug}.json"
+
+    def write_records(self, records):
+        """Write each (slug, record) pair as 1 file in canonical form; remove the others."""
+        folder = self.directory / ".memory" / "corrections"
+        folder.mkdir(parents=True, exist_ok=True)
+        for old in folder.glob("*.json"):
+            old.unlink()
+        for slug, record in records:
+            text = json.dumps(record, indent=2, ensure_ascii=False) + "\n"
+            (folder / self.record_name(record, slug)).write_text(text, encoding="utf-8")
 
     def install_gate(self):
-        """Commit the gate and 2 correction lines; return that commit as BASE."""
+        """Commit the gate and 2 record files; return that commit as BASE."""
         scripts = self.directory / "scripts"
         scripts.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(CHECKER, scripts / "check-corrections.mjs")
-        self.write_lines(LINES)
-        return self.commit("corrections gate and 2 lines")
+        self.write_records(BASE_RECORDS)
+        return self.commit("corrections gate and 2 records")
 
     def test_a_base_that_does_not_resolve_fails(self):
         code, output = self.make("nope")
@@ -136,33 +149,51 @@ class CorrectionsBase(unittest.TestCase):
         self.assertEqual(code, 0, f"a BASE without the gate must pass:\n{output}")
         self.assertIn("predates the corrections gate", output, output)
 
-    def test_an_appended_line_passes(self):
+    def test_an_added_record_passes(self):
         base = self.install_gate()
-        self.write_lines([*LINES, APPENDED])
+        self.write_records([*BASE_RECORDS, ("pr-9-added", ADDED)])
         code, output = self.make(base)
-        self.assertEqual(code, 0, f"an appended line must pass:\n{output}")
+        self.assertEqual(code, 0, f"an added record must pass:\n{output}")
 
-    def test_a_changed_line_fails(self):
+    def test_a_changed_record_fails(self):
         base = self.install_gate()
-        changed = [dict(LINES[0], correction="a rewritten correction"), LINES[1]]
-        self.write_lines(changed)
+        first, second = BASE_RECORDS
+        changed = [(first[0], dict(first[1], correction="a rewritten correction")), second]
+        self.write_records(changed)
         code, output = self.make(base)
-        self.assertNotEqual(code, 0, f"a changed line must fail:\n{output}")
+        self.assertNotEqual(code, 0, f"a changed record must fail:\n{output}")
         self.assertIn("FAIL corrections", output, output)
 
-    def test_a_removed_line_fails(self):
+    def test_a_removed_record_fails(self):
         base = self.install_gate()
-        self.write_lines(LINES[1:])
+        self.write_records(BASE_RECORDS[1:])
         code, output = self.make(base)
-        self.assertNotEqual(code, 0, f"a removed line must fail:\n{output}")
-        self.assertIn("FAIL corrections", output, output)
+        self.assertNotEqual(code, 0, f"a removed record must fail:\n{output}")
+        self.assertIn("record removed", output, output)
 
     def test_filling_an_empty_promoted_to_passes(self):
         base = self.install_gate()
-        self.write_lines([LINES[0], dict(LINES[1], promoted_to="AGENTS.md")])
+        first, second = BASE_RECORDS
+        self.write_records([first, (second[0], dict(second[1], promoted_to="AGENTS.md"))])
         code, output = self.make(base)
         self.assertEqual(code, 0, f"filling an empty promoted_to must pass:\n{output}")
 
+    def test_the_old_corrections_file_beside_the_folder_fails(self):
+        base = self.install_gate()
+        old = self.directory / ".memory" / "corrections.jsonl"
+        old.write_text(json.dumps(ADDED) + "\n", encoding="utf-8")
+        code, output = self.make(base)
+        self.assertNotEqual(code, 0, f"the old corrections file beside the folder must fail:\n{output}")
+        self.assertIn("both .memory/corrections.jsonl and .memory/corrections/ exist", output, output)
+
+    def test_the_old_corrections_file_instead_of_the_folder_fails(self):
+        base = self.install_gate()
+        shutil.rmtree(self.directory / ".memory" / "corrections")
+        old = self.directory / ".memory" / "corrections.jsonl"
+        old.write_text(json.dumps(ADDED) + "\n", encoding="utf-8")
+        code, output = self.make(base)
+        self.assertNotEqual(code, 0, f"the old corrections file must not come back:\n{output}")
+        self.assertIn("is retired in this repository", output, output)
 
 if __name__ == "__main__":
     unittest.main()

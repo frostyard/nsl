@@ -33,9 +33,9 @@ jobs:
           install: true
           install_args: golangci-lint node
           cache: true
-      # make ci also runs corrections-base, which compares .memory/corrections.jsonl
-      # with BASE. On a push or merge-group event BASE is empty, so the
-      # corrections comparison is skipped there.
+      # make ci also runs corrections-base, which compares the records in
+      # .memory/corrections/ with BASE. On a push or merge-group event BASE is
+      # empty, so the corrections comparison is skipped there.
       - name: Run make ci
         run: make ci
         env:

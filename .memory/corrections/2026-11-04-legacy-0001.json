@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "tests",
+  "correction": "A test that recreates a file mode the code sets with chmod must set it with chmod too: a create mode such as os.WriteFile(path, data, 0444) is reduced by the umask, and TestPullResumesAfterAnInterruptedPublication failed under umask 0077 while CI ran with 0022; make ci now runs the race tests under umask 0077",
+  "evidence": "T805; this PR",
+  "promoted_to": "AGENTS.md"
+}

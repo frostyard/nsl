@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-13",
+  "scope": "docs/adr/0021-machine-readable-output.md",
+  "correction": "Belief: correcting the CLI spec row for an imported machine's image corrects the docs. Reality: ADR-0021's context repeated the same wrong fact (empty cells for imported machines); a fact correction must search docs/ including ADRs, and site/content",
+  "evidence": "frostyard/nsl#113 cross-review (openai/gpt-6.1-sol) of head d23b645, finding 2",
+  "promoted_to": "AGENTS.md Documentation section"
+}
