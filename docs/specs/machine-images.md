@@ -28,7 +28,7 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 
 The recipes supply `pam_systemd`, the session bus, the account tools and zone data, except where an adapter names them. Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
-Other distros and releases join after they pass acceptance ([plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-machine-images.md), [Azure Linux](../plans/azure-linux.md), [more releases](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-releases.md)).
+Other distros and releases join after they pass acceptance ([plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-machine-images.md), [Azure Linux](https://github.com/frostyard/nsl/blob/d114663e0667d08fada3bbb698288d51e7e317eb/docs/plans/azure-linux.md), [more releases](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-releases.md)).
 
 ### Machine layer
 
