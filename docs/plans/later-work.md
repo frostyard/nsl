@@ -2,7 +2,7 @@
 
 The open items that the finished plans of the shared-VM design left behind, in 1 place. Each item becomes a plan of its own, from [TEMPLATE.md](TEMPLATE.md), when someone takes it up. The finished plans are in git history at [`e617966`](https://github.com/frostyard/nsl/tree/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans); the [implementation plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md) is the record of how the current design was built and proved.
 
-Open work with a plan of its own: [cloud-init provisioning](cloud-init-provisioning.md). The [Azure Linux 4.0](azure-linux.md) plan is complete.
+Open work with a plan of its own: [cloud-init provisioning](cloud-init-provisioning.md). The finished [Azure Linux 4.0 plan](https://github.com/frostyard/nsl/blob/d114663e0667d08fada3bbb698288d51e7e317eb/docs/plans/azure-linux.md) is in git history at `d114663`; its open items are under Images and Open questions below.
 
 ## Phase 1 — Evidence still missing
 
@@ -51,6 +51,8 @@ Images:
 - More releases of the existing families, each a profile that passes acceptance: Debian 12, Fedora 43, CentOS Stream 9; AlmaLinux and Rocky Linux in the `rpm` family. The pinned recipes carry them.
 - SUSE Linux Enterprise as a separate track, with its access and redistribution terms ([ADR-0009](../adr/0009-distribution-neutral-guest-contract.md)).
 - A development branch (Debian testing, Fedora Rawhide) that fails acceptance blocks the whole catalogue until its profile is fixed; `operation=refresh` keeps the current catalogue alive meanwhile. If that happens often, the publisher could carry the last accepted image forward for that branch.
+- Azure Linux 4.0 from Microsoft's production repositories, when it leaves beta. The image's `azurelinux-repos` follows the distro; the profile's `LocalMirror=` changes with it, or goes once mkosi builds the right URLs for 4.0.
+- An Azure Linux recipe upstream in `nspawn/mkosi-definitions`, to replace the Azure Linux profile's package list and post-install script.
 - arm64 VM and machine images: a separate image and hardware gate.
 - Track each release's upstream end of life, and remove a release from the catalogue when its distro stops support.
 - Delivery: delta downloads, once measured against their complexity and recovery cost; mirrors, other registries and private authentication; offline bundles that carry enough metadata and signatures for the offline trust policy ([ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md)).
@@ -68,6 +70,8 @@ Retired with the prototype, because the shared-VM design replaced their cause:
 
 - Should nsl's own state move out of the shared trees? A machine that is not isolated sees the whole home, as [ADR-0016](../adr/0016-wsl-style-machines.md) intends, and so nsl's state and private keys under the default `NSL_HOME` (`~/.local/share/nsl`). The shared-VM experiment left this open.
 - Should the memory budget cover more than 4 idle machines, now that the catalogue has 11 images? The gate stays at 4, as the experiment measured, until a use case asks for more ([requirements that must not regress](../design/lifecycle.md#requirements-that-must-not-regress)).
+
+- Should the probe list Wayland globals with its Python client for every image, and drop `wayland-utils` from the workload? It stays limited to Azure Linux until another distro lacks `wayland-info` ([machine-image acceptance](../specs/machine-images.md#acceptance)).
 
 ## References
 
