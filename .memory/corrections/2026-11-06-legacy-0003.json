@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "risk-paths",
+  "correction": "The risk list must cover every script that gates image signing and catalogue promotion, not only the scripts that sign: scripts/publish-images.py runs probe-vm.py, probe-machines.py and measure-machines.py before it signs",
+  "evidence": "frostyard/nsl#81 cross-review F1",
+  "promoted_to": "scripts/test_risk_paths.py"
+}

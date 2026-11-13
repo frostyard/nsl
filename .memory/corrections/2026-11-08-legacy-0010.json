@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-08",
+  "scope": "pull request risk tier",
+  "correction": "Belief: a dependency bump for advisories in code nsl does not call is risk tier 2. Reality: the pull request template puts every security change in tier 3, and the tier is never declared lower",
+  "evidence": "frostyard/nsl#96 cross-review",
+  "promoted_to": "AGENTS.md"
+}

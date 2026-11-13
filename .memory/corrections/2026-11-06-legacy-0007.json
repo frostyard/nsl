@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "Makefile lint-version-check",
+  "correction": "Belief: the golangci-lint release is built with a Go at least as new as go.mod's patch. Reality: golangci-lint 2.15.0 is built with go1.27.0, so a full-patch comparison failed CI against go 1.27.3; the check compares major.minor only",
+  "evidence": "frostyard/nsl#88, CI verify job at head 995afd3",
+  "promoted_to": "scripts/test_lint_version_check.py"
+}

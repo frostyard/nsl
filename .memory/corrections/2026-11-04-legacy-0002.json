@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-04",
+  "scope": "release",
+  "correction": "goreleaser-action version ranges resolve from goreleaser.com release lists, which can lag; pin GoReleaser Pro exactly, and check the rendered cask in CI",
+  "evidence": "homebrew-tap 6bc286d red; release run 41870057797 used v2.19.0; this PR",
+  "promoted_to": "scripts/test_check_cask.py"
+}

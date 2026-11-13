@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "release",
+  "correction": "A change to how the release publishes the Homebrew cask (target branch, pull request, token) needs a test that reads .goreleaser.yaml and release.yml; goreleaser check and the snapshot render do not exercise publication",
+  "evidence": "frostyard/nsl#89 cross-review F1",
+  "promoted_to": "scripts/test_check_cask.py"
+}

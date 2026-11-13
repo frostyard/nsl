@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-11",
+  "scope": "scripts/test_go_pin.py",
+  "correction": "Belief: comparing each Go entry in mise.lock with go.mod, found by a line regex, guards the single Go pin. Reality: a lock with no Go entry compared nothing and passed, and a go.mod directive with a trailing // comment was not read; the guard now requires a Go entry and strips comments",
+  "evidence": "frostyard/nsl#110 cross-review (openai/gpt-6.1-sol) of head a81d12f, findings 1 and 2",
+  "promoted_to": "scripts/test_go_pin.py test_lock_without_go_fails, test_commented_toolchain_line_is_read"
+}
