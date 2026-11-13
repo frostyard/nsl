@@ -8,11 +8,11 @@
 Tools that integrate with nsl need its state: a terminal that opens machines
 in tabs and manages them from its preferences, an editor extension, a shell
 prompt. `nsl list`, `nsl images` and `nsl config` print tables for people:
-`text/tabwriter` columns, empty cells for imported machines and machines
-being removed, digests shortened to twelve characters, and notes such as
-pending changes printed after a table without a separating line. Parsing
-that text breaks when wording or layout changes, and cannot tell an empty
-cell from a missing column without the header's offsets.
+`text/tabwriter` columns, empty cells for machines being removed, digests
+shortened to twelve characters, and notes such as pending changes printed
+after a table without a separating line. Parsing that text breaks when
+wording or layout changes, and cannot tell an empty cell from a missing
+column without the header's offsets.
 
 Reading nsl's state files instead would skip the ownership and permission
 checks nsl applies to them, bind integrations to records nsl rewrites freely

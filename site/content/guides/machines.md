@@ -106,6 +106,6 @@ nsl remove old         # preview what would be deleted
 nsl remove old --yes   # delete it
 ```
 
-Stop the machine before removing it. Removal is permanent, though your host files, cached images and exported archives stay where they are. Removing an isolated machine also deletes its VM and disks. If removal is interrupted, `nsl list` shows `Removing` and the name stays reserved. Run the same removal command to finish.
+Stop the machine before removing it. Removal is permanent, though your host files, cached images and exported archives stay where they are. Removing an isolated machine also deletes its VM and disks. If removal is interrupted, `nsl list` shows `removing` and the name stays reserved. Run the same removal command to finish.
 
 To keep a copy first, [export](export-import.md) the machine.

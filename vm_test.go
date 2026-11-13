@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -351,5 +353,90 @@ func TestDoctorReportsDeviceAccessFailureForKVMMember(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestInternalLaunchCommandsRejectInvalidID guards the 2 shell scripts that
+// `_devices` and `_launch` build: an ID reaches a script only after
+// protocol.ValidID accepted it. The test requires their own validation error,
+// so a run that fails later, at the account lookup, the device or the VM
+// record, does not pass it. Both checks are the first statement of their
+// function, so this needs no root, no VM and no device, and no app state.
+func TestInternalLaunchCommandsRejectInvalidID(t *testing.T) {
+	a := &app{}
+	valid := "0123456789abcdef0123456789abcdef"
+	for _, args := range [][]string{
+		nil,
+		{""},
+		{"abc; true"},
+		{"a'b"},
+		{"$(id)"},
+		{valid, valid},
+	} {
+		if err := a.devices(args); err == nil || err.Error() != "internal device launch requires a VM" {
+			t.Errorf("devices(%q): got %v, want the internal device launch refusal", args, err)
+		}
+		if err := a.launch(args); err == nil || err.Error() != "internal launch requires a VM" {
+			t.Errorf("launch(%q): got %v, want the internal launch refusal", args, err)
+		}
+	}
+}
+
+// TestVMRecordRejectsInvalidID guards the ID that the `_devices` script of
+// `launchVM` carries: a record accepts only an ID that protocol.ValidID
+// accepts, and validate runs when the record loads, before the script exists.
+func TestVMRecordRejectsInvalidID(t *testing.T) {
+	v := &vmRecord{Schema: 1, ID: randomID(), Owner: os.Getuid(), GID: os.Getgid(), Role: "shared", DataGiB: defaultDataGiB}
+	if err := v.validate(v.Owner, v.GID); err != nil {
+		t.Fatalf("valid record refused: %v", err)
+	}
+	for _, id := range []string{"abc; true", "a'b", "$(id)", ""} {
+		v.ID = id
+		if err := v.validate(v.Owner, v.GID); err == nil {
+			t.Errorf("validate accepted the ID %q", id)
+		}
+	}
+}
+
+// TestVMSSHConfigProxyExpandsOnlyNumbers guards the variable parts of the VM's
+// ProxyCommand: OpenSSH expands %h to the numeric Hostname and %p to the
+// default port, so nsl writes no other variable part there.
+func TestVMSSHConfigProxyExpandsOnlyNumbers(t *testing.T) {
+	_, _, v := startedVM(t)
+	b, err := os.ReadFile(filepath.Join(v.dir, "ssh.config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	if lines[0] != "Host vm" {
+		t.Fatalf("first line is %q, want %q", lines[0], "Host vm")
+	}
+	numeric := regexp.MustCompile(`^    Hostname vsock/([0-9]+)$`)
+	var hostnames []string
+	proxies := 0
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "    Port "):
+			t.Errorf("the config sets a port, so %%p is not the default: %q", line)
+		case strings.HasPrefix(line, "    Host "):
+			t.Errorf("unexpected indented Host line %q", line)
+		case strings.HasPrefix(line, "    ProxyCommand "):
+			proxies++
+			if want := "    ProxyCommand /usr/lib/systemd/systemd-ssh-proxy %h %p"; line != want {
+				t.Errorf("ProxyCommand is %q, want %q", line, want)
+			}
+		}
+		if m := numeric.FindStringSubmatch(line); m != nil {
+			hostnames = append(hostnames, m[1])
+		}
+	}
+	if len(hostnames) != 1 {
+		t.Fatalf("got %d numeric Hostname lines, want 1: %q", len(hostnames), hostnames)
+	}
+	if want := strconv.FormatUint(uint64(cid(v)), 10); hostnames[0] != want {
+		t.Errorf("Hostname is vsock/%s, want vsock/%s", hostnames[0], want)
+	}
+	if proxies != 1 {
+		t.Errorf("got %d ProxyCommand lines, want 1", proxies)
 	}
 }
