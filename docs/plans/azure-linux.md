@@ -1,6 +1,6 @@
 # Plan: Azure Linux 4.0 machine image
 
-**Status: Phase 1 complete, 2026-10-08. Catalogue sequence 16 published the image on 2026-10-09; Phase 2 waits for the clean-host check.**
+**Status: complete, 2026-11-13. Catalogue sequence 16 published the image on 2026-10-09; a clean host created, started, entered and removed a machine from `azurelinux:4.0` on 2026-11-13.**
 
 Add Azure Linux 4.0, Microsoft's Fedora-based cloud distribution, as a machine image in the `rpm` family. It joins the catalogue only after it passes the [machine-image acceptance](../specs/machine-images.md#acceptance), under [ADR-0009](../adr/0009-distribution-neutral-guest-contract.md).
 
@@ -29,7 +29,15 @@ Azure Linux 4.0 is a beta. Microsoft publishes it only under `packages.microsoft
 - Add the selectors `azurelinux:4.0` and `azure-linux:4.0` to the publisher, and list the image as a beta in the user documentation.
 - **Done when:** a signed catalogue lists the image, and `nsl create` works from `azurelinux:4.0` on a host with an empty cache.
 
-**Publication, 2026-10-09.** [Run 37848515876](https://github.com/frostyard/nsl/actions/runs/37848515876) published catalogue sequence 16 with `nsl-machine-azure-4.0-x86-64-r1` and the selectors `azurelinux:4.0` and `azure-linux:4.0`. No clean-host `nsl create` from `azurelinux:4.0` is recorded yet.
+**Publication, 2026-10-09.** [Run 37848515876](https://github.com/frostyard/nsl/actions/runs/37848515876) published catalogue sequence 16 with `nsl-machine-azure-4.0-x86-64-r1` and the selectors `azurelinux:4.0` and `azure-linux:4.0`.
+
+**Result, 2026-11-13: complete.**
+
+- **Catalogue.** [Run 43079296815](https://github.com/frostyard/nsl/actions/runs/43079296815) built `fe437db` on `nsl-builder`, accepted every image, and published catalogue sequence **32**, manifest `sha256:7d9e5d1f4c9f6ca23451152df133bacff433eb652e13c09eeab74b25d1cd9d18`, which expires 2026-12-11. Its Azure Linux image is `nsl-machine-azure-4.0-x86-64-r2`, manifest `sha256:220e78b34756a4042f1e01eaa0cefba5c49b46076e37b3fdf65be410aee50486`: the recipe pin of `9ec9ec8` raised every image's revision, and the profile now names `systemd-pam`. All 12 Azure Linux checks of the run passed, `gui` and `persistence` included.
+- **Clean host.** The released [v0.13.1](https://github.com/frostyard/nsl/releases/tag/v0.13.1) binary, its archive checked against the release checksums and its GitHub attestation (`release.yml` at `refs/tags/v0.13.1`), ran on a Snow Linux 13 host with systemd 262, with a new `NSL_HOME`, `XDG_DATA_HOME` and `XDG_CONFIG_HOME`. `nsl images` listed sequence 32 with no image cached and no VM image selected.
+  - `nsl create azure-check --distro azurelinux:4.0` verified and downloaded the machine image (70,600,979 bytes) and the VM image `nsl-vm-trixie-x86-64-r12` (488,940,394 bytes), started the VM and created the machine in 79 s, downloads included.
+  - `nsl start azure-check` took 10 s. `nsl run -m azure-check` reported `Azure Linux 4.0 (Four Beta)`, the host account, the translated working directory `/mnt/host/var/home/team`, systemd state `running`, `azurelinux-release-4.0-26.azl4` and `systemd-258.4-5.azl4`, in 1.2 s.
+  - `nsl remove azure-check --yes` refused the running machine, as the [CLI](../specs/cli.md) requires. After `nsl shutdown`, it removed the machine in 28 s, including the VM's start. `nsl list` then showed no machines, and the test state directories were deleted.
 
 ## Later / ideas
 
