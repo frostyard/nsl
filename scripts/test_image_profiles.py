@@ -133,11 +133,6 @@ class VMImage(unittest.TestCase):
             self.assertIn('nsl-arch-finalize.chroot', (Path(tmp)/'arch-rolling/mkosi.local.conf').read_text())
             # Rawhide changes signing keys at each branch point, so the build fetches the current one.
             self.assertIn('RepositoryKeyFetch=yes', (Path(tmp)/'fedora-rawhide/mkosi.local.conf').read_text())
-            # Azure Linux 4.0 builds from its beta repository and keeps the signed repository package, not the dev feed.
-            azure = (Path(tmp)/'azure-4.0/mkosi.local.conf').read_text()
-            self.assertIn('LocalMirror=https://packages.microsoft.com/azurelinux/4.0/beta/base/x86_64/', azure)
-            self.assertIn('Packages=azurelinux-repos\n', azure)
-            self.assertEqual((Path(tmp)/'azure-4.0/nsl-azure-postinst.chroot').stat().st_mode & 0o777, 0o755)
 
     def test_osc7_reports_the_directory_in_vte_terminals(self):
         script = str(ROOT/'image/machines/common/overlay/etc/profile.d/nsl-osc7.sh')

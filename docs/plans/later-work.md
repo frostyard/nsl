@@ -51,8 +51,7 @@ Images:
 - More releases of the existing families, each a profile that passes acceptance: Debian 12, Fedora 43, CentOS Stream 9; AlmaLinux and Rocky Linux in the `rpm` family. The pinned recipes carry them.
 - SUSE Linux Enterprise as a separate track, with its access and redistribution terms ([ADR-0009](../adr/0009-distribution-neutral-guest-contract.md)).
 - A development branch (Debian testing, Fedora Rawhide) that fails acceptance blocks the whole catalogue until its profile is fixed; `operation=refresh` keeps the current catalogue alive meanwhile. If that happens often, the publisher could carry the last accepted image forward for that branch.
-- Azure Linux 4.0 from Microsoft's production repositories, when it leaves beta. The image's `azurelinux-repos` follows the distro; the profile's `LocalMirror=` changes with it, or goes once mkosi builds the right URLs for 4.0.
-- An Azure Linux recipe upstream in `nspawn/mkosi-definitions`, to replace the Azure Linux profile's package list and post-install script.
+- Azure Linux 4.0 from Microsoft's production repositories, when it leaves beta. The image's `azurelinux-repos` follows the distro; the recipe's `LocalMirror=` in `nspawn/mkosi-definitions` changes with it, and the recipe pin moves to that commit.
 - arm64 VM and machine images: a separate image and hardware gate.
 - Track each release's upstream end of life, and remove a release from the catalogue when its distro stops support.
 - Delivery: delta downloads, once measured against their complexity and recovery cost; mirrors, other registries and private authentication; offline bundles that carry enough metadata and signatures for the offline trust policy ([ADR-0015](../adr/0015-image-verification-and-catalogue-policy.md)).

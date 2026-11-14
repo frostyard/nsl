@@ -8,7 +8,7 @@ limactl="${NSL_LIMACTL:-limactl}"
 # Lima socket paths must stay under 108 bytes, so the builder lives outside the checkout.
 export LIMA_HOME="${NSL_IMAGE_LIMA_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/nsl-image-build}"
 builder=nsl-image-builder
-recipes=1418e840d3eb83acb52f69311c6c939a558b5af0
+recipes=9c1ee3101ec1b68759521412384e6ce4a0e842c5
 mkosi=4736cd836108a97772142c461c49f1ddb4172348
 # Validate the explicit support matrix before touching builder state.
 selection=()
