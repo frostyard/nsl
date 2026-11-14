@@ -57,7 +57,7 @@ A machine build uses the recipe's container output without the disk profile, as 
 
 1. `common/`: the machine layer. It holds the `nsl` PAM service, the nesting mount and its preset, the Podman drop-in, `nsl-path`, and `nsl-osc7.sh`, which reports the working directory to VTE terminals. Its finalize script, which runs after the recipes' own scripts, masks every networkd and resolved unit and disables SSH services. It also removes SSH host keys and the random seed, sets the machine ID to `uninitialized`, and fills in the descriptor.
 2. `families/FAMILY/`: packages, the tools tree and family fixes, such as Arch's `nsswitch.conf` order. Families are `debian` (Debian and Ubuntu), `rpm` (Fedora, CentOS Stream and Azure Linux), `arch` and `suse` (Tumbleweed and Leap).
-3. `profiles/NAME/`: the distribution, release and revision, and settings for that distribution alone, such as Ubuntu's tools tree or Rawhide's key fetch. A second release of a distribution gets its own profile, such as `debian-testing`, `fedora-rawhide` and `ubuntu-noble`. The recipes have no Azure Linux recipe, so its profile names the packages and the `resolv.conf` link that a recipe would add, and reads Microsoft's beta repository.
+3. `profiles/NAME/`: the distribution, release and revision, and settings for that distribution alone, such as Ubuntu's tools tree or Rawhide's key fetch. A second release of a distribution gets its own profile, such as `debian-testing`, `fedora-rawhide` and `ubuntu-noble`.
 
 Create a machine from a local build with `nsl create NAME --image FILE --digest sha256:HEX`. `probe-machines.py` runs the agent's entry matrix, the hub-image tally checks and the workload checks through the CLI.
 
