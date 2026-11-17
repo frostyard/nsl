@@ -12,6 +12,9 @@ import unittest
 spec = importlib.util.spec_from_file_location('compose', Path(__file__).with_name('compose-image.py'))
 compose = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(compose)
+spec = importlib.util.spec_from_file_location('probe', Path(__file__).with_name('probe-machines.py'))
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -176,6 +179,99 @@ class VMImage(unittest.TestCase):
         self.assertEqual(run('--guest', '/var/home/u').stdout, '/mnt/host/var/home/u\n')
         self.assertEqual(run('--host', '/etc/passwd').returncode, 1)
         self.assertEqual(run().returncode, 2)
+
+
+CLOUD_INIT_CONFIG = '''# Written by scripts/compose-image.py: cloud-init runs only from the seed that nsl writes (docs/specs/provisioning.md#image-integration).
+datasource_list: [ NoCloud ]
+network: {config: disabled}
+users: []
+preserve_hostname: true
+manage_etc_hosts: false
+cloud_init_modules: [write_files, ca_certs]
+cloud_config_modules: [CONFIG]
+cloud_final_modules: [package_update_upgrade_install, write_files_deferred, scripts_user, final_message]
+'''
+DEBIAN_KEYS = ['apt', 'ca_certs', 'package_update', 'package_upgrade', 'packages', 'runcmd', 'write_files']
+FEDORA_KEYS = ['ca_certs', 'package_update', 'package_upgrade', 'packages', 'runcmd', 'write_files', 'yum_repos']
+
+
+class CloudInit(unittest.TestCase):
+    """Debian and Fedora ship cloud-init switched off; no other image ships it at all."""
+
+    def compose_machine(self, tmp, distribution, release):
+        destination = Path(tmp)/f'{distribution}-{release}'
+        compose.compose(ROOT, destination, compose.select(ROOT, 'machine', distribution, release), 'recipes-pin', 'mkosi-pin')
+        return destination
+
+    def test_debian_and_fedora_declare_cloud_init_switched_off(self):
+        cases = [('debian', 'trixie', DEBIAN_KEYS, 'apt_configure, runcmd', 'yum_add_repo'),
+                 ('fedora', '44', FEDORA_KEYS, 'yum_add_repo, runcmd', 'apt_configure')]
+        with tempfile.TemporaryDirectory() as tmp:
+            for distribution, release, keys, module, other in cases:
+                with self.subTest(distribution=distribution):
+                    destination = self.compose_machine(tmp, distribution, release)
+                    descriptor = json.loads((destination/'overlay/usr/lib/nsl/machine.json').read_text())
+                    self.assertEqual(descriptor['capabilities'], {
+                        'gui': {}, 'nesting': {},
+                        'provisioning.cloud_init': {'interface': 1, 'cloud_init': '@CLOUD_INIT@',
+                                                    'datasource': 'nocloud', 'keys': sorted(keys)}})
+                    # ds-identify reads the datasource line with shell tools, so it stays literal.
+                    config = destination/'overlay/etc/cloud/cloud.cfg.d/99_nsl.cfg'
+                    self.assertEqual(config.read_text(), CLOUD_INIT_CONFIG.replace('CONFIG', module))
+                    self.assertNotIn(other, config.read_text())
+                    self.assertEqual(config.stat().st_mode & 0o777, 0o644)
+                    self.assertEqual((destination/'overlay/etc/cloud/cloud-init.disabled').read_text(),
+                                     '# nsl: cloud-init stays off until the agent writes a seed and removes this file.\n')
+                    mkosi = (destination/'mkosi.local.conf').read_text()
+                    self.assertIn('Packages=cloud-init\n', mkosi)
+                    self.assertIn('FinalizeScripts=nsl-cloud-init.chroot', mkosi)
+                    self.assertLess(mkosi.index('FinalizeScripts=nsl-finalize.chroot'), mkosi.index('FinalizeScripts=nsl-cloud-init.chroot'))
+                    script = destination/'nsl-cloud-init.chroot'
+                    self.assertEqual(script.stat().st_mode & 0o777, 0o755)
+                    self.assertIn('@CLOUD_INIT@', script.read_text())
+
+    def test_other_images_ship_no_cloud_init(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for distribution, release in [key for key in compose.MACHINES if key not in (('debian', 'trixie'), ('fedora', '44'))]:
+                with self.subTest(distribution=distribution, release=release):
+                    destination = self.compose_machine(tmp, distribution, release)
+                    descriptor = json.loads((destination/'overlay/usr/lib/nsl/machine.json').read_text())
+                    self.assertEqual(descriptor['capabilities'], {'gui': {}, 'nesting': {}})
+                    self.assertFalse((destination/'overlay/etc/cloud').exists())
+                    self.assertNotIn('cloud-init', (destination/'mkosi.local.conf').read_text())
+                    self.assertFalse((destination/'nsl-cloud-init.chroot').exists())
+
+    def test_cloud_init_keys_are_validated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)/'source'
+            for name in ('image', 'scripts'):
+                shutil.copytree(ROOT/name, root/name, symlinks=True)
+            path = root/'image/machines/profiles/debian/profile.json'
+            profile = json.loads(path.read_text())
+            self.assertEqual(compose.select(root, 'machine', 'debian')['cloud_init'], DEBIAN_KEYS)
+            # An unknown key, a duplicate, an empty list, a bare string and a non-string all fail.
+            for keys in (['write_files', 'hostname'], ['apt', 'apt'], [], 'write_files', ['apt', 1], None):
+                with self.subTest(keys=keys):
+                    path.write_text(json.dumps(dict(profile, cloud_init=keys)))
+                    with self.assertRaises(ValueError):
+                        compose.select(root, 'machine', 'debian')
+
+    def test_cloud_init_modules_follow_the_stage_order(self):
+        self.assertEqual(compose.cloud_init_modules(['write_files']),
+                         {'cloud_init_modules': ['write_files'], 'cloud_config_modules': [],
+                          'cloud_final_modules': ['write_files_deferred', 'final_message']})
+        self.assertEqual(compose.cloud_init_modules(DEBIAN_KEYS), {
+            'cloud_init_modules': ['write_files', 'ca_certs'],
+            'cloud_config_modules': ['apt_configure', 'runcmd'],
+            'cloud_final_modules': ['package_update_upgrade_install', 'write_files_deferred', 'scripts_user', 'final_message']})
+
+    def test_the_finalize_script_masks_every_name_the_probe_checks(self):
+        script = (ROOT/'image/machines/cloud-init/nsl-cloud-init.chroot').read_text()
+        for name in probe.CLOUD_INIT_MASKED:
+            self.assertIn(name, script)
+        self.assertEqual(sorted(probe.CLOUD_INIT_MASKED),
+                         sorted(['ssh.service', 'sshd.service', 'sshd-keygen.service', 'sshd-keygen@.service',
+                                 'cloud-init-hotplugd.socket']))
 
 
 if __name__ == '__main__':

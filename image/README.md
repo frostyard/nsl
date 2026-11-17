@@ -53,11 +53,12 @@ python3 scripts/probe-machines.py --nsl build/nsl --vm-image build/image/share/n
 
 A machine build uses the recipe's container output without the disk profile, as a zstd tar: `nsl-machine-DISTRIBUTION-RELEASE-x86-64-rN.tar.zst`, with its manifest and the descriptor as built. A distribution without `--release` builds its first profile: Debian 13, Ubuntu 26.04, Fedora 44 and Tumbleweed. Debian builds with the builder's own tools. Ubuntu, Fedora, CentOS Stream, Arch and Azure Linux use a Fedora 44 tools tree, and Tumbleweed and Leap an openSUSE Tumbleweed one; the builder keeps mkosi's cache in `/var/cache/nsl-mkosi` between builds. Bump the profile's revision in `machines/profiles/NAME/profile.json` when inputs change.
 
-`machines/` composes three layers:
+`machines/` composes three layers, and a fourth for some profiles:
 
 1. `common/`: the machine layer. It holds the `nsl` PAM service, the nesting mount and its preset, the Podman drop-in, `nsl-path`, and `nsl-osc7.sh`, which reports the working directory to VTE terminals. Its finalize script, which runs after the recipes' own scripts, masks every networkd and resolved unit and disables SSH services. It also removes SSH host keys and the random seed, sets the machine ID to `uninitialized`, and fills in the descriptor.
 2. `families/FAMILY/`: packages, the tools tree and family fixes, such as Arch's `nsswitch.conf` order. Families are `debian` (Debian and Ubuntu), `rpm` (Fedora, CentOS Stream and Azure Linux), `arch` and `suse` (Tumbleweed and Leap).
 3. `profiles/NAME/`: the distribution, release and revision, and settings for that distribution alone, such as Ubuntu's tools tree or Rawhide's key fetch. A second release of a distribution gets its own profile, such as `debian-testing`, `fedora-rawhide` and `ubuntu-noble`.
+4. `cloud-init/`: only for a profile whose `profile.json` lists `cloud_init` keys, today Debian 13 and Fedora 44. It installs cloud-init with the `cloud-init.disabled` marker, so cloud-init stays off until a seed exists. `scripts/compose-image.py` writes `/etc/cloud/cloud.cfg.d/99_nsl.cfg` from the keys: the NoCloud datasource, the modules of those keys and the guard settings. The layer's finalize script runs last: it masks the distribution's SSH units and `cloud-init-hotplugd.socket`, and records the cloud-init version in the descriptor's `provisioning.cloud_init` capability ([provisioning](../docs/specs/provisioning.md#image-integration)).
 
 Create a machine from a local build with `nsl create NAME --image FILE --digest sha256:HEX`. `probe-machines.py` runs the agent's entry matrix, the hub-image tally checks and the workload checks through the CLI.
 

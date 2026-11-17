@@ -9,6 +9,26 @@ import shutil
 # Must match internal/protocol; scripts/test_image_profiles.py checks both.
 AGENT_PROTOCOL = 1
 MACHINE_PROTOCOL = 1
+CLOUD_INIT_INTERFACE = 1
+# Each selectable cloud-init key and the modules that apply it, in stage: module pairs
+# (docs/specs/provisioning.md#image-integration).
+CLOUD_INIT_KEYS = {
+    'package_update': [('final', 'package_update_upgrade_install')],
+    'package_upgrade': [('final', 'package_update_upgrade_install')],
+    'packages': [('final', 'package_update_upgrade_install')],
+    'write_files': [('init', 'write_files'), ('final', 'write_files_deferred')],
+    'runcmd': [('config', 'runcmd'), ('final', 'scripts_user')],
+    'ca_certs': [('init', 'ca_certs')],
+    'apt': [('config', 'apt_configure')],
+    'yum_repos': [('config', 'yum_add_repo')],
+}
+# The stage, its config key and the order of the modules cloud-init runs in it. final_message
+# closes the last stage; an image that runs anything else would come up differently.
+CLOUD_INIT_SECTIONS = (('init', 'cloud_init_modules'), ('config', 'cloud_config_modules'), ('final', 'cloud_final_modules'))
+CLOUD_INIT_STAGE_MODULES = {'init': ['write_files', 'ca_certs'],
+                             'config': ['apt_configure', 'yum_add_repo', 'runcmd'],
+                             'final': ['package_update_upgrade_install', 'write_files_deferred', 'scripts_user', 'final_message']}
+CLOUD_INIT_FINAL_MESSAGE = 'final_message'
 
 
 # Machine profiles by distribution and release. CLI strings are lookup keys,
@@ -45,11 +65,42 @@ def select(root, role, distribution=None, release=None, architecture='x86-64'):
         if (distribution, release) not in MACHINES:
             raise ValueError(f'unsupported machine image: {distribution}:{release}')
         profile = json.loads((root/'image/machines/profiles'/MACHINES[distribution, release]/'profile.json').read_text())
+        if 'cloud_init' in profile:
+            validate_cloud_init(profile['cloud_init'])
     else:
         raise ValueError(f'unsupported image role: {role}')
     if architecture != profile['architecture']:
         raise ValueError(f'unsupported image architecture: {architecture}')
     return dict(profile, role=role)
+
+
+def validate_cloud_init(keys):
+    """A profile's cloud-init keys: a non-empty list of distinct selectable keys."""
+    if (not isinstance(keys, list) or not keys or any(not isinstance(key, str) for key in keys)
+            or len(set(keys)) != len(keys) or not set(keys) <= set(CLOUD_INIT_KEYS)):
+        raise ValueError(f'unsupported cloud-init keys: {keys}')
+
+
+def cloud_init_modules(keys):
+    """The module lists of these keys: each stage in its own order, final_message always last."""
+    chosen = {module for key in keys for _, module in CLOUD_INIT_KEYS[key]}
+    return {section: [module for module in CLOUD_INIT_STAGE_MODULES[stage]
+                      if module in chosen or module == CLOUD_INIT_FINAL_MESSAGE]
+            for stage, section in CLOUD_INIT_SECTIONS}
+
+
+def cloud_init_config(keys):
+    """The cloud-init configuration: nsl writes the only seed, and every other default stays off."""
+    modules = cloud_init_modules(keys)
+    lines = ['# Written by scripts/compose-image.py: cloud-init runs only from the seed that nsl writes (docs/specs/provisioning.md#image-integration).',
+             # ds-identify finds the datasource by reading this line with shell tools, so it stays literal.
+             'datasource_list: [ NoCloud ]',
+             'network: {config: disabled}',
+             'users: []',
+             'preserve_hostname: true',
+             'manage_etc_hosts: false']
+    lines += [f'{section}: [{", ".join(modules[section])}]' for _, section in CLOUD_INIT_SECTIONS]
+    return '\n'.join(lines) + '\n'
 
 
 def output_name(profile):
@@ -84,6 +135,9 @@ def compose(root, destination, profile, recipes, mkosi, agent=None):
         layers = [root/'image/vm']
     else:
         layers = [root/'image/machines/common', root/'image/machines/families'/profile['family'], profile_directory(root, profile)]
+        if 'cloud_init' in profile:
+            # Last, so its finalize script runs after the machine layer's.
+            layers.append(root/'image/machines/cloud-init')
     config = []
     for layer in layers:
         for item in layer.iterdir():
@@ -95,6 +149,10 @@ def compose(root, destination, profile, recipes, mkosi, agent=None):
                                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
                 else:
                     shutil.copy2(item, destination/item.name, follow_symlinks=False)
+    if profile['role'] == 'machine' and 'cloud_init' in profile:
+        config_file = destination/'overlay/etc/cloud/cloud.cfg.d/99_nsl.cfg'
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text(cloud_init_config(profile['cloud_init']))
     for path in destination.rglob('*'):
         if not path.is_symlink():
             path.chmod(normal_mode(path))
@@ -117,9 +175,13 @@ def compose(root, destination, profile, recipes, mkosi, agent=None):
     else:
         # A root filesystem, not a disk: one zstd tar the VM imports as a subvolume.
         config.append(f'[Output]\nOutput={name}\nImageId=nsl-machine-{profile["distribution"]}\nFormat=tar\nCompressOutput=zstd\n')
+        capabilities = {'gui': {}, 'nesting': {}}
+        if 'cloud_init' in profile:
+            capabilities['provisioning.cloud_init'] = {'interface': CLOUD_INIT_INTERFACE, 'cloud_init': '@CLOUD_INIT@',
+                                                       'datasource': 'nocloud', 'keys': sorted(profile['cloud_init'])}
         descriptor = dict(common, family=profile['family'], revision=profile['revision'], machine_protocol=MACHINE_PROTOCOL,
                           os_id='@OS_ID@', os_version='@OS_VERSION@', systemd='@SYSTEMD@',
-                          capabilities={'gui': {}, 'nesting': {}}, integration_sha256=fingerprint(root, inputs))
+                          capabilities=capabilities, integration_sha256=fingerprint(root, inputs))
         path = nsl/'machine.json'
     (destination/'mkosi.local.conf').write_text('\n'.join(config))
     descriptor.update(recipes_revision=recipes, mkosi_revision=mkosi)

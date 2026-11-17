@@ -49,7 +49,8 @@ MEASURED = [('debian', 'trixie'), ('fedora', '44'), ('arch', 'rolling'), ('opens
 KINDS = {'vm': dict(payload='disk.raw.zst', media='application/zstd', uncompressed='raw', compressed_limit=8 << 30, raw_limit=32 << 30),
          'machine': dict(payload='rootfs.tar.zst', media='application/zstd', uncompressed='rootfs', compressed_limit=4 << 30, raw_limit=16 << 30)}
 VM_CHECKS = {'readiness', 'formatting', 'allowlist', 'ownership', 'sockets', 'root_replacement', 'growth', 'refusal', 'binding'}
-# Every declared capability is accepted: gui by the gui check, nesting by podman.
+# The acceptance check that proves each capability a machine image can declare.
+CAPABILITY_CHECKS = {'gui': 'gui', 'nesting': 'podman', 'provisioning.cloud_init': 'cloud_init'}
 MACHINE_CHECKS = {'entry', 'system', 'tally', 'packages', 'podman', 'files', 'ports', 'translation', 'broker', 'ssh', 'gui', 'persistence'}
 ISOLATED_CHECKS = {'entry', 'system', 'tally', 'packages', 'podman', 'isolation', 'ssh', 'persistence'}
 EVIDENCE_LIMIT = 16 << 20
@@ -106,6 +107,15 @@ def vm_acceptance(probe, image, raw, machines):
                 machine_images=sorted(m['build_id'] for m in machines['machines'].values()))
 
 
+def capability_checks(image):
+    """The acceptance checks of the capabilities an image declares."""
+    declared = set(image.get('capabilities', {}))
+    unknown = declared - set(CAPABILITY_CHECKS)
+    if unknown:
+        raise ValueError(f'{image["build_id"]} declares capabilities without a check: {sorted(unknown)}')
+    return {CAPABILITY_CHECKS[name] for name in declared}
+
+
 def machine_acceptance(machines, image, compressed, measurements):
     """The public report for a machine image, from its shared and isolated machines."""
     tested = {name: m for name, m in machines.get('machines', {}).items() if m.get('digest') == compressed['digest'][7:]}
@@ -115,11 +125,13 @@ def machine_acceptance(machines, image, compressed, measurements):
         raise ValueError(f'{image["build_id"]} was not probed exactly once as a shared machine')
     report = dict(schema=1, passed=True, build_id=image['build_id'], compressed=compressed,
                   vm_image=machines['vm']['descriptor']['build_id'],
-                  checks=passed(shared[0]['checks'], MACHINE_CHECKS, image['build_id']),
+                  checks=passed(shared[0]['checks'], MACHINE_CHECKS | capability_checks(image), image['build_id']),
                   latency_ms=shared[0]['checks']['entry'].get('latency_ms'),
                   capabilities=sorted(image.get('capabilities', {})))
     if isolated:
-        report['isolated_checks'] = passed(isolated[0]['checks'], ISOLATED_CHECKS, image['build_id'] + ' (isolated)')
+        # An isolated machine has no desktop, so only the shared machine accepts gui.
+        report['isolated_checks'] = passed(isolated[0]['checks'], ISOLATED_CHECKS | (capability_checks(image) - {'gui'}),
+                                           image['build_id'] + ' (isolated)')
     report['measurements'] = measurements
     return report
 

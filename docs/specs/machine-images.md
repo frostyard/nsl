@@ -28,6 +28,8 @@ A machine image is one root filesystem tree, packaged as `rootfs.tar.zst` in a s
 
 The recipes supply `pam_systemd`, the session bus, the account tools and zone data, except where an adapter names them. Each adapter also names its family's `sudo`, CA certificates, OpenSSH server, DejaVu font, Adwaita cursors and Wayland client libraries.
 
+`debian:13` and `fedora:44` also ship cloud-init, off until the agent writes a seed, as the [provisioning contract](provisioning.md#image-integration) requires, and declare the `provisioning.cloud_init` capability. Their profiles list the selectable keys, and the build adds the cloud-init layer for them.
+
 Other distros and releases join after they pass acceptance ([plan](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-machine-images.md), [Azure Linux](https://github.com/frostyard/nsl/blob/d114663e0667d08fada3bbb698288d51e7e317eb/docs/plans/azure-linux.md), [more releases](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/more-releases.md)).
 
 ### Machine layer
@@ -67,24 +69,41 @@ Offline nspawn runs for these steps use `--timezone=off`, `--register=no` and `-
 {
   "schema": 1,
   "role": "machine",
-  "build_id": "nsl-machine-debian-trixie-x86-64-r1",
+  "build_id": "nsl-machine-debian-trixie-x86-64-r9",
   "distribution": "debian",
   "release": "trixie",
   "architecture": "x86-64",
   "family": "debian",
-  "revision": 1,
+  "revision": 9,
   "machine_protocol": 1,
   "os_id": "debian",
   "os_version": "13",
   "systemd": "257.9",
-  "capabilities": {"gui": {}, "nesting": {}},
+  "capabilities": {
+    "gui": {},
+    "nesting": {},
+    "provisioning.cloud_init": {
+      "interface": 1,
+      "cloud_init": "25.1.4",
+      "datasource": "nocloud",
+      "keys": ["apt", "ca_certs", "package_update", "package_upgrade", "packages", "runcmd", "write_files"]
+    }
+  },
   "integration_sha256": "…",
   "recipes_revision": "…",
   "mkosi_revision": "…"
 }
 ```
 
-`machine_protocol` versions the machine layer and per-machine data. It MUST equal the VM descriptor's `machine_protocol`; a mismatch is rejected. An image declares the capabilities its profile intends. Publication refuses an image unless the acceptance checks for every declared capability pass. The initial capabilities are `gui`, a Wayland client with fonts, and `nesting`, rootless Podman. `provisioning.cloud_init` is reserved for the [deferred provisioning contract](provisioning.md).
+`machine_protocol` versions the machine layer and per-machine data. It MUST equal the VM descriptor's `machine_protocol`; a mismatch is rejected. An image declares the capabilities its profile intends. Publication refuses an image unless the acceptance check of every declared capability passes, and refuses a capability that has no check. The capabilities are:
+
+| Capability | Meaning | Acceptance check |
+| --- | --- | --- |
+| `gui` | A Wayland client with fonts. | GUI |
+| `nesting` | Rootless Podman. | Podman |
+| `provisioning.cloud_init` | cloud-init shipped as the [provisioning contract's image integration](provisioning.md#image-integration) requires. `interface` versions that integration and is 1; `cloud_init` is the installed cloud-init version, which the build reads; `datasource` is `nocloud`; `keys` lists the selectable top-level keys the image supports, sorted. | Provisioning |
+
+Only `debian:13` and `fedora:44` declare `provisioning.cloud_init`. Debian supports `apt` and Fedora `yum_repos`, beside the keys both support. The CLI does not use the capability yet ([plan](../plans/cloud-init-provisioning.md)).
 
 ## Rules
 
@@ -111,6 +130,7 @@ Workload checks:
 | GUI | `wayland-info` lists `wl_compositor` and `xdg_wm_base`; the command's logind session has type `wayland` and class `background`; a GUI application starts. |
 | Translation | The working directory maps by device and inode, including a bind-mount alias; `/usr/share` is refused. |
 | Persistence | Packages, home, an enabled system service and a Podman image survive a VM restart. |
+| Provisioning | Only for an image that declares `provisioning.cloud_init`, on a machine with no seed: the descriptor's version and keys match the installed cloud-init and its merged configuration; the `cloud-init.disabled` marker is present and `cloud-init status` says `disabled`; no cloud-init unit is active, the generator added none, and cloud-init has no instance state; the masked SSH and hotplug units are masked and inactive; the machine has no SSH host key. |
 
 Azure Linux 4.0 packages no `wayland-info`. On it, the probe lists the compositor's globals with a Python client of the Wayland protocol instead.
 
