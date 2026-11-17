@@ -1,6 +1,6 @@
 # Plan: Optional cloud-init provisioning
 
-**Status: Phase 0 complete, 2026-11-10. Phase 1 is next.** Deliver reusable machine bootstrap, such as toolchains and dotfiles, without weakening nsl's account, identity or readiness. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md) records the decision; the [provisioning contract](../specs/provisioning.md) defines flags, states and persistence. Start after Phase 7 of the [shared-VM implementation](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md), when machines, exports and imports work through the CLI.
+**Status: Phase 0 complete, 2026-11-10. Phase 1 in progress: the image capability is done; input validation is next.** Deliver reusable machine bootstrap, such as toolchains and dotfiles, without weakening nsl's account, identity or readiness. [ADR-0013](../adr/0013-optional-cloud-init-provisioning.md) records the decision; the [provisioning contract](../specs/provisioning.md) defines flags, states and persistence. Start after Phase 7 of the [shared-VM implementation](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md), when machines, exports and imports work through the CLI.
 
 ## Phase 0 — Re-validate cloud-init in machines
 
@@ -37,6 +37,25 @@ Local builds only, all discarded: VM image r11 built from `e480414`, and from th
 - Ship cloud-init as the contract's [image integration](../specs/provisioning.md#image-integration) says: off through the marker, the module lists, the guard settings, and the distribution's SSH and hotplug units masked. Show that masking keeps the units from starting.
 - Validate bounded `#cloud-config` input against the guest schema and the nsl allowlist before user modules run. Keep the machine usable when validation or provisioning fails.
 - **Done when:** the capability appears only on accepted images; conflicting options fail clearly; failed configuration leaves the machine reachable for diagnosis.
+
+**Progress, 2026-11-16: the image capability and the image integration are done (step 1). Input validation is next (step 2).**
+
+- Debian 13 r9 and Fedora 44 r8 ship cloud-init through the optional `image/machines/cloud-init/` layer, which a profile selects by listing its keys in `profile.json`. `scripts/compose-image.py` writes `/etc/cloud/cloud.cfg.d/99_nsl.cfg` from the keys, and the layer's finalize script masks the 5 SSH and hotplug names and records the version. Their descriptors declare `provisioning.cloud_init`: interface 1, cloud-init 25.1.4 on Debian and 26.1 on Fedora, `nocloud`, and 7 keys each (Debian `apt`, Fedora `yum_repos`). Other images get no cloud-init layer.
+- The probe's `cloud_init` check accepts the capability, on the shared machine of each declaring image and on the isolated sample. Publication refuses an image whose declared capability has no passing check, and an unknown capability.
+
+Local builds only, all discarded, at `c572c4e`: VM image r13, the baselines Debian 13 r8 and Fedora 44 r7 from `203a7ac` (the same tree without cloud-init), Debian 13 r9 and Fedora 44 r8, and Arch r8 and Tumbleweed r8 for the memory budget. The evidence is private.
+
+| | Debian 13 | Fedora 44 |
+| --- | --- | --- |
+| Image growth (zstd) | 26.4 MB | 35.3 MB |
+| First start, median of 6, baseline / cloud-init, no seed | 1.99 s / 2.34 s | 2.70 s / 2.47 s |
+| Restart, median of 6 medians of 3, baseline / cloud-init | 0.62 s / 0.59 s | 0.78 s / 0.79 s |
+| First start minus the time of `systemd-machine-id-commit.service`, median of 6, baseline / cloud-init | 0.74 s / 0.74 s | 0.85 s / 0.90 s |
+
+- **Off without a seed.** In all 15 machines from the cloud-init images (6 per distro in the timing run, and the probe's 3), `cloud-init status` said `disabled`, no cloud-init unit was active or failed, the generator added none, and cloud-init kept no instance state. `systemctl --failed` was empty and the system was `running`.
+- **Masks hold.** `ssh.service`, `sshd.service`, `sshd-keygen.service`, `sshd-keygen@.service` and `cloud-init-hotplugd.socket` were `masked` and the 4 concrete units `inactive`, after the first start and after 3 restarts. No SSH host key appeared.
+- **Start time.** First-start and restart medians stay within 0.5 s of the baselines. First starts vary: `systemd-machine-id-commit.service` took 0.46 s to 3.0 s on every first boot, in baseline and cloud-init machines alike. An earlier run with 2 samples per image showed Fedora's first start 0.90 s slower, from that unit alone.
+- **The machine still works.** `probe-machines.py` passed every check on Debian r9, Fedora r8, Arch and an isolated Debian r9 machine, the new `cloud_init` check included. It ran without `--gui`, and the broker check was skipped, because this host has no Wayland compositor. `nsl run`, the login shell `nsl -m` and `ssh-config` worked in both cloud-init machines, with nothing listening on TCP 22. `measure-machines.py` with Debian r9, Fedora r8, Arch and Tumbleweed: 4 idle machines 844.1 MiB (limit 1,200), an additional machine at p95 1.37 s (limit 2 s).
 
 ## Phase 2 — Creation, seed and archives
 
