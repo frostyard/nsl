@@ -40,6 +40,18 @@ def machine_probe():
                          'isolated': {'build_id': MACHINE_IMAGE['build_id'], 'digest': COMPRESSED['digest'][7:], 'isolated': True, 'checks': isolated}}}
 
 
+CLOUD_INIT_CAPABILITY = {'interface': 1, 'cloud_init': '25.1.4', 'datasource': 'nocloud', 'keys': ['apt', 'write_files']}
+CLOUD_INIT_IMAGE = dict(MACHINE_IMAGE, capabilities={'gui': {}, 'nesting': {}, 'provisioning.cloud_init': CLOUD_INIT_CAPABILITY})
+
+
+def cloud_init_probe():
+    """The same machines, from an image that declares provisioning.cloud_init and passed its check."""
+    machines = machine_probe()
+    for name in ('debian', 'isolated'):
+        machines['machines'][name]['checks']['cloud_init'] = {'pass': True}
+    return machines
+
+
 class Publication(unittest.TestCase):
     def test_public_reports_are_explicit(self):
         vm = pub.vm_acceptance(vm_probe(), VM_IMAGE, RAW, machine_probe())
@@ -74,6 +86,36 @@ class Publication(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     pub.vm_acceptance(vm, VM_IMAGE, RAW, machines)
                     pub.machine_acceptance(machines, MACHINE_IMAGE, COMPRESSED, {})
+
+    def test_a_declared_capability_needs_its_acceptance_check(self):
+        report = pub.machine_acceptance(cloud_init_probe(), CLOUD_INIT_IMAGE, COMPRESSED, {})
+        self.assertIn('cloud_init', report['checks'])
+        self.assertIn('cloud_init', report['isolated_checks'])
+        self.assertIn('provisioning.cloud_init', report['capabilities'])
+        # The isolated machine has no desktop, so gui stays a check of the shared machine.
+        self.assertNotIn('gui', report['isolated_checks'])
+        for target in ('shared', 'isolated'):
+            for change in ('missing', 'failed'):
+                with self.subTest(target=target, change=change):
+                    machines = cloud_init_probe()
+                    checks = machines['machines']['debian' if target == 'shared' else 'isolated']['checks']
+                    if change == 'missing':
+                        checks.pop('cloud_init')
+                    else:
+                        checks['cloud_init']['pass'] = False
+                    with self.assertRaises(ValueError):
+                        pub.machine_acceptance(machines, CLOUD_INIT_IMAGE, COMPRESSED, {})
+
+    def test_an_unknown_capability_cannot_be_published(self):
+        image = dict(MACHINE_IMAGE, capabilities={'gui': {}, 'desktop': {}})
+        with self.assertRaises(ValueError) as caught:
+            pub.capability_checks(image)
+        self.assertIn(MACHINE_IMAGE['build_id'], str(caught.exception))
+
+    def test_capability_checks_name_the_check_of_each_capability(self):
+        self.assertEqual(pub.capability_checks(MACHINE_IMAGE), {'gui', 'podman'})
+        self.assertEqual(pub.capability_checks(CLOUD_INIT_IMAGE), {'gui', 'podman', 'cloud_init'})
+        self.assertEqual(pub.capability_checks(dict(MACHINE_IMAGE, capabilities={})), set())
 
     def test_measurements_gate_publication(self):
         good = {'criteria': {'idle_machines': {'pass': True, 'pss_mib': 853.1},

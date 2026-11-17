@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "docs/plans/cloud-init-provisioning.md",
+  "correction": "Belief: a plan finding can name the cause of a timing difference from a unit duration in `systemd-analyze blame`, and a check that ran on a few machines covers every machine of the run. Reality: blame gives a duration, not a share of `nsl start`, and each recorded fact must name the machines and the probe that observed it; state an unexplained difference as unexplained",
+  "evidence": "frostyard/nsl#120 cross-review (openai/gpt-6.1-sol) of head e889d7e, findings 1 and 2",
+  "promoted_to": "AGENTS.md"
+}

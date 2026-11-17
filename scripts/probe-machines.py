@@ -17,12 +17,16 @@ has no host files, desktop or broker.
 When the host has a Wayland compositor, machines get desktop sessions; the
 broker check records what nsl-open asks for instead of opening it. --gui also
 opens a window from each machine on the host desktop for three seconds.
+
+The cloud_init check runs only on an image that declares provisioning.cloud_init,
+and proves cloud-init ships switched off with only the modules of its keys.
 """
 import argparse
 import base64
 import datetime
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -39,6 +43,10 @@ import tempfile
 import time
 import urllib.request
 import uuid
+
+spec = importlib.util.spec_from_file_location('compose', Path(__file__).resolve().parents[1]/'scripts/compose-image.py')
+compose = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(compose)
 
 WORKLOAD = ['python3', 'jq', 'podman']
 # Package commands by the descriptor's family.
@@ -105,6 +113,9 @@ DEFAULT_WAYLAND_INFO = ('wayland-utils', ['wayland-info'])
 ARGV = ['plain', 'with space', "single'quote", 'double"quote', '$HOME', '${HOME}', '$$', '%h', '%%', '*', '',
         'new\nline', 'tab\there', 'ünïcødé', '--flag', ';', '|', '&&', '\\backslash']
 SIGNALS = {'TERM': 143, 'INT': 130, 'HUP': 129, 'PIPE': 141, 'KILL': 137, 'SEGV': 139}
+# The units an image with cloud-init masks: cloud-init-network.service wants the
+# distribution's SSH units, and nsl's own sshd -i needs none of them.
+CLOUD_INIT_MASKED = ['ssh.service', 'sshd.service', 'sshd-keygen.service', 'sshd-keygen@.service', 'cloud-init-hotplugd.socket']
 OSC3008 = re.compile(r'\x1b\]3008;[^\x1b\x07]*(?:\x1b\\|\x07)')
 
 
@@ -296,6 +307,52 @@ def check_system(p, name, machine):
             'state': lines[1] if len(lines) > 1 else None, 'failed_units': lines[2:]}
 
 
+def masked_units_ok(masked):
+    """Every unit is masked, and every unit that can start on its own is inactive, not on its way."""
+    if not isinstance(masked, dict) or set(masked) != set(CLOUD_INIT_MASKED):
+        return False
+    for name, value in masked.items():
+        if not isinstance(value, dict) or value.get('enabled') != 'masked':
+            return False
+        # An instance of a template unit cannot start on its own, so active() names it instead.
+        if '@' not in name and value.get('active') != 'inactive':
+            return False
+    return True
+
+
+def cloud_init_result(capability, state):
+    """cloud-init ships switched off, runs the modules of its keys only, and never ran."""
+    keys = capability.get('keys')
+    valid = (isinstance(keys, list) and bool(keys) and all(isinstance(key, str) for key in keys)
+             and len(set(keys)) == len(keys) and set(keys) <= set(compose.CLOUD_INIT_KEYS))
+    expected = dict(datasource_list=['NoCloud'], network={'config': 'disabled'}, users=[], preserve_hostname=True,
+                    manage_etc_hosts=False, **(compose.cloud_init_modules(keys) if valid else {}))
+    masked = state.get('masked')
+    checks = dict(interface=capability.get('interface') == compose.CLOUD_INIT_INTERFACE,
+                  datasource=capability.get('datasource') == 'nocloud', keys=valid,
+                  version=state.get('version') == capability.get('cloud_init'),
+                  config=valid and state.get('config') == expected,
+                  marker=state.get('marker') is True,
+                  status=isinstance(state.get('status'), str) and 'disabled' in state['status'],
+                  active=state.get('active') == [],
+                  masked=masked_units_ok(masked),
+                  host_keys=state.get('host_keys') == [], ran=state.get('ran') is False, generator=state.get('generator') is False)
+    facts = {name: state.get(name) for name in ('version', 'config', 'marker', 'status', 'active', 'masked', 'host_keys', 'ran', 'generator')}
+    return dict(facts, **{'pass': all(checks.values())}, checks=checks)
+
+
+def check_cloud_init(p, name, machine):
+    """Read cloud-init's state in the machine; the descriptor says what the image declares."""
+    r = p.m(name, 'python3', '-c', CLOUD_INIT_STATE, root=True)
+    try:
+        state = json.loads(r.stdout)
+    except ValueError:
+        state = None
+    if r.returncode or not isinstance(state, dict):
+        return {'pass': False, 'error': tail(r.err)}
+    return cloud_init_result(machine['capabilities']['provisioning.cloud_init'], state)
+
+
 def check_packages(p, name, machine):
     family = machine['family']
     package, command = GUI_APP.get(machine['distribution'], DEFAULT_GUI_APP)
@@ -407,6 +464,73 @@ while time.monotonic() - start < 5:
     time.sleep(.05)
 sys.exit(1)
 '''
+# cloud-init's state in a machine, read by cloud-init's own loader. Each field catches
+# its own failure, so 1 error names itself instead of hiding the other facts.
+CLOUD_INIT_STATE = r'''
+import glob, json, os, subprocess
+MASKED = @MASKED@
+state = {}
+
+
+def field(name, function):
+    try:
+        state[name] = function()
+    except Exception as error:
+        state[name] = f'{type(error).__name__}: {error}'
+
+
+def run(*argv):
+    """The exit code and the stdout: some systemd queries answer with a nonzero code and a useful word."""
+    r = subprocess.run(argv, capture_output=True, text=True)
+    return r.returncode, r.stdout
+
+
+def version():
+    from cloudinit.version import version_string
+    return version_string()
+
+
+def config():
+    from cloudinit.util import read_conf_with_confd
+    conf = read_conf_with_confd('/etc/cloud/cloud.cfg')
+    return {key: conf.get(key) for key in ('datasource_list', 'network', 'users', 'preserve_hostname', 'manage_etc_hosts',
+                                          'cloud_init_modules', 'cloud_config_modules', 'cloud_final_modules')}
+
+
+def active():
+    """The cloud-init units that are not inactive, and the instances of the masked SSH template."""
+    units = []
+    for pattern in ('cloud-*', 'sshd-keygen@*'):
+        code, out = run('systemctl', 'list-units', '--all', '--plain', '--no-legend', pattern)
+        if code:
+            raise RuntimeError(f'systemctl list-units {pattern} exited {code}')
+        for line in out.splitlines():
+            columns = line.split()
+            if len(columns) > 2 and columns[2] != 'inactive':
+                units.append(columns[0])
+    return units
+
+
+def masked():
+    states = {}
+    for name in MASKED:
+        # is-enabled and is-active exit nonzero exactly when the answer matters; keep the word.
+        states[name] = {'enabled': run('systemctl', 'is-enabled', name)[1].strip()}
+        if '@' not in name:
+            states[name]['active'] = run('systemctl', 'is-active', name)[1].strip()
+    return states
+
+
+for name, function in [('version', version), ('config', config),
+                       ('marker', lambda: os.path.exists('/etc/cloud/cloud-init.disabled')),
+                       ('status', lambda: run('cloud-init', 'status')[1].strip()),
+                       ('active', active), ('masked', masked),
+                       ('host_keys', lambda: glob.glob('/etc/ssh/ssh_host_*')),
+                       ('ran', lambda: os.path.exists('/var/lib/cloud/instance') or os.path.exists('/run/cloud-init/result.json')),
+                       ('generator', lambda: os.path.exists('/run/systemd/generator.early/multi-user.target.wants/cloud-init.target'))]:
+    field(name, function)
+print(json.dumps(state))
+'''.replace('@MASKED@', json.dumps(CLOUD_INIT_MASKED))
 
 
 def check_files(p, name, machine, peer):
@@ -725,8 +849,11 @@ def main():
                           'nspawn': p.vm('systemd-nspawn', '--version').stdout.splitlines()[0]}
         plan = []
         for name in names:
-            plan += [(name, 'entry', check_entry, ()), (name, 'system', check_system, ()), (name, 'tally', check_tally, (p.machines[name]['image'],)),
-                     (name, 'packages', check_packages, ())]
+            plan += [(name, 'entry', check_entry, ()), (name, 'system', check_system, ())]
+            # Only an image that declares the capability carries cloud-init.
+            if 'provisioning.cloud_init' in p.machines[name].get('capabilities', {}):
+                plan.append((name, 'cloud_init', check_cloud_init, ()))
+            plan += [(name, 'tally', check_tally, (p.machines[name]['image'],)), (name, 'packages', check_packages, ())]
         for index, name in enumerate(names):
             peer = next((n for n in names if n != name), None)
             port = 18180 + index
@@ -736,7 +863,10 @@ def main():
             if o.gui:
                 plan.append((name, 'gui', check_gui, ()))
         for name in p.isolated:
-            plan += [(name, 'entry', check_entry, ()), (name, 'system', check_system, ()), (name, 'tally', check_tally, (p.machines[name]['image'],)),
+            plan += [(name, 'entry', check_entry, ()), (name, 'system', check_system, ())]
+            if 'provisioning.cloud_init' in p.machines[name].get('capabilities', {}):
+                plan.append((name, 'cloud_init', check_cloud_init, ()))
+            plan += [(name, 'tally', check_tally, (p.machines[name]['image'],)),
                      (name, 'packages', check_packages, ()), (name, 'podman', check_podman, (18250, None)),
                      (name, 'isolation', check_isolation, (18260,)), (name, 'ssh', check_ssh, ())]
         # Last: it restarts the VM and every machine in it.

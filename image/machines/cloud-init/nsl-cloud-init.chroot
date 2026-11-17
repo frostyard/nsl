@@ -1,0 +1,36 @@
+#!/bin/sh
+# cloud-init ships switched off, and only the seed nsl writes turns it on
+# (docs/specs/provisioning.md#image-integration). This runs after the machine layer.
+set -eu
+# mkosi runs this in the image, with no NSL_FINALIZE_ROOT; the tests point it at a scratch tree.
+root=${NSL_FINALIZE_ROOT:-}
+# cloud-init --version prints the path and the version; the descriptor carries the version.
+version=$(cloud-init --version | head -n 1 | cut -d ' ' -f 2)
+if [ -z "$version" ]; then
+  echo 'nsl: cloud-init --version printed no version' >&2
+  exit 1
+fi
+for file in "$root/etc/cloud/cloud-init.disabled" "$root/etc/cloud/cloud.cfg.d/99_nsl.cfg"; do
+  if [ ! -f "$file" ]; then
+    echo "nsl: cloud-init: $file is missing" >&2
+    exit 1
+  fi
+done
+# cloud-init and ds-identify let the last file of cloud.cfg.d win, so ours must be last.
+last=$(find "$root/etc/cloud/cloud.cfg.d" -maxdepth 1 -name '*.cfg' | LC_ALL=C sort | tail -n 1)
+if [ "$last" != "$root/etc/cloud/cloud.cfg.d/99_nsl.cfg" ]; then
+  echo "nsl: cloud-init: $last overrides 99_nsl.cfg" >&2
+  exit 1
+fi
+# cloud-init-network.service wants the distribution's SSH units, and nsl's sshd -i
+# needs none of them. A mask of a unit the distribution does not install is harmless
+# and also covers an alias such as Debian's sshd.service.
+for unit in ssh.service sshd.service sshd-keygen.service sshd-keygen@.service cloud-init-hotplugd.socket; do
+  ln -sf /dev/null "$root/etc/systemd/system/$unit"
+done
+sed -i "s|@CLOUD_INIT@|$version|" "$root/usr/lib/nsl/machine.json"
+# set -e ignores a negated grep, so the failure is its own branch.
+if grep -q '@CLOUD_INIT@' "$root/usr/lib/nsl/machine.json"; then
+  echo 'nsl: cloud-init: machine.json still holds @CLOUD_INIT@' >&2
+  exit 1
+fi

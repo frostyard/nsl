@@ -3,5 +3,6 @@
   "release": "44",
   "architecture": "x86-64",
   "family": "rpm",
-  "revision": 7
+  "revision": 8,
+  "cloud_init": ["ca_certs", "package_update", "package_upgrade", "packages", "runcmd", "write_files", "yum_repos"]
 }

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "image/machines/cloud-init/nsl-cloud-init.chroot",
+  "correction": "Belief: tests of the composed tree and of the finalize script text prove its build guards. Reality: only a run of the script on a scratch tree (NSL_FINALIZE_ROOT) shows that a missing version, marker or configuration, or a cloud.cfg.d file that sorts after 99_nsl.cfg, fails the build and that the masks and version are written",
+  "evidence": "frostyard/nsl#120 cross-review (openai/gpt-6.1-sol) of head de9350f, finding 3",
+  "promoted_to": ""
+}

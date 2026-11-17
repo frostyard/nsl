@@ -3,5 +3,6 @@
   "release": "trixie",
   "architecture": "x86-64",
   "family": "debian",
-  "revision": 8
+  "revision": 9,
+  "cloud_init": ["apt", "ca_certs", "package_update", "package_upgrade", "packages", "runcmd", "write_files"]
 }

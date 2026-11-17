@@ -1,6 +1,6 @@
 # 0013 — Offer optional cloud-init provisioning at creation
 
-- **Status:** Accepted; not implemented. Cloud-init was re-validated inside Debian and Fedora machines on 2026-11-10, as [ADR-0017](0017-shared-vm-and-machine-images.md) required ([plan](../plans/cloud-init-provisioning.md), Phase 0)
+- **Status:** Accepted; partly implemented. Cloud-init was re-validated inside Debian and Fedora machines on 2026-11-10, as [ADR-0017](0017-shared-vm-and-machine-images.md) required ([plan](../plans/cloud-init-provisioning.md), Phase 0). The Debian 13 and Fedora 44 machine images ship it, off, with the `provisioning.cloud_init` capability (Phase 1); the CLI does not offer `--cloud-init` yet
 - **Date:** 2026-09-26
 
 ## Context

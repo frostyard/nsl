@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "scripts/probe-machines.py",
+  "correction": "Belief: a masked unit passes acceptance when its state is not `active`, and a failed `systemctl list-units` simply lists no units. Reality: `activating`, `reloading`, `failed` or empty output do not prove the unit stopped, and a failed query hides every unit; require `inactive` exactly, list the instances of a masked template, and fail on a query exit code",
+  "evidence": "frostyard/nsl#120 cross-review (openai/gpt-6.1-sol) of head de9350f, finding 2",
+  "promoted_to": ""
+}

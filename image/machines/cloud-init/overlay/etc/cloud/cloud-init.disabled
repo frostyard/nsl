@@ -1,0 +1,1 @@
+# nsl: cloud-init stays off until the agent writes a seed and removes this file.
