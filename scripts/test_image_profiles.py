@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -272,6 +273,55 @@ class CloudInit(unittest.TestCase):
         self.assertEqual(sorted(probe.CLOUD_INIT_MASKED),
                          sorted(['ssh.service', 'sshd.service', 'sshd-keygen.service', 'sshd-keygen@.service',
                                  'cloud-init-hotplugd.socket']))
+
+
+class CloudInitFinalize(unittest.TestCase):
+    """The cloud-init layer's finalize script fails the build when its guarantees do not hold."""
+
+    def scratch(self, tmp, version_line='/usr/bin/cloud-init 25.1.4', change=None):
+        """A machine tree and a fake cloud-init; NSL_FINALIZE_ROOT points the script at the tree."""
+        root = Path(tmp)/'root'
+        for path in ('etc/cloud/cloud.cfg.d', 'etc/systemd/system', 'usr/lib/nsl'):
+            (root/path).mkdir(parents=True)
+        (root/'etc/cloud/cloud.cfg.d/05_logging.cfg').write_text('# the distribution config that must lose\n')
+        (root/'etc/cloud/cloud.cfg.d/99_nsl.cfg').write_text('datasource_list: [ NoCloud ]\n')
+        (root/'etc/cloud/cloud-init.disabled').write_text('# nsl: switched off\n')
+        (root/'usr/lib/nsl/machine.json').write_text('{"cloud_init": "@CLOUD_INIT@"}\n')
+        if change:
+            change(root)
+        binaries = Path(tmp)/'bin'
+        binaries.mkdir()
+        fake = binaries/'cloud-init'
+        fake.write_text('#!/bin/sh\nprintf \'%s\\n\' ' + shlex.quote(version_line) + '\n')
+        fake.chmod(0o755)
+        return subprocess.run(['sh', str(ROOT/'image/machines/cloud-init/nsl-cloud-init.chroot')], capture_output=True,
+                              text=True, env=dict(os.environ, PATH=f'{binaries}:{os.environ["PATH"]}', NSL_FINALIZE_ROOT=str(root)))
+
+    def test_the_script_records_the_version_and_masks_the_units(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self.scratch(tmp)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            descriptor = (Path(tmp)/'root/usr/lib/nsl/machine.json').read_text()
+            self.assertIn('25.1.4', descriptor)
+            self.assertNotIn('@CLOUD_INIT@', descriptor)
+            for name in probe.CLOUD_INIT_MASKED:
+                link = Path(tmp)/'root/etc/systemd/system'/name
+                self.assertTrue(link.is_symlink(), name)
+                self.assertEqual(os.readlink(link), '/dev/null')
+
+    def test_each_guard_fails_the_build(self):
+        cases = {
+            'no version': dict(version_line=''),
+            'no marker': dict(change=lambda root: (root/'etc/cloud/cloud-init.disabled').unlink()),
+            'no config': dict(change=lambda root: (root/'etc/cloud/cloud.cfg.d/99_nsl.cfg').unlink()),
+            # cloud-init and ds-identify let the last file of cloud.cfg.d win.
+            'a later file': dict(change=lambda root: (root/'etc/cloud/cloud.cfg.d/99_zz.cfg').write_text(''))}
+        for name, arguments in cases.items():
+            with self.subTest(name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    run = self.scratch(tmp, **arguments)
+                    self.assertNotEqual(run.returncode, 0, run.stdout)
+                    self.assertIn('nsl: cloud-init', run.stderr)
 
 
 if __name__ == '__main__':

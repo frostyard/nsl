@@ -307,6 +307,19 @@ def check_system(p, name, machine):
             'state': lines[1] if len(lines) > 1 else None, 'failed_units': lines[2:]}
 
 
+def masked_units_ok(masked):
+    """Every unit is masked, and every unit that can start on its own is inactive, not on its way."""
+    if not isinstance(masked, dict) or set(masked) != set(CLOUD_INIT_MASKED):
+        return False
+    for name, value in masked.items():
+        if not isinstance(value, dict) or value.get('enabled') != 'masked':
+            return False
+        # An instance of a template unit cannot start on its own, so active() names it instead.
+        if '@' not in name and value.get('active') != 'inactive':
+            return False
+    return True
+
+
 def cloud_init_result(capability, state):
     """cloud-init ships switched off, runs the modules of its keys only, and never ran."""
     keys = capability.get('keys')
@@ -322,8 +335,7 @@ def cloud_init_result(capability, state):
                   marker=state.get('marker') is True,
                   status=isinstance(state.get('status'), str) and 'disabled' in state['status'],
                   active=state.get('active') == [],
-                  masked=isinstance(masked, dict) and set(masked) == set(CLOUD_INIT_MASKED) and all(
-                      isinstance(v, dict) and v.get('enabled') == 'masked' and v.get('active') != 'active' for v in masked.values()),
+                  masked=masked_units_ok(masked),
                   host_keys=state.get('host_keys') == [], ran=state.get('ran') is False, generator=state.get('generator') is False)
     facts = {name: state.get(name) for name in ('version', 'config', 'marker', 'status', 'active', 'masked', 'host_keys', 'ran', 'generator')}
     return dict(facts, **{'pass': all(checks.values())}, checks=checks)
@@ -468,7 +480,9 @@ def field(name, function):
 
 
 def run(*argv):
-    return subprocess.run(argv, capture_output=True, text=True).stdout
+    """The exit code and the stdout: some systemd queries answer with a nonzero code and a useful word."""
+    r = subprocess.run(argv, capture_output=True, text=True)
+    return r.returncode, r.stdout
 
 
 def version():
@@ -484,26 +498,32 @@ def config():
 
 
 def active():
+    """The cloud-init units that are not inactive, and the instances of the masked SSH template."""
     units = []
-    for line in run('systemctl', 'list-units', '--all', '--plain', '--no-legend', 'cloud-*').splitlines():
-        columns = line.split()
-        if len(columns) > 2 and columns[2] != 'inactive':
-            units.append(columns[0])
+    for pattern in ('cloud-*', 'sshd-keygen@*'):
+        code, out = run('systemctl', 'list-units', '--all', '--plain', '--no-legend', pattern)
+        if code:
+            raise RuntimeError(f'systemctl list-units {pattern} exited {code}')
+        for line in out.splitlines():
+            columns = line.split()
+            if len(columns) > 2 and columns[2] != 'inactive':
+                units.append(columns[0])
     return units
 
 
 def masked():
     states = {}
     for name in MASKED:
-        states[name] = {'enabled': run('systemctl', 'is-enabled', name).strip()}
+        # is-enabled and is-active exit nonzero exactly when the answer matters; keep the word.
+        states[name] = {'enabled': run('systemctl', 'is-enabled', name)[1].strip()}
         if '@' not in name:
-            states[name]['active'] = run('systemctl', 'is-active', name).strip()
+            states[name]['active'] = run('systemctl', 'is-active', name)[1].strip()
     return states
 
 
 for name, function in [('version', version), ('config', config),
                        ('marker', lambda: os.path.exists('/etc/cloud/cloud-init.disabled')),
-                       ('status', lambda: run('cloud-init', 'status').strip()),
+                       ('status', lambda: run('cloud-init', 'status')[1].strip()),
                        ('active', active), ('masked', masked),
                        ('host_keys', lambda: glob.glob('/etc/ssh/ssh_host_*')),
                        ('ran', lambda: os.path.exists('/var/lib/cloud/instance') or os.path.exists('/run/cloud-init/result.json')),

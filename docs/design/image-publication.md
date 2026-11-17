@@ -14,7 +14,7 @@ A self-hosted runner labeled `nsl-image-builder` supplies the host prerequisites
 
 1. runs `make ci`, then builds the VM image and every machine image from pinned recipes;
 2. runs `probe-vm.py` on the VM image;
-3. runs `probe-machines.py` with every machine image, an isolated machine and `--gui`, so every declared capability is accepted: `gui` by the GUI check, `nesting` by the Podman check and `provisioning.cloud_init` by the provisioning check, on the shared and the isolated machine. An image that declares a capability with no check is refused;
+3. runs `probe-machines.py` with every machine image, an isolated machine and `--gui`, so every declared capability is accepted: `gui` by the GUI check, `nesting` by the Podman check and `provisioning.cloud_init` by the provisioning check. Each image's shared machine runs the check of every capability it declares. The isolated machine, a sample of the isolated VM from the first image (Debian 13), also runs the checks of that image's capabilities other than `gui`, since it has no desktop. An image that declares a capability with no check is refused;
 4. runs `measure-machines.py` with the Debian, Fedora, Arch and Tumbleweed images, the four that set the budget: four idle machines at or below 1,200 MiB without desktop sessions, as the experiment measured, and an additional machine at p95 ≤ 2 s. The budget comes from the publication runner's measurements ([ADR-0019](../adr/0019-persistent-publication-runner.md)). The acceptance report also records what four desktop sessions add, ungated;
 5. writes one public directory per image.
 
