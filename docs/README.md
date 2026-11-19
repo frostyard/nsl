@@ -17,6 +17,7 @@ The binary implements the whole CLI contract: machines in the shared VM or, isol
 
 ### Decisions
 
+- [0025 — Migration notes for breaking changes](adr/0025-migration-notes-for-breaking-changes.md)
 - [0024 — Adopt the frostyard repository baseline](adr/0024-adopt-the-repository-baseline.md)
 - [0023 — Local problem records](adr/0023-local-problem-records.md)
 - [0022 — Desktop menu entries for machine applications](adr/0022-desktop-menu-entries.md)

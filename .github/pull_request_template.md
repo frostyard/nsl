@@ -22,6 +22,7 @@ Risk tier: 1 — <!-- justification -->
 - [ ] Cross-links added in both directions (ADR ↔ design ↔ spec ↔ plan)
 - [ ] New significant decision recorded as an ADR first, in this PR
 - [ ] New or edited ADRs are fact-only: context, decision and consequences
+- [ ] Breaking change: commit subject marked `!` and a `Migration` section below (ADR-0025)
 - [ ] Conformance aliases and canonical symlinks are unchanged; canonical targets are edited instead
 
 ## Verification
