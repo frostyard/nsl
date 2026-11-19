@@ -1,6 +1,6 @@
 # 0021 — Machine-readable output with `--json`
 
-- **Status:** Accepted
+- **Status:** Accepted; renaming or removing a field needs a migration note under [ADR-0025](0025-migration-notes-for-breaking-changes.md)
 - **Date:** 2026-10-05
 
 ## Context
@@ -65,3 +65,4 @@ place, as for every contract ([ADR-0001](0001-record-architecture-decisions.md))
 - [CLI contract — machine-readable output](../specs/cli.md#machine-readable-output)
 - [Command reference](../../site/content/reference/cli.md)
 - [ADR-0016 — WSL-style machines](0016-wsl-style-machines.md)
+- [ADR-0025 — Migration notes for breaking changes](0025-migration-notes-for-breaking-changes.md)

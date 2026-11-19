@@ -267,6 +267,6 @@ Unit tests use fake tools and local processes and need neither root nor a VM. In
 
 ## References
 
-- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md), [ADR-0022](../adr/0022-desktop-menu-entries.md), [ADR-0023](../adr/0023-local-problem-records.md).
+- Rationale: [ADR-0016](../adr/0016-wsl-style-machines.md), [ADR-0017](../adr/0017-shared-vm-and-machine-images.md), [ADR-0006](../adr/0006-stopped-vm-backups.md), [ADR-0008](../adr/0008-offline-storage-management.md), [ADR-0021](../adr/0021-machine-readable-output.md), [ADR-0022](../adr/0022-desktop-menu-entries.md), [ADR-0023](../adr/0023-local-problem-records.md), [ADR-0025](../adr/0025-migration-notes-for-breaking-changes.md).
 - Contracts: [agent](agent.md), [VM image](vm-image.md), [machine images](machine-images.md), [image delivery](image-delivery.md), [provisioning](provisioning.md) (deferred).
 - Evidence: [shared-VM experiment](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-experiment.md). Implementation: [machines in a shared VM](https://github.com/frostyard/nsl/blob/e617966e80f6534aa6525f016def59ab58c1d864/docs/plans/shared-vm-implementation.md).
