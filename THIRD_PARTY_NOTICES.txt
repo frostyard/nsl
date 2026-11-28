@@ -37,6 +37,38 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
+filippo.io/edwards25519 v1.2.0 / LICENSE
+==============================================================================
+
+Copyright (c) 2009 The Go Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+==============================================================================
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 / LICENSE
 ==============================================================================
 
@@ -189,7 +221,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/frostyard/std v0.5.0 / LICENSE
+github.com/frostyard/std v0.5.1 / LICENSE
 ==============================================================================
 
 MIT License
@@ -627,7 +659,7 @@ github.com/go-logr/stdr v1.2.2 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/analysis v1.0.0 / LICENSE
+github.com/go-openapi/analysis v1.0.1 / LICENSE
 ==============================================================================
 
 
@@ -1041,7 +1073,7 @@ github.com/go-openapi/errors v0.22.9 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/jsonpointer v1.0.1 / LICENSE
+github.com/go-openapi/jsonpointer v1.0.2 / LICENSE
 ==============================================================================
 
                                  Apache License
@@ -1247,7 +1279,7 @@ github.com/go-openapi/jsonpointer v1.0.1 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/jsonpointer v1.0.1 / NOTICE
+github.com/go-openapi/jsonpointer v1.0.2 / NOTICE
 ==============================================================================
 
 Copyright 2015-2025 go-swagger maintainers
@@ -1291,7 +1323,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/jsonreference v1.0.2 / LICENSE
+github.com/go-openapi/jsonreference v1.0.3 / LICENSE
 ==============================================================================
 
 
@@ -1498,7 +1530,7 @@ github.com/go-openapi/jsonreference v1.0.2 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/jsonreference v1.0.2 / NOTICE
+github.com/go-openapi/jsonreference v1.0.3 / NOTICE
 ==============================================================================
 
 Copyright 2015-2025 go-swagger maintainers
@@ -1749,7 +1781,7 @@ github.com/go-openapi/loads v0.25.3 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/runtime v0.33.3 / LICENSE
+github.com/go-openapi/runtime v0.33.4 / LICENSE
 ==============================================================================
 
 
@@ -1956,7 +1988,7 @@ github.com/go-openapi/runtime v0.33.3 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/runtime v0.33.3 / NOTICE
+github.com/go-openapi/runtime v0.33.4 / NOTICE
 ==============================================================================
 
 Copyright 2015-2025 go-swagger maintainers
@@ -2006,7 +2038,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-github.com/go-openapi/runtime v0.33.3 / middleware/denco/LICENSE
+github.com/go-openapi/runtime v0.33.4 / middleware/denco/LICENSE
 ==============================================================================
 
 Copyright (c) 2014 Naoya Inada <naoina@kuune.org>
@@ -2030,7 +2062,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-github.com/go-openapi/runtime/server-middleware v0.33.3 / LICENSE
+github.com/go-openapi/runtime/server-middleware v0.33.4 / LICENSE
 ==============================================================================
 
 
@@ -4602,7 +4634,7 @@ github.com/go-openapi/swag/yamlutils v0.29.2 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/go-openapi/validate v1.0.0 / LICENSE
+github.com/go-openapi/validate v1.0.1 / LICENSE
 ==============================================================================
 
 
@@ -5311,7 +5343,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 / LICENSE
+github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0 / LICENSE
 ==============================================================================
 
 Copyright (c) 2015, Gengo, Inc.
@@ -5379,7 +5411,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-github.com/klauspost/compress v1.20.4 / LICENSE
+github.com/klauspost/compress v1.20.5 / LICENSE
 ==============================================================================
 
 Copyright (c) 2012 The Go Authors. All rights reserved.
@@ -5688,7 +5720,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-github.com/klauspost/compress v1.20.4 / internal/snapref/LICENSE
+github.com/klauspost/compress v1.20.5 / internal/snapref/LICENSE
 ==============================================================================
 
 Copyright (c) 2011 The Snappy-Go Authors. All rights reserved.
@@ -5720,7 +5752,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/klauspost/compress v1.20.4 / zstd/internal/xxhash/LICENSE.txt
+github.com/klauspost/compress v1.20.5 / zstd/internal/xxhash/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2016 Caleb Spare
@@ -6840,7 +6872,7 @@ Apache License
    limitations under the License.
 
 ==============================================================================
-github.com/sigstore/protobuf-specs v0.5.2 / LICENSE
+github.com/sigstore/protobuf-specs v0.5.3-0.20261112181914-a84bc5ff572a / LICENSE
 ==============================================================================
 
 
@@ -7047,7 +7079,7 @@ github.com/sigstore/protobuf-specs v0.5.2 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/sigstore/rekor v1.5.5 / LICENSE
+github.com/sigstore/rekor v1.6.1 / LICENSE
 ==============================================================================
 
 
@@ -7254,7 +7286,7 @@ github.com/sigstore/rekor v1.5.5 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/sigstore/rekor-tiles/v2 v2.4.0 / LICENSE
+github.com/sigstore/rekor-tiles/v2 v2.4.2 / LICENSE
 ==============================================================================
 
                                  Apache License
@@ -7460,7 +7492,7 @@ github.com/sigstore/rekor-tiles/v2 v2.4.0 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/sigstore/sigstore v1.11.1 / LICENSE
+github.com/sigstore/sigstore v1.11.4 / LICENSE
 ==============================================================================
 
 
@@ -7667,7 +7699,7 @@ github.com/sigstore/sigstore v1.11.1 / LICENSE
    limitations under the License.
 
 ==============================================================================
-github.com/sigstore/sigstore-go v1.4.0 / LICENSE
+github.com/sigstore/sigstore-go v1.4.1 / LICENSE
 ==============================================================================
 
                                  Apache License
@@ -9994,7 +10026,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-golang.org/x/mod v0.42.0 / LICENSE
+golang.org/x/mod v0.43.0 / LICENSE
 ==============================================================================
 
 Copyright 2009 The Go Authors.
@@ -10186,7 +10218,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 / LICENSE
+google.golang.org/genproto/googleapis/api v0.0.0-20261026165753-2ffab32bce7e / LICENSE
 ==============================================================================
 
 
@@ -10393,7 +10425,7 @@ google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 / L
    limitations under the License.
 
 ==============================================================================
-google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 / LICENSE
+google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b / LICENSE
 ==============================================================================
 
 
@@ -10600,7 +10632,7 @@ google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 / L
    limitations under the License.
 
 ==============================================================================
-google.golang.org/grpc v1.84.0 / LICENSE
+google.golang.org/grpc v1.85.0 / LICENSE
 ==============================================================================
 
 
@@ -10807,7 +10839,7 @@ google.golang.org/grpc v1.84.0 / LICENSE
    limitations under the License.
 
 ==============================================================================
-google.golang.org/grpc v1.84.0 / NOTICE.txt
+google.golang.org/grpc v1.85.0 / NOTICE.txt
 ==============================================================================
 
 Copyright 2014 gRPC authors.
